@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from core.db import fetchall, fetchone, now_iso
-from core.integration_accounting import EXTERNAL_SOURCE, enqueue_payload
+from core.integration_accounting import EXTERNAL_SOURCE, SCHEMA_VERSION, enqueue_payload
 from core.quality import build_payroll_preflight_checks, summarize_checks
 from core.reviews import build_annual_review_auto_summary
 
@@ -17,6 +17,19 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_safe(v) for v in value]
     return value
+
+
+def _event(event_type: str, external_id: str, source_record_type: str, source_record_id: int | str | None, payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "external_source": EXTERNAL_SOURCE,
+        "external_id": external_id,
+        "event_type": event_type,
+        "source_record_type": source_record_type,
+        "source_record_id": source_record_id,
+        "generated_at": now_iso(),
+        "schema_version": SCHEMA_VERSION,
+        "payload": payload,
+    }
 
 
 def _latest_review_summary(conn, employee_id: int) -> dict[str, Any]:
@@ -119,38 +132,32 @@ def build_operations_snapshot_payload(conn) -> dict[str, Any]:
         LIMIT 50
         """,
     )
+    payroll_warnings = 0
+    for run in payroll_ready:
+        summary = run.get("validation_summary") or ""
+        payroll_warnings += 1 if summary and summary not in {"{}", "[]", "OK", "Passed"} else 0
     counts = {
-        "attendance_pending": len(pending_attendance),
+        "staff_on_duty_today": fetchone(conn, "SELECT COUNT(DISTINCT employee_id) AS c FROM time_logs WHERE work_date=date('now') AND COALESCE(is_absent,0)=0")["c"],
+        "attendance_exceptions": len(pending_attendance),
         "ot_pending": len(ot_pending),
         "leave_pending": len(leave_pending),
         "cash_advance_pending": len(cash_advance_pending),
-        "payroll_ready_or_in_review": len(payroll_ready),
-        "annual_review_candidates": len(annual_due),
-        "memo_ack_pending": len(memo_pending),
+        "payroll_qa_warnings": payroll_warnings,
+        "payroll_ready_for_owner_review": len(payroll_ready),
+        "annual_reviews_due": len(annual_due),
+        "memo_acknowledgments_pending": len(memo_pending),
     }
-    return {
-        "event_type": "staff.operations.snapshot",
+    payload = {
         "receiver_app": OPERATIONS_APP,
-        "external_source": EXTERNAL_SOURCE,
-        "external_id": f"ops-snapshot:{now_iso()}",
-        "generated_at": now_iso(),
         "privacy_note": "Operations receives status/review context only. Salary/rates, government IDs, detailed payroll, and private HR notes stay in Staff/Payroll.",
         "counts": counts,
-        "cards": {
-            "attendance_pending": pending_attendance,
-            "ot_pending": ot_pending,
-            "leave_pending": leave_pending,
-            "cash_advance_pending": cash_advance_pending,
-            "payroll_ready": payroll_ready,
-            "annual_review_candidates": annual_due,
-            "memo_ack_pending": memo_pending,
-        },
         "suggested_operations_actions": [
             "Create Review cards for attendance/OT/leave/cash advance items.",
             "Create Tasks only when a manager chooses to act.",
             "Route final decisions back to Staff/Payroll using the source record IDs; Operations must not compute payroll.",
         ],
     }
+    return _event("staff.operations.snapshot", f"ops-snapshot:{now_iso()}", "Operations Snapshot", None, payload)
 
 
 def build_payroll_ready_payload(conn, run_id: int) -> dict[str, Any]:
@@ -158,12 +165,8 @@ def build_payroll_ready_payload(conn, run_id: int) -> dict[str, Any]:
     if not run:
         raise ValueError(f"Payroll run {run_id} not found")
     checks = build_payroll_preflight_checks(conn, run["period_start"], run["period_end"])
-    return {
-        "event_type": "payroll.ready_for_owner_review",
+    payload = {
         "receiver_app": OPERATIONS_APP,
-        "external_source": EXTERNAL_SOURCE,
-        "external_id": f"ops-payroll-ready:{run_id}:{run.get('status')}",
-        "generated_at": now_iso(),
         "run": {
             "id": run["id"],
             "period_start": run["period_start"],
@@ -176,30 +179,40 @@ def build_payroll_ready_payload(conn, run_id: int) -> dict[str, Any]:
         "qa": summarize_checks(checks),
         "receiver_instruction": "Show in Operations Review/Home as a management card. Final payroll approval still happens in Staff/Payroll.",
     }
+    event = _event("payroll.ready_for_owner_review", f"ops-payroll-ready:{run_id}:{run.get('status')}", "Payroll Run", run_id, payload)
+    event.update(payload)
+    return event
 
 
 def build_employee_status_payload(conn, employee_id: int) -> dict[str, Any]:
     emp = fetchone(
         conn,
         """
-        SELECT id, employee_code, full_name, department, position, employment_type,
-               status, supervisor, start_date, regularization_date
+        SELECT id, employee_code, full_name, department, position, employment_type, status
         FROM employees WHERE id=?
         """,
         (employee_id,),
     )
     if not emp:
         raise ValueError(f"Employee {employee_id} not found")
-    return {
-        "event_type": "employee.status.changed",
+    payload = {
         "receiver_app": OPERATIONS_APP,
-        "external_source": EXTERNAL_SOURCE,
-        "external_id": f"ops-employee-status:{employee_id}:{emp.get('status')}",
-        "generated_at": now_iso(),
-        "employee": emp,
+        "employee": {
+            "employee_code": emp.get("employee_code"),
+            "display_name": emp.get("full_name"),
+            "department": emp.get("department"),
+            "position": emp.get("position"),
+            "role": emp.get("employment_type"),
+            "active": emp.get("status") not in {"Inactive", "Separated", "Terminated"},
+            "primary_department": emp.get("department"),
+            "source_staff_id": emp.get("id"),
+        },
         "review_summary_preview": _latest_review_summary(conn, employee_id),
         "privacy_note": "Operational identity only. No rates, payroll, government IDs, or private HR notes.",
     }
+    event = _event("employee.status.changed", f"ops-employee-status:{employee_id}:{emp.get('status')}", "Employee", employee_id, payload)
+    event.update(payload)
+    return event
 
 
 def enqueue_operations_snapshot(conn) -> int:

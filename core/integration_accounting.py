@@ -9,6 +9,17 @@ from typing import Any
 from core.db import fetchall, fetchone, now_iso, get_setting
 
 EXTERNAL_SOURCE = "hidden_oasis_staff_payroll"
+SCHEMA_VERSION = "2026-06-v1"
+SAFE_EMPLOYEE_FIELDS = {
+    "employee_code",
+    "display_name",
+    "department",
+    "position",
+    "role",
+    "active",
+    "primary_department",
+    "source_staff_id",
+}
 
 
 def _money(value: Any) -> float:
@@ -19,30 +30,52 @@ def _json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True)
 
 
+def _event(event_type: str, external_id: str, source_record_type: str, source_record_id: int | str | None, payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "external_source": EXTERNAL_SOURCE,
+        "external_id": external_id,
+        "event_type": event_type,
+        "source_record_type": source_record_type,
+        "source_record_id": source_record_id,
+        "generated_at": now_iso(),
+        "schema_version": SCHEMA_VERSION,
+        "payload": payload,
+    }
+
+
 def build_employee_payload(conn, employee_id: int | None = None) -> dict[str, Any]:
     params: tuple[Any, ...] = ()
     where = ""
     if employee_id is not None:
         where = "WHERE id=?"
         params = (employee_id,)
-    employees = fetchall(
+    rows = fetchall(
         conn,
         f"""
-        SELECT id, employee_code, full_name, department, position, employment_type,
-               status, supervisor, start_date, regularization_date
+        SELECT id, employee_code, full_name, department, position, employment_type, status
         FROM employees {where}
         ORDER BY full_name
         """,
         params,
     )
-    return {
-        "event_type": "employee.sync",
-        "external_source": EXTERNAL_SOURCE,
-        "external_id": f"employee-sync:{employee_id or 'all'}:{now_iso()}",
-        "generated_at": now_iso(),
+    employees = [
+        {
+            "employee_code": row.get("employee_code"),
+            "display_name": row.get("full_name"),
+            "department": row.get("department"),
+            "position": row.get("position"),
+            "role": row.get("employment_type"),
+            "active": row.get("status") not in {"Inactive", "Separated", "Terminated"},
+            "primary_department": row.get("department"),
+            "source_staff_id": row.get("id"),
+        }
+        for row in rows
+    ]
+    payload = {
         "employees": employees,
         "privacy_note": "Only operational identity fields are exported. Salary, benefits, infractions, memos, payroll details, and personal HR notes stay in Staff/Payroll.",
     }
+    return _event("employee.sync", f"employee-sync:{employee_id or 'all'}:{now_iso()}", "Employee" if employee_id else "Employees", employee_id, payload)
 
 
 def build_payroll_run_payload(conn, run_id: int) -> dict[str, Any]:
@@ -94,17 +127,17 @@ def build_payroll_run_payload(conn, run_id: int) -> dict[str, Any]:
         {"debit_account": get_setting(conn, "salary_payable_account", "Salaries Payable"), "credit_account": get_setting(conn, "employee_ca_account", "Employee Cash Advance Receivable"), "amount": totals["cash_advance_deduction"], "memo": "Cash advance repayment"},
         {"debit_account": get_setting(conn, "salary_payable_account", "Salaries Payable"), "credit_account": get_setting(conn, "payroll_cash_account", "Payroll Bank / Cash"), "amount": totals["net_pay"], "memo": "Net pay release"},
     ]
-    return {
-        "event_type": "payroll.run.paid" if run.get("status") in ("Paid", "Locked") else "payroll.run.approved",
-        "external_source": EXTERNAL_SOURCE,
-        "external_id": f"payroll-run:{run_id}:{run.get('status')}",
-        "generated_at": now_iso(),
+    event_type = "payroll.run.paid" if run.get("status") in ("Paid", "Locked") else "payroll.run.approved"
+    payload = {
         "run": {k: run[k] for k in run.keys()},
         "totals": totals,
         "items": items,
         "journal_preview": [j for j in journal_preview if _money(j["amount"]) > 0],
         "receiver_instruction": "Create accounting review-queue records first. Do not silently post final books unless Accounting user approves.",
     }
+    event = _event(event_type, f"payroll-run:{run_id}:{run.get('status')}", "Payroll Run", run_id, payload)
+    event.update(payload)
+    return event
 
 
 def build_13th_month_payload(conn, run_id: int) -> dict[str, Any]:
@@ -113,11 +146,7 @@ def build_13th_month_payload(conn, run_id: int) -> dict[str, Any]:
         raise ValueError(f"13th month run {run_id} not found")
     emp = fetchone(conn, "SELECT employee_code, full_name, department, position FROM employees WHERE id=?", (run["employee_id"],))
     lines = fetchall(conn, "SELECT * FROM payroll_13th_month_lines WHERE run_id=? ORDER BY sort_order", (run_id,))
-    return {
-        "event_type": "payroll.13th_month.paid",
-        "external_source": EXTERNAL_SOURCE,
-        "external_id": f"13th-month:{run_id}:{run.get('status')}",
-        "generated_at": now_iso(),
+    payload = {
         "employee": emp,
         "run": run,
         "lines": lines,
@@ -125,6 +154,9 @@ def build_13th_month_payload(conn, run_id: int) -> dict[str, Any]:
             {"debit_account": "13th Month Pay Expense", "credit_account": get_setting(conn, "payroll_cash_account", "Payroll Bank / Cash"), "amount": _money(run.get("net_13th_pay")), "memo": f"13th month pay {run.get('year')} - {emp.get('full_name') if emp else ''}"}
         ],
     }
+    event = _event("payroll.13th_month.paid", f"13th-month:{run_id}:{run.get('status')}", "13th Month", run_id, payload)
+    event.update(payload)
+    return event
 
 
 def build_cash_advance_release_payload(conn, cash_advance_id: int) -> dict[str, Any]:
@@ -134,11 +166,7 @@ def build_cash_advance_release_payload(conn, cash_advance_id: int) -> dict[str, 
     emp = fetchone(conn, "SELECT employee_code, full_name, department, position FROM employees WHERE id=?", (ca["employee_id"],))
     drawer = fetchone(conn, "SELECT * FROM cash_drawer_movements WHERE id=?", (ca.get("drawer_movement_id"),)) if ca.get("drawer_movement_id") else None
     credit = get_setting(conn, "drawer_cash_account", "Cash in Drawer") if ca.get("release_method") == "Cash Drawer" else ca.get("release_method") or "Cash / Bank"
-    return {
-        "event_type": "cash_advance.released",
-        "external_source": EXTERNAL_SOURCE,
-        "external_id": f"cash-advance-release:{cash_advance_id}",
-        "generated_at": now_iso(),
+    payload = {
         "employee": emp,
         "cash_advance": ca,
         "drawer_movement": drawer,
@@ -146,6 +174,9 @@ def build_cash_advance_release_payload(conn, cash_advance_id: int) -> dict[str, 
             {"debit_account": get_setting(conn, "employee_ca_account", "Employee Cash Advance Receivable"), "credit_account": credit, "amount": _money(ca.get("amount")), "memo": f"Cash advance release - {emp.get('full_name') if emp else ''}"}
         ],
     }
+    event = _event("cash_advance.released", f"cash-advance-release:{cash_advance_id}", "Cash Advance", cash_advance_id, payload)
+    event.update(payload)
+    return event
 
 
 def build_cash_advance_repayment_payload(conn, repayment_id: int) -> dict[str, Any]:
@@ -154,11 +185,7 @@ def build_cash_advance_repayment_payload(conn, repayment_id: int) -> dict[str, A
         raise ValueError(f"Cash advance repayment {repayment_id} not found")
     ca = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (repayment["cash_advance_id"],))
     emp = fetchone(conn, "SELECT employee_code, full_name, department, position FROM employees WHERE id=?", (ca["employee_id"],)) if ca else None
-    return {
-        "event_type": "cash_advance.repaid",
-        "external_source": EXTERNAL_SOURCE,
-        "external_id": f"cash-advance-repayment:{repayment_id}",
-        "generated_at": now_iso(),
+    payload = {
         "employee": emp,
         "cash_advance": ca,
         "repayment": repayment,
@@ -166,6 +193,9 @@ def build_cash_advance_repayment_payload(conn, repayment_id: int) -> dict[str, A
             {"debit_account": get_setting(conn, "salary_payable_account", "Salaries Payable"), "credit_account": get_setting(conn, "employee_ca_account", "Employee Cash Advance Receivable"), "amount": _money(repayment.get("amount")), "memo": "Cash advance repayment through payroll"}
         ],
     }
+    event = _event("cash_advance.repaid", f"cash-advance-repayment:{repayment_id}", "Cash Advance Repayment", repayment_id, payload)
+    event.update(payload)
+    return event
 
 
 def enqueue_payload(conn, event_type: str, external_id: str, source_type: str, source_id: int | None, payload: dict[str, Any]) -> int:

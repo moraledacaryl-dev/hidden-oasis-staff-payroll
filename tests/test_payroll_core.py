@@ -1,7 +1,8 @@
 import unittest
 
 from core.db import fetchall, fetchone, get_conn, init_db, now_iso
-from core.integration_accounting import build_payroll_run_payload
+from core.integration_accounting import build_cash_advance_repayment_payload, build_employee_payload, build_payroll_run_payload
+from core.integration_operations import build_operations_snapshot_payload
 from core.payroll_engine import (
     compute_payroll,
     compute_semi_monthly_withholding_tax,
@@ -95,6 +96,57 @@ class PayrollCoreTests(unittest.TestCase):
         payload = build_payroll_run_payload(self.conn, run_id)
         self.assertGreater(payload["totals"]["tax"], 0)
         self.assertTrue(any(line["credit_account"] == "Withholding Tax Payable" for line in payload["journal_preview"]))
+        self.assertEqual(payload["schema_version"], "2026-06-v1")
+        self.assertIn("sss_er", payload["totals"])
+        self.assertIn("philhealth_er", payload["totals"])
+        self.assertIn("pagibig_er", payload["totals"])
+
+    def test_employee_sync_exports_only_safe_identity_fields(self):
+        self.add_taxable_employee()
+        payload = build_employee_payload(self.conn)
+        employees = payload["payload"]["employees"]
+        self.assertEqual(payload["external_source"], "hidden_oasis_staff_payroll")
+        self.assertEqual(payload["schema_version"], "2026-06-v1")
+        self.assertTrue(employees)
+        forbidden = {"hourly_rate", "daily_rate", "declared_monthly_base", "benefits_sss", "supervisor", "notes", "full_name"}
+        self.assertFalse(forbidden.intersection(employees[0].keys()))
+        self.assertLessEqual(set(employees[0].keys()), {
+            "employee_code", "display_name", "department", "position", "role", "active", "primary_department", "source_staff_id"
+        })
+
+    def test_cash_advance_repayment_payload_is_enveloped(self):
+        employee_id = self.add_taxable_employee(hourly_rate=200)
+        now = now_iso()
+        self.conn.execute(
+            """
+            INSERT INTO cash_advances(employee_id, request_date, amount, status, outstanding_balance, created_at)
+            VALUES(?, '2026-06-02', 500, 'Approved', 250, ?)
+            """,
+            (employee_id, now),
+        )
+        ca_id = fetchone(self.conn, "SELECT id FROM cash_advances")["id"]
+        self.conn.execute(
+            """
+            INSERT INTO cash_advance_repayments(cash_advance_id, payment_date, amount, created_at)
+            VALUES(?, '2026-06-15', 250, ?)
+            """,
+            (ca_id, now),
+        )
+        self.conn.commit()
+        repayment_id = fetchone(self.conn, "SELECT id FROM cash_advance_repayments")["id"]
+        payload = build_cash_advance_repayment_payload(self.conn, repayment_id)
+        self.assertEqual(payload["event_type"], "cash_advance.repaid")
+        self.assertEqual(payload["source_record_type"], "Cash Advance Repayment")
+        self.assertEqual(payload["payload"]["repayment"]["amount"], 250)
+
+    def test_operations_snapshot_exports_counts_only(self):
+        self.add_taxable_employee(hourly_rate=200)
+        payload = build_operations_snapshot_payload(self.conn)
+        body = payload["payload"]
+        self.assertEqual(payload["event_type"], "staff.operations.snapshot")
+        self.assertIn("counts", body)
+        self.assertNotIn("cards", body)
+        self.assertTrue(all(isinstance(value, int) for value in body["counts"].values()))
 
     def test_operations_preview_query_uses_existing_attendance_status_column(self):
         row = fetchone(
