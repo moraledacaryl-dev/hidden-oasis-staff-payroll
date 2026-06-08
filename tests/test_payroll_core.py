@@ -104,9 +104,11 @@ class PayrollCoreTests(unittest.TestCase):
     def test_employee_sync_exports_only_safe_identity_fields(self):
         self.add_taxable_employee()
         payload = build_employee_payload(self.conn)
+        replay = build_employee_payload(self.conn)
         employees = payload["payload"]["employees"]
         self.assertEqual(payload["external_source"], "hidden_oasis_staff_payroll")
         self.assertEqual(payload["schema_version"], "2026-06-v1")
+        self.assertEqual(payload["external_id"], replay["external_id"])
         self.assertTrue(employees)
         forbidden = {"hourly_rate", "daily_rate", "declared_monthly_base", "benefits_sss", "supervisor", "notes", "full_name"}
         self.assertFalse(forbidden.intersection(employees[0].keys()))
@@ -142,8 +144,10 @@ class PayrollCoreTests(unittest.TestCase):
     def test_operations_snapshot_exports_counts_only(self):
         self.add_taxable_employee(hourly_rate=200)
         payload = build_operations_snapshot_payload(self.conn)
+        replay = build_operations_snapshot_payload(self.conn)
         body = payload["payload"]
         self.assertEqual(payload["event_type"], "staff.operations.snapshot")
+        self.assertEqual(payload["external_id"], replay["external_id"])
         self.assertIn("counts", body)
         self.assertNotIn("cards", body)
         self.assertTrue(all(isinstance(value, int) for value in body["counts"].values()))

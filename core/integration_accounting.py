@@ -52,7 +52,7 @@ def build_employee_payload(conn, employee_id: int | None = None) -> dict[str, An
     rows = fetchall(
         conn,
         f"""
-        SELECT id, employee_code, full_name, department, position, employment_type, status
+        SELECT id, employee_code, full_name, department, position, employment_type, status, updated_at
         FROM employees {where}
         ORDER BY full_name
         """,
@@ -71,11 +71,12 @@ def build_employee_payload(conn, employee_id: int | None = None) -> dict[str, An
         }
         for row in rows
     ]
+    sync_version = max((row.get("updated_at") or "" for row in rows), default=now_iso()).replace(" ", "T")
     payload = {
         "employees": employees,
         "privacy_note": "Only operational identity fields are exported. Salary, benefits, infractions, memos, payroll details, and personal HR notes stay in Staff/Payroll.",
     }
-    return _event("employee.sync", f"employee-sync:{employee_id or 'all'}:{now_iso()}", "Employee" if employee_id else "Employees", employee_id, payload)
+    return _event("employee.sync", f"employee-sync:{employee_id or 'all'}:{sync_version}", "Employee" if employee_id else "Employees", employee_id, payload)
 
 
 def build_payroll_run_payload(conn, run_id: int) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 {
   "app_key": "staff_payroll",
   "app_name": "Staff & Payroll",
-  "app_description": "Hidden Oasis staff records, attendance, payroll, reviews, memos and integration outbox.",
+  "app_description": "Employees, attendance, leaves, cash advances, payroll, payslips, 13th month, infractions, memos, annual reviews, and payroll integration outbox.",
   "production_url": "https://staff.hiddenoasis.app",
   "health_endpoint": "/health"
 }

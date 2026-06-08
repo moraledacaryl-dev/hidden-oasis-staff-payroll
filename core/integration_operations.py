@@ -6,7 +6,6 @@ from typing import Any
 from core.db import fetchall, fetchone, now_iso
 from core.integration_accounting import EXTERNAL_SOURCE, SCHEMA_VERSION, enqueue_payload
 from core.quality import build_payroll_preflight_checks, summarize_checks
-from core.reviews import build_annual_review_auto_summary
 
 OPERATIONS_APP = "operations-command-center"
 
@@ -30,14 +29,6 @@ def _event(event_type: str, external_id: str, source_record_type: str, source_re
         "schema_version": SCHEMA_VERSION,
         "payload": payload,
     }
-
-
-def _latest_review_summary(conn, employee_id: int) -> dict[str, Any]:
-    try:
-        current_year = now_iso()[:4]
-        return build_annual_review_auto_summary(conn, employee_id, f"{current_year}-01-01", f"{current_year}-12-31")
-    except Exception as exc:  # keep integration export resilient
-        return {"error": str(exc)}
 
 
 def build_operations_snapshot_payload(conn) -> dict[str, Any]:
@@ -157,7 +148,7 @@ def build_operations_snapshot_payload(conn) -> dict[str, Any]:
             "Route final decisions back to Staff/Payroll using the source record IDs; Operations must not compute payroll.",
         ],
     }
-    return _event("staff.operations.snapshot", f"ops-snapshot:{now_iso()}", "Operations Snapshot", None, payload)
+    return _event("staff.operations.snapshot", f"ops-snapshot:{now_iso()[:10]}", "Operations Snapshot", now_iso()[:10], payload)
 
 
 def build_payroll_ready_payload(conn, run_id: int) -> dict[str, Any]:
@@ -207,7 +198,6 @@ def build_employee_status_payload(conn, employee_id: int) -> dict[str, Any]:
             "primary_department": emp.get("department"),
             "source_staff_id": emp.get("id"),
         },
-        "review_summary_preview": _latest_review_summary(conn, employee_id),
         "privacy_note": "Operational identity only. No rates, payroll, government IDs, or private HR notes.",
     }
     event = _event("employee.status.changed", f"ops-employee-status:{employee_id}:{emp.get('status')}", "Employee", employee_id, payload)
