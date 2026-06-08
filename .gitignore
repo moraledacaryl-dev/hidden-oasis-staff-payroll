@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+
+# Streamlit/local runtime
+.streamlit/secrets.toml
+
+# Local database and generated files
+data/*.sqlite
+data/*.db
+exports/
+payloads/
+uploads/
+*.zip
+!hidden_oasis_staff_payroll_final.zip
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

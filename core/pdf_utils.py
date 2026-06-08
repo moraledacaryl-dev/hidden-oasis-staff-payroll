@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+from io import BytesIO
+from typing import Any, Iterable
+
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+
+
+def _money(v: Any) -> str:
+    try:
+        return f"PHP {float(v or 0):,.2f}"
+    except Exception:
+        return "PHP 0.00"
+
+
+def _draw_lines(c: canvas.Canvas, x: float, y: float, rows: Iterable[tuple[str, Any]], line_height: float = 15) -> float:
+    for label, value in rows:
+        c.drawString(x, y, str(label))
+        c.drawRightString(540, y, str(value))
+        y -= line_height
+    return y
+
+
+def generate_payslip_pdf(company_name: str, company_addr: str, employee: dict[str, Any], run: dict[str, Any], item: dict[str, Any], lines: list[dict[str, Any]] | None = None) -> BytesIO:
+    """Generate a clean single-employee payslip PDF.
+
+    This restores the original Payroll app's practical payslip feature in the broader Staff/Payroll prototype.
+    """
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+    y = height - 50
+
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(55, y, company_name or "Hidden Oasis")
+    c.setFont("Helvetica", 9)
+    c.drawString(55, y - 14, company_addr or "")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawRightString(width - 55, y, "PAYSLIP")
+    c.setFont("Helvetica", 9)
+    c.drawRightString(width - 55, y - 14, f"Run ID: {run.get('id', '')}")
+    y -= 48
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(55, y, "Employee")
+    c.drawRightString(width - 55, y, "Payroll Period")
+    y -= 15
+    c.setFont("Helvetica", 10)
+    c.drawString(55, y, f"{employee.get('full_name', '')} ({employee.get('employee_code', '')})")
+    c.drawRightString(width - 55, y, f"{run.get('period_start', '')} to {run.get('period_end', '')}")
+    y -= 15
+    c.drawString(55, y, f"Department: {employee.get('department', '')} | Position: {employee.get('position', '')}")
+    c.drawRightString(width - 55, y, f"Payout: {run.get('payout_date', '')} | Status: {run.get('status', '')}")
+    y -= 30
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(55, y, "Earnings")
+    y -= 15
+    c.setFont("Helvetica", 9)
+    earning_rows = [
+        ("Regular Pay", _money(item.get("regular_pay"))),
+        (f"Approved OT Pay ({float(item.get('approved_ot_hours') or 0):.2f} hrs)", _money(item.get("ot_pay"))),
+        ("Holiday / Rest-Day Premium", _money(item.get("holiday_pay"))),
+        (f"Night Differential ({float(item.get('night_diff_hours') or 0):.2f} hrs)", _money(item.get("night_diff_pay"))),
+        (f"Paid Leave ({float(item.get('paid_leave_days') or 0):.2f} days)", _money(item.get("paid_leave_pay"))),
+        ("Freelance Output Pay", _money(item.get("freelance_pay"))),
+        ("Other Earnings", _money(item.get("other_earnings"))),
+    ]
+    y = _draw_lines(c, 70, y, [(a, b) for a, b in earning_rows if not b.endswith("0.00") or a == "Regular Pay"])
+    y -= 8
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(70, y, "Gross Pay")
+    c.drawRightString(540, y, _money(item.get("gross_pay")))
+    y -= 28
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(55, y, "Deductions")
+    y -= 15
+    c.setFont("Helvetica", 9)
+    deduction_rows = [
+        ("SSS Employee Share", _money(item.get("sss_ee"))),
+        ("PhilHealth Employee Share", _money(item.get("philhealth_ee"))),
+        ("Pag-IBIG Employee Share", _money(item.get("pagibig_ee"))),
+        ("Withholding Tax", _money(item.get("tax"))),
+        ("Cash Advance Repayment", _money(item.get("cash_advance_deduction"))),
+        ("Other Deductions", _money(item.get("other_deductions"))),
+    ]
+    y = _draw_lines(c, 70, y, [(a, b) for a, b in deduction_rows if not b.endswith("0.00")])
+    y -= 8
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(70, y, "Total Deductions")
+    c.drawRightString(540, y, _money(item.get("total_deductions")))
+    y -= 25
+
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(55, y, "NET PAY")
+    c.drawRightString(540, y, _money(item.get("net_pay")))
+    y -= 28
+
+    employer_rows = [
+        ("SSS Employer Share", _money(item.get("sss_er"))),
+        ("SSS EC", _money(item.get("sss_ec"))),
+        ("PhilHealth Employer Share", _money(item.get("philhealth_er"))),
+        ("Pag-IBIG Employer Share", _money(item.get("pagibig_er"))),
+    ]
+    employer_rows = [(a, b) for a, b in employer_rows if not b.endswith("0.00")]
+    if employer_rows:
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(55, y, "Employer Contributions (not deducted from employee)")
+        y -= 14
+        c.setFont("Helvetica", 8)
+        y = _draw_lines(c, 70, y, employer_rows, 12)
+        y -= 12
+
+    c.setFont("Helvetica", 8)
+    warnings = item.get("warnings") or ""
+    if warnings:
+        c.drawString(55, y, "Warnings / notes:")
+        y -= 12
+        for chunk in [warnings[i:i+100] for i in range(0, len(warnings), 100)][:6]:
+            c.drawString(70, y, chunk)
+            y -= 10
+    c.drawString(55, 45, "Generated by Hidden Oasis Staff & Payroll. Review official payroll records before release.")
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+def generate_13th_month_pdf(company_name: str, company_addr: str, employee: dict[str, Any], run: dict[str, Any]) -> BytesIO:
+    """Generate a simple 13th month payslip PDF."""
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+    y = height - 55
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(55, y, company_name or "Hidden Oasis")
+    c.setFont("Helvetica", 9)
+    c.drawString(55, y - 14, company_addr or "")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawRightString(width - 55, y, "13TH MONTH PAYSLIP")
+    y -= 55
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(55, y, f"Employee: {employee.get('full_name', '')} ({employee.get('employee_code', '')})")
+    c.drawRightString(width - 55, y, f"Year: {run.get('year', '')}")
+    y -= 16
+    c.setFont("Helvetica", 10)
+    c.drawString(55, y, f"Period Label: {run.get('period_label', '')}")
+    c.drawRightString(width - 55, y, f"Status: {run.get('status', '')}")
+    y -= 35
+
+    c.setFont("Helvetica", 10)
+    rows = [
+        ("13th Month Basis", _money(run.get("basis_amount"))),
+        ("Base 13th Month Pay (Basis / 12)", _money(run.get("base_13th_amount"))),
+        ("Manual Adjustment", _money(run.get("adjustment_amount"))),
+        ("Deductions", _money(run.get("deductions"))),
+    ]
+    y = _draw_lines(c, 70, y, rows, 18)
+    y -= 15
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(55, y, "NET 13TH MONTH PAY")
+    c.drawRightString(540, y, _money(run.get("net_13th_pay")))
+    y -= 35
+    c.setFont("Helvetica", 9)
+    notes = run.get("notes") or ""
+    if notes:
+        c.drawString(55, y, "Notes:")
+        y -= 12
+        for chunk in [notes[i:i+105] for i in range(0, len(notes), 105)][:8]:
+            c.drawString(70, y, chunk)
+            y -= 11
+    c.drawString(55, 45, "13th month basis uses regular/basic pay plus paid leave pay by default; edit settings/policy if needed.")
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
