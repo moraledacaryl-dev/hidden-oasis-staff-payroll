@@ -18,7 +18,8 @@ from core.quality import build_payroll_preflight_checks, summarize_checks
 from core.drawer import create_drawer_cash_advance_movement, create_missing_cash_advance_drawer_movements
 from core.integration_accounting import (
     enqueue_payroll_run, enqueue_13th_month, enqueue_cash_advance_release,
-    enqueue_cash_advance_repayment, enqueue_employee_sync, export_outbox_zip, mark_outbox_status
+    enqueue_cash_advance_repayment, enqueue_employee_sync, export_outbox_zip, mark_outbox_status,
+    post_ready_outbox_to_accounting
 )
 from core.integration_operations import (
     enqueue_operations_snapshot, enqueue_payroll_ready_for_operations,
@@ -1067,7 +1068,21 @@ elif page == "Accounting Sync":
         status_filter = st.selectbox("Export status", ["Ready", "All", "Sent", "Error"])
         zip_bytes = export_outbox_zip(conn, status_filter)
         st.download_button("Download integration payload ZIP", zip_bytes, file_name=f"staff_payroll_integration_{status_filter.lower()}_{date.today().isoformat()}.zip", mime="application/zip")
-        st.caption("For now, this ZIP is the safe bridge. Later the same payloads can be POSTed directly to Accounting API endpoints.")
+        st.caption("ZIP remains the fallback bridge. Direct posting sends Ready events to Accounting review queues, not final ledgers.")
+        post_limit = st.number_input("Direct post limit", min_value=1, max_value=100, value=25, step=1)
+        accounting_url = get_setting(conn, "accounting_api_base_url", "http://localhost:8000/api")
+        if st.button("Post Ready Events to Accounting"):
+            try:
+                result = post_ready_outbox_to_accounting(conn, limit=int(post_limit), base_url=accounting_url)
+                audit(current_user, "Posted ready integration events to Accounting", "integration_outbox", None, json.dumps(result, default=str))
+                if result["failed"]:
+                    st.warning(f"Posted {result['sent']} event(s); {result['failed']} failed and were left in Error status.")
+                else:
+                    st.success(f"Posted {result['sent']} ready event(s) to Accounting review queues.")
+                if result["results"]:
+                    st.json(result)
+            except Exception as exc:
+                st.error(f"Could not post to Accounting: {exc}")
 
     with tabs[3]:
         st.subheader("Connection settings")

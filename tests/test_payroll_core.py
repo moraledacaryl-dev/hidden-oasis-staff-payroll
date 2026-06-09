@@ -1,7 +1,13 @@
 import unittest
 
 from core.db import fetchall, fetchone, get_conn, init_db, now_iso
-from core.integration_accounting import build_cash_advance_repayment_payload, build_employee_payload, build_payroll_run_payload
+from core.integration_accounting import (
+    build_cash_advance_repayment_payload,
+    build_employee_payload,
+    build_payroll_run_payload,
+    enqueue_employee_sync,
+    post_ready_outbox_to_accounting,
+)
 from core.integration_operations import build_operations_snapshot_payload
 from core.payroll_engine import (
     compute_payroll,
@@ -161,6 +167,32 @@ class PayrollCoreTests(unittest.TestCase):
             """,
         )
         self.assertEqual(row["c"], 0)
+
+    def test_posts_ready_outbox_events_to_accounting_review_endpoint(self):
+        self.add_taxable_employee(hourly_rate=200)
+        event_id = enqueue_employee_sync(self.conn)
+        calls = []
+
+        def fake_post(url, payload_json, timeout_seconds=20):
+            calls.append((url, payload_json, timeout_seconds))
+            return {"status": "ok", "receipt_id": 12}
+
+        import core.integration_accounting as integration_accounting
+
+        original_post = integration_accounting._post_json
+        integration_accounting._post_json = fake_post
+        try:
+            result = post_ready_outbox_to_accounting(self.conn, base_url="http://accounting.local/api")
+        finally:
+            integration_accounting._post_json = original_post
+
+        row = fetchone(self.conn, "SELECT status, attempt_count, last_error, sent_at FROM integration_outbox WHERE id=?", (event_id,))
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(calls[0][0], "http://accounting.local/api/integrations/payroll/employees")
+        self.assertEqual(row["status"], "Sent")
+        self.assertEqual(row["attempt_count"], 1)
+        self.assertEqual(row["last_error"], "")
+        self.assertTrue(row["sent_at"])
 
 
 if __name__ == "__main__":

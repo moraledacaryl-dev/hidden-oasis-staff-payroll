@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import urllib.error
+import urllib.request
 import zipfile
 from datetime import datetime
 from io import BytesIO
@@ -19,6 +21,14 @@ SAFE_EMPLOYEE_FIELDS = {
     "active",
     "primary_department",
     "source_staff_id",
+}
+ACCOUNTING_ENDPOINTS = {
+    "employee.sync": "/integrations/payroll/employees",
+    "payroll.run.approved": "/integrations/payroll/runs",
+    "payroll.run.paid": "/integrations/payroll/runs",
+    "payroll.13th_month.paid": "/integrations/payroll/13th-month",
+    "cash_advance.released": "/integrations/payroll/cash-advance-release",
+    "cash_advance.repaid": "/integrations/payroll/cash-advance-repayment",
 }
 
 
@@ -271,3 +281,70 @@ def mark_outbox_status(conn, ids: list[int], status: str, error: str = "") -> No
         (status, sent_at, error, now_iso(), *ids),
     )
     conn.commit()
+
+
+def _join_url(base_url: str, path: str) -> str:
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _post_json(url: str, payload_json: str, timeout_seconds: int = 20) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=payload_json.encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        body = response.read().decode("utf-8")
+        return json.loads(body or "{}")
+
+
+def post_ready_outbox_to_accounting(conn, *, limit: int = 25, base_url: str | None = None) -> dict[str, Any]:
+    base = (base_url or get_setting(conn, "accounting_api_base_url", "http://localhost:8000/api")).strip()
+    if not base:
+        raise ValueError("Accounting API base URL is required.")
+
+    rows = fetchall(
+        conn,
+        """
+        SELECT * FROM integration_outbox
+        WHERE status='Ready'
+        ORDER BY id
+        LIMIT ?
+        """,
+        (int(limit),),
+    )
+    results: list[dict[str, Any]] = []
+    sent_ids: list[int] = []
+    for row in rows:
+        endpoint = ACCOUNTING_ENDPOINTS.get(row["event_type"])
+        if not endpoint:
+            error = f"No Accounting endpoint mapped for {row['event_type']}"
+            mark_outbox_status(conn, [int(row["id"])], "Error", error)
+            results.append({"id": row["id"], "status": "Error", "error": error})
+            continue
+        url = _join_url(base, endpoint)
+        try:
+            response = _post_json(url, row["payload_json"])
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            error = str(exc)
+            conn.execute(
+                "UPDATE integration_outbox SET status='Error', attempt_count=attempt_count+1, last_error=?, updated_at=? WHERE id=?",
+                (error, now_iso(), row["id"]),
+            )
+            conn.commit()
+            results.append({"id": row["id"], "status": "Error", "error": error, "url": url})
+            continue
+        conn.execute(
+            "UPDATE integration_outbox SET status='Sent', attempt_count=attempt_count+1, last_error='', sent_at=?, updated_at=? WHERE id=?",
+            (now_iso(), now_iso(), row["id"]),
+        )
+        conn.commit()
+        sent_ids.append(int(row["id"]))
+        results.append({"id": row["id"], "status": "Sent", "url": url, "response": response})
+    return {
+        "attempted": len(rows),
+        "sent": len(sent_ids),
+        "failed": len([row for row in results if row["status"] == "Error"]),
+        "results": results,
+    }
