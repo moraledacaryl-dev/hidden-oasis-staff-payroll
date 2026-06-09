@@ -753,7 +753,7 @@ elif page == "Freelance Outputs":
 
 elif page == "Data Import / Templates":
     st.title("Data Import / Templates")
-    st.caption("Use this to bring data into the new staff/payroll system. You can download the required Excel template, upload a completed template, or import the old Payroll.zip / payroll.sqlite as a migration.")
+    st.caption("Templates, legacy import, and backup export.")
 
     tabs = st.tabs(["Required Templates", "Import Filled Template", "Legacy Payroll ZIP Import", "Database Export / Backup", "Import History"])
 
@@ -865,7 +865,7 @@ elif page == "Payroll":
 
     with tabs[1]:
         st.subheader("Manual Payroll Adjustments")
-        st.caption("Use this for approved one-off earnings/deductions that are not cash advances, statutory deductions, or attendance pay.")
+        st.caption("Approved one-off earnings and deductions.")
         opts = emp_options(True)
         if opts:
             with st.form("payroll_adjustment"):
@@ -958,7 +958,7 @@ elif page == "Payroll":
 
 elif page == "Payroll QA":
     st.title("Payroll QA / Preflight Checks")
-    st.caption("Use this before saving, approving, or paying payroll. It flags pending reviews, missing logs, missing rates, leave issues, benefit setup gaps, and possible duplicate runs.")
+    st.caption("Review blockers and warnings before payroll approval.")
     today = date.today()
     default_start = today.replace(day=1 if today.day <= 15 else 16)
     default_end = today.replace(day=15) if today.day <= 15 else (today.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
@@ -1123,7 +1123,7 @@ elif page == "Operations Sync":
 
     with tabs[0]:
         st.subheader("Create cross-app management events")
-        st.write("Use this when you want the Operations app to show staff/payroll items on the manager dashboard.")
+        st.write("Send safe status cards to Operations.")
         c1, c2, c3 = st.columns(3)
         with c1:
             if st.button("Create Operations Snapshot"):
@@ -1404,7 +1404,7 @@ elif page == "Annual Reviews":
         auto = build_annual_review_auto_summary(conn, opts[emp_label], iso(start), iso(end))
         with st.expander("Auto Summary from System Data", expanded=True):
             st.text_area("Auto-generated summary", value=auto["summary"], height=260, key="auto_review_summary_display")
-            st.caption("Use this as evidence/context. It does not replace manager judgment.")
+            st.caption("Evidence only. Manager judgment decides the review.")
             st.write("Suggested starting scores:", auto["scores"])
 
         st.markdown("Scores: 1 low, 5 excellent")

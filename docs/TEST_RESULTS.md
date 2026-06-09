@@ -10,6 +10,12 @@ Date: 2026-06-09
 - Command: `PYTHONPYCACHEPREFIX=/tmp/pycache-payroll python3 -m compileall app.py core tests`
   - Result: passed
   - Details: Streamlit app, core modules, and tests compile.
+- Command: `PYTHONPYCACHEPREFIX=/tmp/pycache-staff-smoke python3 smoke_test.py`
+  - Result: passed
+  - Details: database, Operations payload, employee sync, and ZIP export smoke checks passed.
+- Command: UI copy scan for final-pass banned phrases in `app.py`, `core`, `docs`, and `README.md`
+  - Result: passed for operational UI
+  - Details: remaining matches are documentation checklist/prompt wording only, not Staff app screens.
 
 ## Not Run
 
