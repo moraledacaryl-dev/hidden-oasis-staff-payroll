@@ -19,7 +19,7 @@ from core.drawer import create_drawer_cash_advance_movement, create_missing_cash
 from core.integration_accounting import (
     enqueue_payroll_run, enqueue_13th_month, enqueue_cash_advance_release,
     enqueue_cash_advance_repayment, enqueue_employee_sync, export_outbox_zip, mark_outbox_status,
-    post_ready_outbox_to_accounting
+    post_ready_outbox_to_accounting, post_ready_outbox_to_operations
 )
 from core.integration_operations import (
     enqueue_operations_snapshot, enqueue_payroll_ready_for_operations,
@@ -1068,32 +1068,50 @@ elif page == "Accounting Sync":
         status_filter = st.selectbox("Export status", ["Ready", "All", "Sent", "Error"])
         zip_bytes = export_outbox_zip(conn, status_filter)
         st.download_button("Download integration payload ZIP", zip_bytes, file_name=f"staff_payroll_integration_{status_filter.lower()}_{date.today().isoformat()}.zip", mime="application/zip")
-        st.caption("ZIP remains the fallback bridge. Direct posting sends Ready events to Accounting review queues, not final ledgers.")
+        st.caption("ZIP remains the fallback bridge. Direct posting sends Ready events to Accounting or Operations review queues, not final ledgers.")
         post_limit = st.number_input("Direct post limit", min_value=1, max_value=100, value=25, step=1)
         accounting_url = get_setting(conn, "accounting_api_base_url", "http://localhost:8000/api")
-        if st.button("Post Ready Events to Accounting"):
-            try:
-                result = post_ready_outbox_to_accounting(conn, limit=int(post_limit), base_url=accounting_url)
-                audit(current_user, "Posted ready integration events to Accounting", "integration_outbox", None, json.dumps(result, default=str))
-                if result["failed"]:
-                    st.warning(f"Posted {result['sent']} event(s); {result['failed']} failed and were left in Error status.")
-                else:
-                    st.success(f"Posted {result['sent']} ready event(s) to Accounting review queues.")
-                if result["results"]:
-                    st.json(result)
-            except Exception as exc:
-                st.error(f"Could not post to Accounting: {exc}")
+        operations_url = get_setting(conn, "operations_api_base_url", "http://localhost:8002/api")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Post Ready Events to Accounting"):
+                try:
+                    result = post_ready_outbox_to_accounting(conn, limit=int(post_limit), base_url=accounting_url)
+                    audit(current_user, "Posted ready integration events to Accounting", "integration_outbox", None, json.dumps(result, default=str))
+                    if result["failed"]:
+                        st.warning(f"Posted {result['sent']} event(s); {result['failed']} failed and were left in Error status.")
+                    else:
+                        st.success(f"Posted {result['sent']} ready event(s) to Accounting review queues.")
+                    if result["results"]:
+                        st.json(result)
+                except Exception as exc:
+                    st.error(f"Could not post to Accounting: {exc}")
+        with c2:
+            if st.button("Post Ready Events to Operations"):
+                try:
+                    result = post_ready_outbox_to_operations(conn, limit=int(post_limit), base_url=operations_url)
+                    audit(current_user, "Posted ready integration events to Operations", "integration_outbox", None, json.dumps(result, default=str))
+                    if result["failed"]:
+                        st.warning(f"Posted {result['sent']} event(s); {result['failed']} failed and were left in Error status.")
+                    else:
+                        st.success(f"Posted {result['sent']} ready event(s) to Operations review cards.")
+                    if result["results"]:
+                        st.json(result)
+                except Exception as exc:
+                    st.error(f"Could not post to Operations: {exc}")
 
     with tabs[3]:
         st.subheader("Connection settings")
         accounting_url = st.text_input("Accounting API base URL", get_setting(conn, "accounting_api_base_url", "http://localhost:8000/api"))
         pos_url = st.text_input("POS API base URL", get_setting(conn, "pos_api_base_url", "http://localhost:8001/api"))
         ops_url = st.text_input("Operations API base URL", get_setting(conn, "operations_api_base_url", "http://localhost:8002/api"))
+        integration_key = st.text_input("Integration API key", get_setting(conn, "integration_api_key", ""), type="password")
         if st.button("Save Integration Settings"):
             set_setting(conn, "accounting_api_base_url", accounting_url)
             set_setting(conn, "pos_api_base_url", pos_url)
             set_setting(conn, "operations_api_base_url", ops_url)
-            audit(current_user, "Updated integration settings", "app_settings", None, f"accounting={accounting_url}; pos={pos_url}; ops={ops_url}")
+            set_setting(conn, "integration_api_key", integration_key)
+            audit(current_user, "Updated integration settings", "app_settings", None, f"accounting={accounting_url}; pos={pos_url}; ops={ops_url}; integration_key=updated")
             st.success("Integration settings saved.")
 
 
@@ -1133,7 +1151,7 @@ elif page == "Operations Sync":
                     audit(current_user, "Created employee status Operations event", "integration_outbox", event_id, emp_label)
                     st.success(f"Created Operations employee status event #{event_id}.")
 
-        st.info("Operations events are stored in the same Integration Outbox. Use Accounting Sync → Export to download the JSON ZIP, or POST the payloads later when API receivers are ready.")
+        st.info("Operations events are stored in the same Integration Outbox. Use Accounting Sync -> Export to download the JSON ZIP, or post Ready Operations events directly when the Operations API URL is configured.")
 
     with tabs[1]:
         st.subheader("What Operations should show")

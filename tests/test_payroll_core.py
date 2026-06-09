@@ -7,8 +7,9 @@ from core.integration_accounting import (
     build_payroll_run_payload,
     enqueue_employee_sync,
     post_ready_outbox_to_accounting,
+    post_ready_outbox_to_operations,
 )
-from core.integration_operations import build_operations_snapshot_payload
+from core.integration_operations import build_operations_snapshot_payload, enqueue_operations_snapshot
 from core.payroll_engine import (
     compute_payroll,
     compute_semi_monthly_withholding_tax,
@@ -173,8 +174,8 @@ class PayrollCoreTests(unittest.TestCase):
         event_id = enqueue_employee_sync(self.conn)
         calls = []
 
-        def fake_post(url, payload_json, timeout_seconds=20):
-            calls.append((url, payload_json, timeout_seconds))
+        def fake_post(url, payload_json, timeout_seconds=20, api_key=""):
+            calls.append((url, payload_json, timeout_seconds, api_key))
             return {"status": "ok", "receipt_id": 12}
 
         import core.integration_accounting as integration_accounting
@@ -193,6 +194,44 @@ class PayrollCoreTests(unittest.TestCase):
         self.assertEqual(row["attempt_count"], 1)
         self.assertEqual(row["last_error"], "")
         self.assertTrue(row["sent_at"])
+
+    def test_posts_ready_operations_events_to_operations_review_endpoint(self):
+        self.add_taxable_employee(hourly_rate=200)
+        event_id = enqueue_operations_snapshot(self.conn)
+        calls = []
+
+        def fake_post(url, payload_json, timeout_seconds=20, api_key=""):
+            calls.append((url, payload_json, timeout_seconds, api_key))
+            return {"status": "accepted", "id": 42}
+
+        import core.integration_accounting as integration_accounting
+
+        original_post = integration_accounting._post_json
+        integration_accounting._post_json = fake_post
+        try:
+            result = post_ready_outbox_to_operations(self.conn, base_url="http://operations.local/api")
+        finally:
+            integration_accounting._post_json = original_post
+
+        row = fetchone(self.conn, "SELECT status, attempt_count, last_error, sent_at FROM integration_outbox WHERE id=?", (event_id,))
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(calls[0][0], "http://operations.local/api/integrations/staff/events")
+        self.assertEqual(row["status"], "Sent")
+        self.assertEqual(row["attempt_count"], 1)
+        self.assertEqual(row["last_error"], "")
+        self.assertTrue(row["sent_at"])
+
+    def test_accounting_post_skips_operations_only_events(self):
+        self.add_taxable_employee(hourly_rate=200)
+        event_id = enqueue_operations_snapshot(self.conn)
+
+        result = post_ready_outbox_to_accounting(self.conn, base_url="http://accounting.local/api")
+
+        row = fetchone(self.conn, "SELECT status, attempt_count, last_error FROM integration_outbox WHERE id=?", (event_id,))
+        self.assertEqual(result["attempted"], 0)
+        self.assertEqual(row["status"], "Ready")
+        self.assertEqual(row["attempt_count"], 0)
+        self.assertIn(row["last_error"], (None, ""))
 
 
 if __name__ == "__main__":

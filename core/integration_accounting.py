@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.request
 import zipfile
@@ -30,6 +31,19 @@ ACCOUNTING_ENDPOINTS = {
     "cash_advance.released": "/integrations/payroll/cash-advance-release",
     "cash_advance.repaid": "/integrations/payroll/cash-advance-repayment",
 }
+OPERATIONS_EVENTS = {
+    "staff.operations.snapshot",
+    "payroll.ready_for_owner_review",
+    "employee.status.changed",
+    "attendance.exception.created",
+    "ot.review.pending",
+    "leave.request.pending",
+    "cash_advance.request.pending",
+    "payroll.qa.warning",
+    "annual_review.due",
+    "memo.acknowledgment.pending",
+}
+OPERATIONS_ENDPOINT = "/integrations/staff/events"
 
 
 def _money(value: Any) -> float:
@@ -287,11 +301,18 @@ def _join_url(base_url: str, path: str) -> str:
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
 
-def _post_json(url: str, payload_json: str, timeout_seconds: int = 20) -> dict[str, Any]:
+def _integration_api_key(conn) -> str:
+    return (get_setting(conn, "integration_api_key", os.getenv("INTEGRATION_API_KEY", "")) or "").strip()
+
+
+def _post_json(url: str, payload_json: str, timeout_seconds: int = 20, api_key: str = "") -> dict[str, Any]:
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if api_key:
+        headers["X-Integration-Api-Key"] = api_key
     request = urllib.request.Request(
         url,
         data=payload_json.encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
@@ -304,18 +325,21 @@ def post_ready_outbox_to_accounting(conn, *, limit: int = 25, base_url: str | No
     if not base:
         raise ValueError("Accounting API base URL is required.")
 
+    accounting_events = sorted(ACCOUNTING_ENDPOINTS)
     rows = fetchall(
         conn,
         """
         SELECT * FROM integration_outbox
         WHERE status='Ready'
+          AND event_type IN ({})
         ORDER BY id
         LIMIT ?
-        """,
-        (int(limit),),
+        """.format(",".join("?" for _ in accounting_events)),
+        (*accounting_events, int(limit)),
     )
     results: list[dict[str, Any]] = []
     sent_ids: list[int] = []
+    api_key = _integration_api_key(conn)
     for row in rows:
         endpoint = ACCOUNTING_ENDPOINTS.get(row["event_type"])
         if not endpoint:
@@ -325,7 +349,54 @@ def post_ready_outbox_to_accounting(conn, *, limit: int = 25, base_url: str | No
             continue
         url = _join_url(base, endpoint)
         try:
-            response = _post_json(url, row["payload_json"])
+            response = _post_json(url, row["payload_json"], api_key=api_key)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            error = str(exc)
+            conn.execute(
+                "UPDATE integration_outbox SET status='Error', attempt_count=attempt_count+1, last_error=?, updated_at=? WHERE id=?",
+                (error, now_iso(), row["id"]),
+            )
+            conn.commit()
+            results.append({"id": row["id"], "status": "Error", "error": error, "url": url})
+            continue
+        conn.execute(
+            "UPDATE integration_outbox SET status='Sent', attempt_count=attempt_count+1, last_error='', sent_at=?, updated_at=? WHERE id=?",
+            (now_iso(), now_iso(), row["id"]),
+        )
+        conn.commit()
+        sent_ids.append(int(row["id"]))
+        results.append({"id": row["id"], "status": "Sent", "url": url, "response": response})
+    return {
+        "attempted": len(rows),
+        "sent": len(sent_ids),
+        "failed": len([row for row in results if row["status"] == "Error"]),
+        "results": results,
+    }
+
+
+def post_ready_outbox_to_operations(conn, *, limit: int = 25, base_url: str | None = None) -> dict[str, Any]:
+    base = (base_url or get_setting(conn, "operations_api_base_url", "http://localhost:8002/api")).strip()
+    if not base:
+        raise ValueError("Operations API base URL is required.")
+
+    rows = fetchall(
+        conn,
+        """
+        SELECT * FROM integration_outbox
+        WHERE status='Ready'
+          AND event_type IN ({})
+        ORDER BY id
+        LIMIT ?
+        """.format(",".join("?" for _ in OPERATIONS_EVENTS)),
+        (*sorted(OPERATIONS_EVENTS), int(limit)),
+    )
+    results: list[dict[str, Any]] = []
+    sent_ids: list[int] = []
+    url = _join_url(base, OPERATIONS_ENDPOINT)
+    api_key = _integration_api_key(conn)
+    for row in rows:
+        try:
+            response = _post_json(url, row["payload_json"], api_key=api_key)
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             error = str(exc)
             conn.execute(

@@ -124,7 +124,13 @@ external_source = hidden_oasis_staff_payroll
 external_id = unique event key
 ```
 
-Current transport is manual JSON ZIP export. Later, the same payloads can be POSTed directly to Accounting integration endpoints.
+Transport options:
+
+- manual JSON ZIP export for controlled fallback/recovery
+- direct POST of Ready Accounting events to `ACCOUNTING_API_BASE_URL`
+- direct POST of Ready Operations events to `OPERATIONS_API_BASE_URL`
+
+Direct posting never final-posts official books and never blocks payroll if the receiver is unavailable. Failed attempts stay visible in the Integration Outbox for retry/review.
 
 ### Operations Sync
 
@@ -134,7 +140,7 @@ Creates safe manager-dashboard payloads for Operations:
 - `payroll.ready_for_owner_review`
 - `employee.status.changed`
 
-Operations should show status/review cards only. It must not calculate payroll, own HR details, or post accounting journals.
+Operations should show status/review cards only. It must not calculate payroll, own HR details, or post accounting journals. Ready Operations events can be posted directly to `/api/integrations/staff/events` when the Operations API URL is configured.
 
 ## Privacy boundary
 
@@ -180,7 +186,6 @@ Keep inside Staff/Payroll:
 Not 10/10 because the final system still needs:
 
 - final biometric device parser after hardware purchase
-- direct API posting to Accounting/Operations
 - live POS/Operations data feed for OT context
 - full production rebuild in FastAPI + PostgreSQL + Next.js
 

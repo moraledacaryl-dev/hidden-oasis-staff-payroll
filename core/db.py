@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -629,6 +630,7 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
         "accounting_api_base_url": "http://localhost:8000/api",
         "pos_api_base_url": "http://localhost:8001/api",
         "operations_api_base_url": "http://localhost:8002/api",
+        "integration_api_key": os.getenv("INTEGRATION_API_KEY", "replace-with-shared-secret"),
         "payroll_external_source": "hidden_oasis_staff_payroll",
     }
     for k, v in settings.items():

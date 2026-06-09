@@ -22,6 +22,16 @@ Every outbound event uses:
 
 Receivers enforce idempotency with `external_source + external_id`. Duplicate receipts must return `already_applied` and must not overwrite manager/accounting decisions.
 
+## Transport
+
+Staff/Payroll keeps the JSON ZIP export as the recovery-safe fallback and can directly POST Ready outbox events when receiver URLs are configured:
+
+- Accounting events post to `ACCOUNTING_API_BASE_URL` review endpoints.
+- Operations events post to `OPERATIONS_API_BASE_URL/integrations/staff/events`.
+- Direct POST includes `X-Integration-Api-Key` from the local `integration_api_key` setting or `INTEGRATION_API_KEY`.
+- Direct posting updates outbox attempt counts and leaves failures visible for retry.
+- Payroll computation, approval, payslip generation, and locking never depend on receiver availability.
+
 ## Event Catalog
 
 ### `employee.sync`
@@ -148,7 +158,3 @@ Receivers enforce idempotency with `external_source + external_id`. Duplicate re
 - Receiver behavior: Operations reminder/task only.
 - Idempotency key: `memo-ack:{memo_id}:{status}`.
 - Failure modes: memo body/private HR content included.
-
-## Transport
-
-The current Streamlit prototype exports JSON ZIP payloads from the integration outbox. Direct API posting to Accounting/Operations can be added later using `ACCOUNTING_API_BASE_URL`, `OPERATIONS_API_BASE_URL`, `POS_API_BASE_URL`, and `INTEGRATION_API_KEY`; posting failures must never block payroll and should mark outbox items Failed/Pending Retry.
