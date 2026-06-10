@@ -37,31 +37,37 @@ CSS = """
 .status-pill { border-radius: 999px; padding: 4px 10px; background: #f2efe9; display: inline-block; }
 .login-view [data-testid="stSidebar"] { display: none; }
 .login-card {
-    max-width: 460px;
+    max-width: 420px;
     margin: 8vh auto 0 auto;
-    border: 1px solid #e8e4dc;
-    border-radius: 12px;
-    padding: 28px 30px 22px 30px;
-    background: #fffdf8;
-    box-shadow: 0 18px 55px rgba(30, 30, 30, 0.08);
+    border: 1px solid #e1e6df;
+    border-radius: 22px;
+    padding: 30px;
+    background: rgba(255,255,255,.92);
+    box-shadow: 0 24px 70px rgba(26,38,30,.09);
 }
-.login-brand {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #7a6a50;
-    margin-bottom: 0.35rem;
+.login-mark {
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    border-radius: 15px;
+    background: #5f6f52;
+    color: #fff;
+    font-weight: 720;
+    letter-spacing: .03em;
+    margin-bottom: 18px;
 }
 .login-title {
-    font-size: 1.65rem;
-    font-weight: 700;
-    line-height: 1.2;
-    margin-bottom: 0.35rem;
+    font-size: 2.1rem;
+    font-weight: 720;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    margin-bottom: 1.1rem;
 }
-.login-subtitle {
-    color: #5d5a54;
-    font-size: 0.95rem;
-    margin-bottom: 1.2rem;
+.login-credit {
+    color: #7b8179;
+    font-size: 0.8rem;
+    margin-top: 1rem;
 }
 </style>
 """
@@ -134,9 +140,8 @@ if st.session_state["auth_user"] is None:
     st.markdown(
         """
         <div class="login-card">
-            <div class="login-brand">Hidden Oasis</div>
+            <div class="login-mark">HO</div>
             <div class="login-title">Staff & Payroll</div>
-            <div class="login-subtitle">Sign in to manage staff records, attendance, payroll, and integrations.</div>
         """,
         unsafe_allow_html=True,
     )
@@ -163,7 +168,7 @@ if st.session_state["auth_user"] is None:
                     "must_change_password": int(user.get("must_change_password") or 0),
                 }
                 st.rerun()
-    st.markdown("</div></div>", unsafe_allow_html=True)
+    st.markdown("<div class='login-credit'>by C.M.</div></div></div>", unsafe_allow_html=True)
     st.stop()
 
 st.sidebar.title("Hidden Oasis")
