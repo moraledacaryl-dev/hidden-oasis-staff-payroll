@@ -294,10 +294,11 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
             dept = st.selectbox("Department / Area", dept_options, index=dept_idx, key=f"{key_prefix}_dept")
             rest = st.checkbox("Rest day", value=bool((schedule or {}).get("is_rest_day") or 0), key=f"{key_prefix}_rest")
             notes = st.text_area("Schedule notes", value=str((schedule or {}).get("notes") or ""), key=f"{key_prefix}_schedule_notes")
-            if st.form_submit_button("Save schedule", type="primary"):
+            if st.form_submit_button("Save schedule", type="primary", use_container_width=True):
                 _save_schedule(conn, employee_id, day, shift_start.strftime("%H:%M"), shift_end.strftime("%H:%M"), int(break_minutes), dept, rest, notes, int(schedule["id"]) if schedule else None)
-                st.session_state["calendar_cell_to_edit"] = {"employee_id": employee_id, "date": day}
-                st.success("Schedule saved.")
+                st.session_state["calendar_week_anchor"] = day
+                st.session_state.pop("calendar_cell_to_edit", None)
+                st.session_state["calendar_last_save"] = f"Schedule saved for {day}."
                 st.rerun()
 
     with tabs[1]:
@@ -319,12 +320,13 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
             ot_status = e.selectbox("OT status", ot_options, index=ot_options.index(old_ot), key=f"{key_prefix}_ot_status")
             approved_ot = f.number_input("Approved OT hours", min_value=0.0, value=float((log or {}).get("approved_ot_hours") or 0), step=0.25, key=f"{key_prefix}_approved_ot")
             notes = st.text_area("Log / OT notes", value=str((log or {}).get("notes") or ""), key=f"{key_prefix}_log_notes")
-            if st.form_submit_button("Save actual / OT", type="primary"):
+            if st.form_submit_button("Save actual / OT", type="primary", use_container_width=True):
                 in_text = "" if absent else actual_in.strftime("%H:%M")
                 out_text = "" if absent or missing_out else actual_out.strftime("%H:%M")
                 _save_log(conn, employee_id, day, in_text, out_text, absent, absence_type, approved_ot, ot_status, attendance_status, notes, int(log["id"]) if log else None)
-                st.session_state["calendar_cell_to_edit"] = {"employee_id": employee_id, "date": day}
-                st.success("Actual log saved.")
+                st.session_state["calendar_week_anchor"] = day
+                st.session_state.pop("calendar_cell_to_edit", None)
+                st.session_state["calendar_last_save"] = f"Actual log saved for {day}."
                 st.rerun()
 
     with tabs[2]:
@@ -332,7 +334,9 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
         leave_name = st.selectbox("Leave type", leave_names, key=f"{key_prefix}_leave_name")
         if st.button("Save approved leave", type="primary", key=f"{key_prefix}_save_leave"):
             _mark_leave(conn, employee_id, day, leave_name, current_user)
-            st.success("Leave saved.")
+            st.session_state["calendar_week_anchor"] = day
+            st.session_state.pop("calendar_cell_to_edit", None)
+            st.session_state["calendar_last_save"] = f"Leave saved for {day}."
             st.rerun()
 
     with tabs[3]:
@@ -340,12 +344,14 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
             hname = st.text_input("Holiday name", value=str((holiday or {}).get("name") or ""), key=f"{key_prefix}_holiday_name")
             htype = st.selectbox("Holiday type", ["Regular", "Special"], index=0 if (holiday or {}).get("holiday_type") != "Special" else 1, key=f"{key_prefix}_holiday_type")
             hnotes = st.text_area("Holiday notes", value=str((holiday or {}).get("notes") or ""), key=f"{key_prefix}_holiday_notes")
-            if st.form_submit_button("Save holiday for this date", type="primary"):
+            if st.form_submit_button("Save holiday for this date", type="primary", use_container_width=True):
                 if not hname.strip():
                     st.error("Holiday name is required.")
                 else:
                     _save_holiday(conn, day, hname.strip(), htype, hnotes)
-                    st.success("Holiday saved.")
+                    st.session_state["calendar_week_anchor"] = day
+                    st.session_state.pop("calendar_cell_to_edit", None)
+                    st.session_state["calendar_last_save"] = f"Holiday saved for {day}."
                     st.rerun()
 
     with tabs[4]:
@@ -355,19 +361,27 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
                 execute(conn, "UPDATE time_logs SET attendance_status='Reviewed', reviewed_by=?, reviewed_at=?, updated_at=? WHERE id=?", (current_user, now_iso(), now_iso(), int(log["id"])))
             else:
                 _save_log(conn, employee_id, day, "", "", False, "", 0, "None", "Reviewed", "Reviewed empty day", None)
-            st.success("Reviewed.")
+            st.session_state["calendar_week_anchor"] = day
+            st.session_state.pop("calendar_cell_to_edit", None)
+            st.session_state["calendar_last_save"] = f"Reviewed saved for {day}."
             st.rerun()
         if q2.button("Rest day", key=f"{key_prefix}_rest_day_quick"):
             _save_schedule(conn, employee_id, day, "00:00", "00:00", 0, str(emp.get("department") or ""), True, "Marked rest day", int(schedule["id"]) if schedule else None)
-            st.success("Rest day saved.")
+            st.session_state["calendar_week_anchor"] = day
+            st.session_state.pop("calendar_cell_to_edit", None)
+            st.session_state["calendar_last_save"] = f"Rest day saved for {day}."
             st.rerun()
         if q3.button("Copy S → A", key=f"{key_prefix}_copy_schedule_actual") and schedule:
             _save_log(conn, employee_id, day, str(schedule["shift_start"]), str(schedule["shift_end"]), False, "", 0, "None", "Reviewed", "Copied schedule to actual", int(log["id"]) if log else None)
-            st.success("Copied.")
+            st.session_state["calendar_week_anchor"] = day
+            st.session_state.pop("calendar_cell_to_edit", None)
+            st.session_state["calendar_last_save"] = f"Copied schedule to actual for {day}."
             st.rerun()
         if q4.button("Absent", key=f"{key_prefix}_absent_quick"):
             _save_log(conn, employee_id, day, "", "", True, "Absent", 0, "None", "Reviewed", "Marked absent", int(log["id"]) if log else None)
-            st.success("Absent saved.")
+            st.session_state["calendar_week_anchor"] = day
+            st.session_state.pop("calendar_cell_to_edit", None)
+            st.session_state["calendar_last_save"] = f"Absent saved for {day}."
             st.rerun()
 
 
@@ -376,13 +390,26 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
     st.caption("Click the card itself to edit. This uses Streamlit session state, so it should not send you back to login.")
     _calendar_css()
     c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1])
-    week_start = c1.date_input("Week start", value=date.today() - timedelta(days=date.today().weekday()))
-    week_start = week_start - timedelta(days=week_start.weekday())
+    default_week = date.today() - timedelta(days=date.today().weekday())
+    anchor_text = st.session_state.get("calendar_week_anchor")
+    try:
+        anchor_date = datetime.strptime(str(anchor_text), "%Y-%m-%d").date() if anchor_text else default_week
+    except Exception:
+        anchor_date = default_week
+    picked_week = c1.date_input(
+        "Week shown",
+        value=anchor_date,
+        help="This selector chooses the week shown below. It normalizes to Monday-Sunday. The popup save date is the date shown inside the popup.",
+    )
+    week_start = picked_week - timedelta(days=picked_week.weekday())
+    st.session_state["calendar_week_anchor"] = _iso(week_start)
     week_end = week_start + timedelta(days=6)
     department = c2.selectbox("Department", _department_names(conn))
     view_mode = c3.selectbox("View", ["All", "Exceptions only", "Missing logs", "Pending review", "Holidays"])
     if c4.button("Refresh"):
         st.rerun()
+    if st.session_state.get("calendar_last_save"):
+        st.success(st.session_state.pop("calendar_last_save"))
     employees, grid, holidays = _load_week(conn, week_start, week_end, department)
     days = [week_start + timedelta(days=i) for i in range(7)]
 
@@ -418,6 +445,7 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
             d_iso = _iso(d)
             label = _cell_button_label(d, grid.get((int(emp["id"]), d_iso), {}), holidays.get(d_iso))
             if cols[i + 1].button(label, key=f"cal_card_{emp['id']}_{d_iso}", use_container_width=True):
+                st.session_state["calendar_week_anchor"] = d_iso
                 st.session_state["calendar_cell_to_edit"] = {"employee_id": int(emp["id"]), "date": d_iso}
                 st.rerun()
 
@@ -446,5 +474,7 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
             emp_label = left.selectbox("Employee", list(opts.keys()))
             selected_date = right.date_input("Date", value=week_start, min_value=week_start, max_value=week_end, key="fallback_cal_date")
             if st.button("Open editor"):
-                st.session_state["calendar_cell_to_edit"] = {"employee_id": int(opts[emp_label]), "date": _iso(selected_date)}
+                selected_iso = _iso(selected_date)
+                st.session_state["calendar_week_anchor"] = selected_iso
+                st.session_state["calendar_cell_to_edit"] = {"employee_id": int(opts[emp_label]), "date": selected_iso}
                 st.rerun()
