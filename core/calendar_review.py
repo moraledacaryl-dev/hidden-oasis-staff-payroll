@@ -225,6 +225,7 @@ def _mark_leave(conn, employee_id: int, day: str, leave_name: str, actor: str) -
 
 def _render_editor(conn, current_user: str, employee_id: int, selected_date: date, audit_func=None) -> None:
     day = _iso(selected_date)
+    key_prefix = f"cal_editor_{employee_id}_{day}"
     emp = fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,)) or {}
     schedule = fetchone(conn, "SELECT * FROM schedules WHERE employee_id=? AND work_date=? ORDER BY shift_start LIMIT 1", (employee_id, day))
     log = fetchone(conn, "SELECT * FROM time_logs WHERE employee_id=? AND work_date=? ORDER BY id DESC LIMIT 1", (employee_id, day))
@@ -235,60 +236,62 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
     with tabs[0]:
         with st.form(f"sched_{employee_id}_{day}"):
             a, b, c = st.columns(3)
-            shift_start = a.time_input("Shift start", value=_parse_time((schedule or {}).get("shift_start"), "08:00"))
-            shift_end = b.time_input("Shift end", value=_parse_time((schedule or {}).get("shift_end"), "17:00"))
+            shift_start = a.time_input("Shift start", value=_parse_time((schedule or {}).get("shift_start"), "08:00"), key=f"{key_prefix}_shift_start")
+            shift_end = b.time_input("Shift end", value=_parse_time((schedule or {}).get("shift_end"), "17:00"), key=f"{key_prefix}_shift_end")
             default_break = int((schedule or {}).get("break_minutes") or (0 if str(emp.get("department", "")).lower() == "security" else 60))
-            break_minutes = c.number_input("Break minutes", min_value=0, value=default_break, step=15)
+            break_minutes = c.number_input("Break minutes", min_value=0, value=default_break, step=15, key=f"{key_prefix}_break_minutes")
             dept_options = [""] + _department_names(conn, include_all=False)
             default_dept = (schedule or {}).get("department") or emp.get("department") or ""
             dept_idx = dept_options.index(default_dept) if default_dept in dept_options else 0
-            dept = st.selectbox("Department / Area", dept_options, index=dept_idx)
-            rest = st.checkbox("Rest day", value=bool((schedule or {}).get("is_rest_day") or 0))
-            notes = st.text_area("Schedule notes", value=str((schedule or {}).get("notes") or ""))
+            dept = st.selectbox("Department / Area", dept_options, index=dept_idx, key=f"{key_prefix}_dept")
+            rest = st.checkbox("Rest day", value=bool((schedule or {}).get("is_rest_day") or 0), key=f"{key_prefix}_rest")
+            notes = st.text_area("Schedule notes", value=str((schedule or {}).get("notes") or ""), key=f"{key_prefix}_schedule_notes")
             if st.form_submit_button("Save schedule", type="primary"):
                 _save_schedule(conn, employee_id, day, shift_start.strftime("%H:%M"), shift_end.strftime("%H:%M"), int(break_minutes), dept, rest, notes, int(schedule["id"]) if schedule else None)
+                st.session_state["calendar_cell_to_edit"] = {"employee_id": employee_id, "date": day}
                 st.success("Schedule saved.")
                 st.rerun()
 
     with tabs[1]:
         with st.form(f"log_{employee_id}_{day}"):
             a, b, c = st.columns(3)
-            actual_in = a.time_input("Actual in", value=_parse_time((log or {}).get("actual_in"), "08:00"))
-            actual_out = b.time_input("Actual out", value=_parse_time((log or {}).get("actual_out"), "17:00"))
-            missing_out = c.checkbox("No time out yet", value=not bool((log or {}).get("actual_out")))
-            absent = st.checkbox("Mark absent", value=bool((log or {}).get("is_absent") or 0))
+            actual_in = a.time_input("Actual in", value=_parse_time((log or {}).get("actual_in"), "08:00"), key=f"{key_prefix}_actual_in")
+            actual_out = b.time_input("Actual out", value=_parse_time((log or {}).get("actual_out"), "17:00"), key=f"{key_prefix}_actual_out")
+            missing_out = c.checkbox("No time out yet", value=not bool((log or {}).get("actual_out")), key=f"{key_prefix}_missing_out")
+            absent = st.checkbox("Mark absent", value=bool((log or {}).get("is_absent") or 0), key=f"{key_prefix}_absent")
             absence_options = ["", "Absent", "Service Incentive Leave", "Sick Leave", "Bereavement Leave", "Unpaid Leave"]
             old_absence = str((log or {}).get("absence_type") or "")
-            absence_type = st.selectbox("Absence / leave type", absence_options, index=absence_options.index(old_absence) if old_absence in absence_options else 0)
+            absence_type = st.selectbox("Absence / leave type", absence_options, index=absence_options.index(old_absence) if old_absence in absence_options else 0, key=f"{key_prefix}_absence_type")
             d, e, f = st.columns(3)
             attendance_options = ["Pending", "Reviewed", "Needs Manager", "Disputed"]
             old_att = (log or {}).get("attendance_status") if (log or {}).get("attendance_status") in attendance_options else "Pending"
-            attendance_status = d.selectbox("Attendance status", attendance_options, index=attendance_options.index(old_att))
+            attendance_status = d.selectbox("Attendance status", attendance_options, index=attendance_options.index(old_att), key=f"{key_prefix}_attendance_status")
             ot_options = ["None", "Pending", "Approved", "Rejected"]
             old_ot = (log or {}).get("ot_status") if (log or {}).get("ot_status") in ot_options else "None"
-            ot_status = e.selectbox("OT status", ot_options, index=ot_options.index(old_ot))
-            approved_ot = f.number_input("Approved OT hours", min_value=0.0, value=float((log or {}).get("approved_ot_hours") or 0), step=0.25)
-            notes = st.text_area("Log / OT notes", value=str((log or {}).get("notes") or ""))
+            ot_status = e.selectbox("OT status", ot_options, index=ot_options.index(old_ot), key=f"{key_prefix}_ot_status")
+            approved_ot = f.number_input("Approved OT hours", min_value=0.0, value=float((log or {}).get("approved_ot_hours") or 0), step=0.25, key=f"{key_prefix}_approved_ot")
+            notes = st.text_area("Log / OT notes", value=str((log or {}).get("notes") or ""), key=f"{key_prefix}_log_notes")
             if st.form_submit_button("Save actual / OT", type="primary"):
                 in_text = "" if absent else actual_in.strftime("%H:%M")
                 out_text = "" if absent or missing_out else actual_out.strftime("%H:%M")
                 _save_log(conn, employee_id, day, in_text, out_text, absent, absence_type, approved_ot, ot_status, attendance_status, notes, int(log["id"]) if log else None)
+                st.session_state["calendar_cell_to_edit"] = {"employee_id": employee_id, "date": day}
                 st.success("Actual log saved.")
                 st.rerun()
 
     with tabs[2]:
         leave_names = [r["name"] for r in fetchall(conn, "SELECT name FROM leave_types WHERE active=1 ORDER BY name")] or ["Service Incentive Leave", "Sick Leave", "Bereavement Leave", "Unpaid Leave"]
-        leave_name = st.selectbox("Leave type", leave_names)
-        if st.button("Save approved leave", type="primary"):
+        leave_name = st.selectbox("Leave type", leave_names, key=f"{key_prefix}_leave_name")
+        if st.button("Save approved leave", type="primary", key=f"{key_prefix}_save_leave"):
             _mark_leave(conn, employee_id, day, leave_name, current_user)
             st.success("Leave saved.")
             st.rerun()
 
     with tabs[3]:
         with st.form(f"holiday_{day}"):
-            hname = st.text_input("Holiday name", value=str((holiday or {}).get("name") or ""))
-            htype = st.selectbox("Holiday type", ["Regular", "Special"], index=0 if (holiday or {}).get("holiday_type") != "Special" else 1)
-            hnotes = st.text_area("Holiday notes", value=str((holiday or {}).get("notes") or ""))
+            hname = st.text_input("Holiday name", value=str((holiday or {}).get("name") or ""), key=f"{key_prefix}_holiday_name")
+            htype = st.selectbox("Holiday type", ["Regular", "Special"], index=0 if (holiday or {}).get("holiday_type") != "Special" else 1, key=f"{key_prefix}_holiday_type")
+            hnotes = st.text_area("Holiday notes", value=str((holiday or {}).get("notes") or ""), key=f"{key_prefix}_holiday_notes")
             if st.form_submit_button("Save holiday for this date", type="primary"):
                 if not hname.strip():
                     st.error("Holiday name is required.")
@@ -299,22 +302,22 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
 
     with tabs[4]:
         q1, q2, q3, q4 = st.columns(4)
-        if q1.button("Mark reviewed"):
+        if q1.button("Mark reviewed", key=f"{key_prefix}_mark_reviewed"):
             if log:
                 execute(conn, "UPDATE time_logs SET attendance_status='Reviewed', reviewed_by=?, reviewed_at=?, updated_at=? WHERE id=?", (current_user, now_iso(), now_iso(), int(log["id"])))
             else:
                 _save_log(conn, employee_id, day, "", "", False, "", 0, "None", "Reviewed", "Reviewed empty day", None)
             st.success("Reviewed.")
             st.rerun()
-        if q2.button("Rest day"):
+        if q2.button("Rest day", key=f"{key_prefix}_rest_day_quick"):
             _save_schedule(conn, employee_id, day, "00:00", "00:00", 0, str(emp.get("department") or ""), True, "Marked rest day", int(schedule["id"]) if schedule else None)
             st.success("Rest day saved.")
             st.rerun()
-        if q3.button("Copy S → A") and schedule:
+        if q3.button("Copy S → A", key=f"{key_prefix}_copy_schedule_actual") and schedule:
             _save_log(conn, employee_id, day, str(schedule["shift_start"]), str(schedule["shift_end"]), False, "", 0, "None", "Reviewed", "Copied schedule to actual", int(log["id"]) if log else None)
             st.success("Copied.")
             st.rerun()
-        if q4.button("Absent"):
+        if q4.button("Absent", key=f"{key_prefix}_absent_quick"):
             _save_log(conn, employee_id, day, "", "", True, "Absent", 0, "None", "Reviewed", "Marked absent", int(log["id"]) if log else None)
             st.success("Absent saved.")
             st.rerun()
