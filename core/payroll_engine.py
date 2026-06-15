@@ -315,20 +315,26 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             paid_actual = comp["paid_actual_hours"]
 
             # Hidden Oasis payroll rule:
-            # regular paid hours come only from actual work inside the scheduled window.
-            # Early arrivals and late outs are not paid unless approved as OT.
+            # 1) Paid hours are limited to the scheduled window.
+            # 2) Outside-schedule early/late time is paid only when approved as OT.
+            # 3) Inside-schedule paid time beyond 12 hours is automatically OT.
             inside_schedule_paid = round(float(comp.get("worked_inside_schedule_hours") or 0), 4)
             outside_schedule_paid = round(max(0.0, paid_actual - inside_schedule_paid), 4)
             approved_ot = float(log.get("approved_ot_hours") or 0)
+            inside_schedule_ot_threshold = float(get_setting(conn, "inside_schedule_ot_threshold_hours", "12") or 12)
 
-            regular_hours = round(min(standard_paid_hours, inside_schedule_paid), 4)
-            detected_extra = outside_schedule_paid
-            payable_ot = round(min(approved_ot, outside_schedule_paid), 4)
+            auto_inside_schedule_ot = round(max(0.0, inside_schedule_paid - inside_schedule_ot_threshold), 4)
+            regular_hours = round(min(inside_schedule_paid, inside_schedule_ot_threshold), 4)
+            approved_outside_schedule_ot = round(min(approved_ot, outside_schedule_paid), 4)
+            detected_extra = round(auto_inside_schedule_ot + outside_schedule_paid, 4)
+            payable_ot = round(auto_inside_schedule_ot + approved_outside_schedule_ot, 4)
 
             # Safety guard: regular + paid OT must never exceed actual paid worked hours.
             if regular_hours + payable_ot > paid_actual + 0.0001:
                 payable_ot = round(max(0.0, paid_actual - regular_hours), 4)
 
+            if auto_inside_schedule_ot > 0:
+                warnings.append(f"Inside-schedule hours beyond {inside_schedule_ot_threshold:g} on {log['work_date']} were paid as OT.")
             if outside_schedule_paid > 0 and approved_ot <= 0:
                 warnings.append(f"Unapproved outside-schedule time on {log['work_date']} was detected but not paid as OT.")
             elif approved_ot > outside_schedule_paid + 0.01:
