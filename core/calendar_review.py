@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
 import html
 
 import streamlit as st
@@ -85,16 +84,8 @@ def _load_week(conn, start: date, end: date, department: str) -> tuple[list[dict
     if not emp_ids:
         return employees, grid, holidays
     ph = ",".join(["?"] * len(emp_ids))
-    schedules = fetchall(
-        conn,
-        f"SELECT * FROM schedules WHERE employee_id IN ({ph}) AND work_date BETWEEN ? AND ? ORDER BY work_date, shift_start",
-        (*emp_ids, _iso(start), _iso(end)),
-    )
-    logs = fetchall(
-        conn,
-        f"SELECT * FROM time_logs WHERE employee_id IN ({ph}) AND work_date BETWEEN ? AND ? ORDER BY work_date, actual_in",
-        (*emp_ids, _iso(start), _iso(end)),
-    )
+    schedules = fetchall(conn, f"SELECT * FROM schedules WHERE employee_id IN ({ph}) AND work_date BETWEEN ? AND ? ORDER BY work_date, shift_start", (*emp_ids, _iso(start), _iso(end)))
+    logs = fetchall(conn, f"SELECT * FROM time_logs WHERE employee_id IN ({ph}) AND work_date BETWEEN ? AND ? ORDER BY work_date, actual_in", (*emp_ids, _iso(start), _iso(end)))
     for row in schedules:
         grid.setdefault((int(row["employee_id"]), str(row["work_date"])), {})["schedule"] = row
     for row in logs:
@@ -140,7 +131,7 @@ def _short(label: str) -> str:
     }.get(label, label[:14])
 
 
-def _cell_html(emp: dict[str, Any], day: date, cell: dict[str, Any], holiday: dict[str, Any] | None) -> str:
+def _cell_card_html(day: date, cell: dict[str, Any], holiday: dict[str, Any] | None) -> str:
     schedule = cell.get("schedule")
     log = cell.get("log")
     label, icon, kind = _status(cell, holiday)
@@ -156,84 +147,47 @@ def _cell_html(emp: dict[str, Any], day: date, cell: dict[str, Any], holiday: di
         a_text = f"{_time_text(log.get('actual_in'))}-{_time_text(log.get('actual_out')) or '—'}"
     else:
         a_text = "—"
-    day_iso = _iso(day)
-    href = "?" + urlencode({"cal_emp": int(emp["id"]), "cal_date": day_iso})
     mini_holiday = f"<div class='cal-mini'>🎌 {_h(holiday['name'])}</div>" if holiday else ""
     return f"""
-    <a class="cal-cell cal-{kind}" href="{href}" target="_self">
+    <div class="cal-card cal-{kind}">
       <div class="cal-top"><span>{icon}</span><span>{day.strftime('%a %d')}</span></div>
       <div class="cal-status">{_h(_short(label))}</div>
       <div class="cal-line"><b>S</b> {_h(s_text)}</div>
       <div class="cal-line"><b>A</b> {_h(a_text)}</div>
       {mini_holiday}
-    </a>
+    </div>
     """
 
 
-def _render_grid(employees: list[dict[str, Any]], days: list[date], grid: dict[tuple[int, str], dict[str, Any]], holidays: dict[str, dict[str, Any]]) -> None:
-    css = """
-    <style>
-    .cal-legend{border:1px solid #e7dfd5;background:#fffaf2;border-radius:16px;padding:10px 12px;margin:8px 0 12px;color:#584f45;font-size:.86rem;}
-    .cal-shell{overflow-x:auto;border:1px solid #e7dfd5;border-radius:18px;background:#fffaf3;padding:12px;}
-    .cal-grid{display:grid;grid-template-columns:220px repeat(7,154px);gap:8px;align-items:stretch;min-width:1320px;}
-    .cal-head,.cal-emp,.cal-cell{box-sizing:border-box;border-radius:14px;border:1px solid #ded4c8;overflow:hidden;}
-    .cal-head{background:#f7f0e7;color:#332d26;font-weight:800;padding:10px 12px;height:62px;min-height:62px;max-height:62px;display:flex;flex-direction:column;justify-content:center;}
-    .cal-head-sub{font-size:.68rem;color:#8a5b0a;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
-    .cal-emp{background:#fffdf8;height:104px;min-height:104px;max-height:104px;padding:12px;display:flex;flex-direction:column;justify-content:center;}
-    .cal-emp-name{font-weight:800;color:#2f2923;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:5px;}
-    .cal-emp-meta{font-size:.72rem;color:#74695f;line-height:1.25;}
-    a.cal-cell{height:104px;min-height:104px;max-height:104px;text-decoration:none;color:#302a24;padding:9px 10px;display:block;transition:.08s ease;}
-    a.cal-cell:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(45,35,25,.10);border-color:#b8a794;}
-    .cal-top{display:flex;gap:5px;align-items:center;font-size:.76rem;font-weight:800;white-space:nowrap;}
-    .cal-status{font-size:.72rem;font-weight:800;margin:4px 0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .cal-line{font-size:.69rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .cal-mini{display:block;margin-top:3px;font-size:.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8a5b0a;font-weight:700;}
-    .cal-empty{background:#f3f1ee;border-color:#ddd8d1;color:#77716a;}
-    .cal-rest{background:#eeeae3;border-color:#d6cec4;color:#6e665f;}
-    .cal-scheduled{background:#fff8df;border-color:#e6c96d;}
-    .cal-ok{background:#edf8ee;border-color:#9fd3a4;}
-    .cal-late{background:#fff0cd;border-color:#e2b341;}
-    .cal-pending{background:#e8f0ff;border-color:#9fbde9;}
-    .cal-absent{background:#ffe7e2;border-color:#e69a90;}
-    .cal-leave{background:#f1e7ff;border-color:#c5a6ed;}
-    .cal-holiday{background:#fff3d2;border-color:#d9ac45;}
-    </style>
-    """
-    html_parts = [css, "<div class='cal-legend'><b>Legend:</b> green OK · yellow scheduled/late/missing · blue pending · red absent · purple leave · gold holiday · gray empty/rest</div>"]
-    html_parts.append("<div class='cal-shell'><div class='cal-grid'>")
-    html_parts.append("<div class='cal-head'>Employee</div>")
-    for d in days:
-        hday = holidays.get(_iso(d))
-        sub = f"<div class='cal-head-sub'>🎌 {_h(hday['name'])}</div>" if hday else ""
-        html_parts.append(f"<div class='cal-head'>{d.strftime('%a %b %d')}{sub}</div>")
-    for emp in employees:
-        html_parts.append(f"<div class='cal-emp'><div class='cal-emp-name'>{_h(emp['full_name'])}</div><div class='cal-emp-meta'>{_h(emp.get('employee_code',''))}<br>{_h(emp.get('department',''))} • {_h(emp.get('position',''))}</div></div>")
-        for d in days:
-            html_parts.append(_cell_html(emp, d, grid.get((int(emp["id"]), _iso(d)), {}), holidays.get(_iso(d))))
-    html_parts.append("</div></div>")
-    st.markdown("".join(html_parts), unsafe_allow_html=True)
-
-
-def _query_params() -> tuple[int | None, str | None]:
-    try:
-        params = st.query_params
-        emp = params.get("cal_emp")
-        day = params.get("cal_date")
-    except Exception:
-        params = st.experimental_get_query_params()
-        emp = (params.get("cal_emp") or [None])[0]
-        day = (params.get("cal_date") or [None])[0]
-    try:
-        return (int(emp), str(day)) if emp and day else (None, None)
-    except Exception:
-        return None, None
-
-
-def _clear_query() -> None:
-    try:
-        st.query_params.clear()
-    except Exception:
-        st.experimental_set_query_params()
+def _calendar_css() -> None:
+    st.markdown(
+        """
+        <style>
+        .cal-legend{border:1px solid #e7dfd5;background:#fffaf2;border-radius:16px;padding:10px 12px;margin:8px 0 12px;color:#584f45;font-size:.86rem;}
+        .cal-header{height:56px;min-height:56px;border:1px solid #e6dccc;border-radius:14px;background:#f8f2e9;padding:9px 10px;font-weight:800;color:#3f372f;box-sizing:border-box;overflow:hidden;}
+        .cal-header-sub{font-size:.68rem;color:#8a5b0a;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
+        .cal-emp{height:116px;min-height:116px;max-height:116px;border:1px solid #e4dbcf;border-radius:14px;background:#fffdf8;padding:12px;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:center;}
+        .cal-emp-name{font-weight:800;color:#2f2923;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:5px;}
+        .cal-emp-meta{font-size:.72rem;color:#74695f;line-height:1.25;}
+        .cal-card{height:86px;min-height:86px;max-height:86px;border-radius:14px;border:1px solid #ded4c8;padding:9px 10px;box-sizing:border-box;overflow:hidden;color:#302a24;}
+        .cal-top{display:flex;gap:5px;align-items:center;font-size:.76rem;font-weight:800;white-space:nowrap;}
+        .cal-status{font-size:.72rem;font-weight:800;margin:4px 0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .cal-line{font-size:.69rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .cal-mini{display:block;margin-top:3px;font-size:.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8a5b0a;font-weight:700;}
+        .cal-empty{background:#f3f1ee;border-color:#ddd8d1;color:#77716a;}
+        .cal-rest{background:#eeeae3;border-color:#d6cec4;color:#6e665f;}
+        .cal-scheduled{background:#fff8df;border-color:#e6c96d;}
+        .cal-ok{background:#edf8ee;border-color:#9fd3a4;}
+        .cal-late{background:#fff0cd;border-color:#e2b341;}
+        .cal-pending{background:#e8f0ff;border-color:#9fbde9;}
+        .cal-absent{background:#ffe7e2;border-color:#e69a90;}
+        .cal-leave{background:#f1e7ff;border-color:#c5a6ed;}
+        .cal-holiday{background:#fff3d2;border-color:#d9ac45;}
+        div[data-testid="column"] .stButton > button {height:26px;min-height:26px;padding:0 8px;font-size:.72rem;border-radius:10px;margin-top:4px;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _save_schedule(conn, employee_id: int, work_date: str, shift_start: str, shift_end: str, break_minutes: int, department: str, rest_day: bool, notes: str, schedule_id: int | None = None) -> None:
@@ -356,11 +310,10 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
             _save_schedule(conn, employee_id, day, "00:00", "00:00", 0, str(emp.get("department") or ""), True, "Marked rest day", int(schedule["id"]) if schedule else None)
             st.success("Rest day saved.")
             st.rerun()
-        if q3.button("Copy S → A"):
-            if schedule:
-                _save_log(conn, employee_id, day, str(schedule["shift_start"]), str(schedule["shift_end"]), False, "", 0, "None", "Reviewed", "Copied schedule to actual", int(log["id"]) if log else None)
-                st.success("Copied.")
-                st.rerun()
+        if q3.button("Copy S → A") and schedule:
+            _save_log(conn, employee_id, day, str(schedule["shift_start"]), str(schedule["shift_end"]), False, "", 0, "None", "Reviewed", "Copied schedule to actual", int(log["id"]) if log else None)
+            st.success("Copied.")
+            st.rerun()
         if q4.button("Absent"):
             _save_log(conn, employee_id, day, "", "", True, "Absent", 0, "None", "Reviewed", "Marked absent", int(log["id"]) if log else None)
             st.success("Absent saved.")
@@ -369,7 +322,8 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
 
 def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
     st.title("Calendar Review")
-    st.caption("Same-size semi-colored clickable calendar cells. Click a cell to edit schedule, actual log, rest day, leave, holiday, and OT details.")
+    st.caption("Same-size semi-colored calendar cells. Use the Edit button inside a cell; this keeps you logged in and opens the popup without navigating away.")
+    _calendar_css()
     c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1])
     week_start = c1.date_input("Week start", value=date.today() - timedelta(days=date.today().weekday()))
     week_start = week_start - timedelta(days=week_start.weekday())
@@ -388,7 +342,7 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
             label, _icon, _kind = _status(grid.get((int(emp["id"]), _iso(d)), {}), holidays.get(_iso(d)))
             if view_mode == "Exceptions only" and label not in {"OK", "Empty", "Regular", "Special"}:
                 return True
-            if view_mode == "Missing logs" and label in {"No log", "Missing out", "Scheduled"}:
+            if view_mode == "Missing logs" and label in {"Scheduled", "Missing out"}:
                 return True
             if view_mode == "Pending review" and label in {"Pending", "Needs Manager", "Disputed"}:
                 return True
@@ -397,25 +351,40 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
         return False
 
     employees = [e for e in employees if include_emp(e)]
-    _render_grid(employees, days, grid, holidays)
+    st.markdown("<div class='cal-legend'><b>Legend:</b> green OK · yellow scheduled/late/missing · blue pending · red absent · purple leave · gold holiday · gray empty/rest</div>", unsafe_allow_html=True)
 
-    emp_id, day_iso = _query_params()
-    if emp_id and day_iso:
-        try:
-            selected_date = datetime.strptime(day_iso, "%Y-%m-%d").date()
-            if hasattr(st, "dialog"):
-                @st.dialog("Edit schedule / actual / leave / holiday / OT", width="large")
-                def popup() -> None:
-                    _render_editor(conn, current_user, emp_id, selected_date, audit_func)
-                    if st.button("Close"):
-                        _clear_query()
-                        st.rerun()
-                popup()
-            else:
-                st.markdown("---")
-                _render_editor(conn, current_user, emp_id, selected_date, audit_func)
-        except Exception as exc:
-            st.error(f"Could not open calendar cell: {exc}")
+    header = st.columns([1.35] + [1] * 7)
+    header[0].markdown("<div class='cal-header'>Employee</div>", unsafe_allow_html=True)
+    for i, d in enumerate(days):
+        holiday = holidays.get(_iso(d))
+        sub = f"<div class='cal-header-sub'>🎌 {_h(holiday['name'])}</div>" if holiday else ""
+        header[i + 1].markdown(f"<div class='cal-header'>{d.strftime('%a %b %d')}{sub}</div>", unsafe_allow_html=True)
+
+    for emp in employees:
+        cols = st.columns([1.35] + [1] * 7)
+        cols[0].markdown(f"<div class='cal-emp'><div class='cal-emp-name'>{_h(emp['full_name'])}</div><div class='cal-emp-meta'>{_h(emp.get('employee_code',''))}<br>{_h(emp.get('department',''))} • {_h(emp.get('position',''))}</div></div>", unsafe_allow_html=True)
+        for i, d in enumerate(days):
+            d_iso = _iso(d)
+            cols[i + 1].markdown(_cell_card_html(d, grid.get((int(emp["id"]), d_iso), {}), holidays.get(d_iso)), unsafe_allow_html=True)
+            if cols[i + 1].button("Edit", key=f"edit_cal_{emp['id']}_{d_iso}", use_container_width=True):
+                st.session_state["calendar_cell_to_edit"] = {"employee_id": int(emp["id"]), "date": d_iso}
+                st.rerun()
+
+    payload = st.session_state.get("calendar_cell_to_edit")
+    if payload:
+        selected_date = datetime.strptime(str(payload["date"]), "%Y-%m-%d").date()
+        employee_id = int(payload["employee_id"])
+        if hasattr(st, "dialog"):
+            @st.dialog("Edit schedule / actual / leave / holiday / OT", width="large")
+            def popup() -> None:
+                _render_editor(conn, current_user, employee_id, selected_date, audit_func)
+                if st.button("Close"):
+                    st.session_state.pop("calendar_cell_to_edit", None)
+                    st.rerun()
+            popup()
+        else:
+            st.markdown("---")
+            _render_editor(conn, current_user, employee_id, selected_date, audit_func)
 
     with st.expander("Direct selector fallback"):
         opts = _employee_options(conn, department)
@@ -424,4 +393,5 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
             emp_label = left.selectbox("Employee", list(opts.keys()))
             selected_date = right.date_input("Date", value=week_start, min_value=week_start, max_value=week_end, key="fallback_cal_date")
             if st.button("Open editor"):
-                _render_editor(conn, current_user, int(opts[emp_label]), selected_date, audit_func)
+                st.session_state["calendar_cell_to_edit"] = {"employee_id": int(opts[emp_label]), "date": _iso(selected_date)}
+                st.rerun()
