@@ -131,10 +131,10 @@ def _short(label: str) -> str:
     }.get(label, label[:14])
 
 
-def _cell_card_html(day: date, cell: dict[str, Any], holiday: dict[str, Any] | None) -> str:
+def _cell_button_label(day: date, cell: dict[str, Any], holiday: dict[str, Any] | None) -> str:
     schedule = cell.get("schedule")
     log = cell.get("log")
-    label, icon, kind = _status(cell, holiday)
+    label, icon, _kind = _status(cell, holiday)
     if schedule and int(schedule.get("is_rest_day") or 0):
         s_text = "Rest"
     elif schedule:
@@ -147,16 +147,8 @@ def _cell_card_html(day: date, cell: dict[str, Any], holiday: dict[str, Any] | N
         a_text = f"{_time_text(log.get('actual_in'))}-{_time_text(log.get('actual_out')) or '—'}"
     else:
         a_text = "—"
-    mini_holiday = f"<div class='cal-mini'>🎌 {_h(holiday['name'])}</div>" if holiday else ""
-    return f"""
-    <div class="cal-card cal-{kind}">
-      <div class="cal-top"><span>{icon}</span><span>{day.strftime('%a %d')}</span></div>
-      <div class="cal-status">{_h(_short(label))}</div>
-      <div class="cal-line"><b>S</b> {_h(s_text)}</div>
-      <div class="cal-line"><b>A</b> {_h(a_text)}</div>
-      {mini_holiday}
-    </div>
-    """
+    holiday_line = f"\n🎌 {holiday['name'][:13]}" if holiday else ""
+    return f"{icon} {day.strftime('%a %d')}\n{_short(label)}\nS {s_text}\nA {a_text}{holiday_line}"
 
 
 def _calendar_css() -> None:
@@ -164,26 +156,34 @@ def _calendar_css() -> None:
         """
         <style>
         .cal-legend{border:1px solid #e7dfd5;background:#fffaf2;border-radius:16px;padding:10px 12px;margin:8px 0 12px;color:#584f45;font-size:.86rem;}
-        .cal-header{height:56px;min-height:56px;border:1px solid #e6dccc;border-radius:14px;background:#f8f2e9;padding:9px 10px;font-weight:800;color:#3f372f;box-sizing:border-box;overflow:hidden;}
+        .cal-header{height:58px;min-height:58px;border:1px solid #e6dccc;border-radius:14px;background:#f8f2e9;padding:9px 10px;font-weight:800;color:#3f372f;box-sizing:border-box;overflow:hidden;}
         .cal-header-sub{font-size:.68rem;color:#8a5b0a;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
         .cal-emp{height:116px;min-height:116px;max-height:116px;border:1px solid #e4dbcf;border-radius:14px;background:#fffdf8;padding:12px;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:center;}
         .cal-emp-name{font-weight:800;color:#2f2923;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:5px;}
         .cal-emp-meta{font-size:.72rem;color:#74695f;line-height:1.25;}
-        .cal-card{height:86px;min-height:86px;max-height:86px;border-radius:14px;border:1px solid #ded4c8;padding:9px 10px;box-sizing:border-box;overflow:hidden;color:#302a24;}
-        .cal-top{display:flex;gap:5px;align-items:center;font-size:.76rem;font-weight:800;white-space:nowrap;}
-        .cal-status{font-size:.72rem;font-weight:800;margin:4px 0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .cal-line{font-size:.69rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .cal-mini{display:block;margin-top:3px;font-size:.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8a5b0a;font-weight:700;}
-        .cal-empty{background:#f3f1ee;border-color:#ddd8d1;color:#77716a;}
-        .cal-rest{background:#eeeae3;border-color:#d6cec4;color:#6e665f;}
-        .cal-scheduled{background:#fff8df;border-color:#e6c96d;}
-        .cal-ok{background:#edf8ee;border-color:#9fd3a4;}
-        .cal-late{background:#fff0cd;border-color:#e2b341;}
-        .cal-pending{background:#e8f0ff;border-color:#9fbde9;}
-        .cal-absent{background:#ffe7e2;border-color:#e69a90;}
-        .cal-leave{background:#f1e7ff;border-color:#c5a6ed;}
-        .cal-holiday{background:#fff3d2;border-color:#d9ac45;}
-        div[data-testid="column"] .stButton > button {height:26px;min-height:26px;padding:0 8px;font-size:.72rem;border-radius:10px;margin-top:4px;}
+        div[data-testid="column"] .stButton > button {
+            height:116px !important;
+            min-height:116px !important;
+            max-height:116px !important;
+            width:100% !important;
+            text-align:left !important;
+            justify-content:flex-start !important;
+            align-items:flex-start !important;
+            white-space:pre-line !important;
+            line-height:1.20 !important;
+            border-radius:14px !important;
+            border:1px solid #ded4c8 !important;
+            background:#fffaf0 !important;
+            color:#302a24 !important;
+            padding:10px 11px !important;
+            box-sizing:border-box !important;
+            overflow:hidden !important;
+            font-size:.74rem !important;
+            font-weight:700 !important;
+            box-shadow:none !important;
+        }
+        div[data-testid="column"] .stButton > button:hover {border-color:#b8a794 !important;box-shadow:0 4px 12px rgba(45,35,25,.10) !important;transform:translateY(-1px);}
+        div[data-testid="column"] .stButton > button p {margin:0 !important;max-height:94px !important;overflow:hidden !important;}
         </style>
         """,
         unsafe_allow_html=True,
@@ -322,7 +322,7 @@ def _render_editor(conn, current_user: str, employee_id: int, selected_date: dat
 
 def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
     st.title("Calendar Review")
-    st.caption("Same-size semi-colored calendar cells. Use the Edit button inside a cell; this keeps you logged in and opens the popup without navigating away.")
+    st.caption("Click the card itself to edit. This uses Streamlit session state, so it should not send you back to login.")
     _calendar_css()
     c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1])
     week_start = c1.date_input("Week start", value=date.today() - timedelta(days=date.today().weekday()))
@@ -365,8 +365,8 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
         cols[0].markdown(f"<div class='cal-emp'><div class='cal-emp-name'>{_h(emp['full_name'])}</div><div class='cal-emp-meta'>{_h(emp.get('employee_code',''))}<br>{_h(emp.get('department',''))} • {_h(emp.get('position',''))}</div></div>", unsafe_allow_html=True)
         for i, d in enumerate(days):
             d_iso = _iso(d)
-            cols[i + 1].markdown(_cell_card_html(d, grid.get((int(emp["id"]), d_iso), {}), holidays.get(d_iso)), unsafe_allow_html=True)
-            if cols[i + 1].button("Edit", key=f"edit_cal_{emp['id']}_{d_iso}", use_container_width=True):
+            label = _cell_button_label(d, grid.get((int(emp["id"]), d_iso), {}), holidays.get(d_iso))
+            if cols[i + 1].button(label, key=f"cal_card_{emp['id']}_{d_iso}", use_container_width=True):
                 st.session_state["calendar_cell_to_edit"] = {"employee_id": int(emp["id"]), "date": d_iso}
                 st.rerun()
 
