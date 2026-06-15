@@ -430,6 +430,13 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
                     result.paid_leave_pay += paid_days_in_cutoff * standard_paid_hours * hourly_rate
                     warnings.append(f"Paid leave '{lr['leave_name']}' pays {paid_days_in_cutoff:g} unique day(s) x {standard_paid_hours:g} standard hours.")
 
+        for hol_date in regular_holidays:
+            if hol_date in regular_holiday_base_paid_dates or hol_date in log_dates or hol_date in approved_leave_dates:
+                continue
+            result.holiday_pay += standard_paid_hours * hourly_rate
+            regular_holiday_base_paid_dates.add(hol_date)
+            warnings.append(f"Regular holiday base pay on {hol_date} was paid even with no worked log.")
+
         for work_date, sched in sched_by_date.items():
             if work_date in regular_holidays:
                 continue
