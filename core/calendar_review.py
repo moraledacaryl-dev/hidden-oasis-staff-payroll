@@ -377,12 +377,19 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
     if payload:
         selected_date = datetime.strptime(str(payload["date"]), "%Y-%m-%d").date()
         employee_id = int(payload["employee_id"])
-        st.markdown("---")
-        st.info(f"Editing selected calendar cell: {selected_date.strftime('%a, %b %d, %Y')} — employee ID {employee_id}")
-        if st.button("Close calendar editor", key=f"close_calendar_editor_{employee_id}_{_iso(selected_date)}"):
-            st.session_state.pop("calendar_cell_to_edit", None)
-            st.rerun()
-        _render_editor(conn, current_user, employee_id, selected_date, audit_func)
+        if hasattr(st, "dialog"):
+            @st.dialog(f"Edit {selected_date.strftime('%a, %b %d, %Y')}", width="large")
+            def popup() -> None:
+                st.info(f"Editing: {selected_date.strftime('%a, %b %d, %Y')} — employee ID {employee_id}")
+                _render_editor(conn, current_user, employee_id, selected_date, audit_func)
+                if st.button("Close", key=f"close_calendar_editor_{employee_id}_{_iso(selected_date)}"):
+                    st.session_state.pop("calendar_cell_to_edit", None)
+                    st.rerun()
+            popup()
+        else:
+            st.markdown("---")
+            st.info(f"Editing: {selected_date.strftime('%a, %b %d, %Y')} — employee ID {employee_id}")
+            _render_editor(conn, current_user, employee_id, selected_date, audit_func)
 
     with st.expander("Direct selector fallback"):
         opts = _employee_options(conn, department)
