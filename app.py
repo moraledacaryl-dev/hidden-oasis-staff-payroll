@@ -37,12 +37,14 @@ CSS = """
 .status-pill { border-radius: 999px; padding: 4px 10px; background: #f2efe9; display: inline-block; }
 .login-view [data-testid="stSidebar"] { display: none; }
 .login-card {
-    max-width: 420px;
-    margin: 8vh auto 0 auto;
+    width: min(420px, 100%);
+    display: grid;
+    gap: 18px;
+    margin: 0 auto;
     border: 1px solid #e1e6df;
     border-radius: 22px;
     padding: 30px;
-    background: rgba(255,255,255,.92);
+    background: rgba(255,255,255,.9);
     box-shadow: 0 24px 70px rgba(26,38,30,.09);
 }
 .login-mark {
@@ -51,23 +53,29 @@ CSS = """
     display: grid;
     place-items: center;
     border-radius: 15px;
-    background: #5f6f52;
+    background: #1f6a47;
     color: #fff;
     font-weight: 720;
-    letter-spacing: .03em;
-    margin-bottom: 18px;
+    letter-spacing: 0;
 }
 .login-title {
-    font-size: 2.1rem;
+    margin: 0;
+    font-size: 34px;
     font-weight: 720;
+    letter-spacing: 0;
     line-height: 1;
-    letter-spacing: -0.04em;
-    margin-bottom: 1.1rem;
 }
 .login-credit {
     color: #7b8179;
-    font-size: 0.8rem;
-    margin-top: 1rem;
+    font-size: 12px;
+}
+.login-card label {
+    color: #565b55 !important;
+    font-size: 12px !important;
+    font-weight: 650 !important;
+}
+.login-card input, .login-card [data-baseweb="select"] > div {
+    border-radius: 12px !important;
 }
 </style>
 """
@@ -131,7 +139,37 @@ if st.session_state["auth_user"] is None:
         """
         <style>
         [data-testid="stSidebar"] { display: none; }
-        .block-container { max-width: 560px; padding-top: 4rem; }
+        .stApp {
+            background:
+                radial-gradient(circle at top left, #f7fbf8 0, transparent 32%),
+                radial-gradient(circle at bottom right, #edf5f0 0, transparent 28%),
+                #f6f6f4;
+        }
+        .block-container {
+            max-width: 480px;
+            min-height: 100vh;
+            padding: 24px;
+            display: grid;
+            place-items: center;
+        }
+        div[data-testid="stForm"] {
+            border: 0;
+            padding: 0;
+            background: transparent;
+        }
+        div[data-testid="stForm"] > div {
+            display: grid;
+            gap: 13px;
+        }
+        .stButton button {
+            width: 100%;
+            padding: 11px 12px;
+            border-radius: 12px;
+            border: 1px solid #111;
+            background: #111;
+            color: #fff;
+            font-weight: 650;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -141,7 +179,7 @@ if st.session_state["auth_user"] is None:
         """
         <div class="login-card">
             <div class="login-mark">HO</div>
-            <div class="login-title">Staff & Payroll</div>
+            <h1 class="login-title">Staff & Payroll</h1>
         """,
         unsafe_allow_html=True,
     )
@@ -168,7 +206,8 @@ if st.session_state["auth_user"] is None:
                     "must_change_password": int(user.get("must_change_password") or 0),
                 }
                 st.rerun()
-    st.markdown("<div class='login-credit'>by C.M.</div></div></div>", unsafe_allow_html=True)
+    st.markdown("<small class='login-credit'>by C.M.</small>", unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
     st.stop()
 
 st.sidebar.title("Hidden Oasis")
