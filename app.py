@@ -25,6 +25,7 @@ from core.integration_operations import (
     enqueue_operations_snapshot, enqueue_payroll_ready_for_operations,
     enqueue_employee_status_for_operations
 )
+from core.calendar_review import render_calendar_review
 
 st.set_page_config(page_title="Hidden Oasis Staff & Payroll", layout="wide", page_icon="🕒")
 
@@ -765,6 +766,7 @@ page = st.sidebar.radio(
         "Home",
         "Staff",
         "Schedules & Logs",
+        "Calendar Review",
         "Attendance Review",
         "Leaves",
         "Cash Advances",
@@ -788,6 +790,7 @@ PAGE_ROLES = {
     "Home": ("Owner", "Manager", "Supervisor", "Reception", "Payroll Clerk", "Viewer"),
     "Staff": ("Owner", "Manager", "Payroll Clerk"),
     "Schedules & Logs": ("Owner", "Manager", "Supervisor", "Reception", "Payroll Clerk"),
+    "Calendar Review": ("Owner", "Manager", "Supervisor", "Reception", "Payroll Clerk"),
     "Attendance Review": ("Owner", "Manager", "Supervisor", "Reception"),
     "Leaves": ("Owner", "Manager", "Supervisor", "Payroll Clerk"),
     "Cash Advances": ("Owner", "Manager", "Payroll Clerk"),
@@ -1105,6 +1108,9 @@ elif page == "Schedules & Logs":
 
     with tabs[3]:
         show_table("Time Logs", "SELECT tl.work_date, e.full_name, tl.actual_in, tl.actual_out, tl.source, tl.verification_type, tl.attendance_status, tl.ot_status, tl.approved_ot_hours, tl.ot_reason_category, tl.reference_occupancy, tl.reference_guest_count, tl.reference_order_count, tl.reference_sales, tl.reference_event_flag, tl.notes FROM time_logs tl JOIN employees e ON e.id=tl.employee_id ORDER BY tl.work_date DESC, e.full_name LIMIT 300")
+
+elif page == "Calendar Review":
+    render_calendar_review(conn, current_user, audit)
 
 elif page == "Attendance Review":
     st.title("Supervisor Attendance Review")
