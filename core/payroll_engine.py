@@ -382,6 +382,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
 
         # Scheduled days without logs and without approved leave become unpaid absence warnings.
         approved_leave_dates = set()
+        paid_leave_dates = set()
         leave_rows = fetchall(
             conn,
             """
@@ -408,31 +409,26 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             period_e = parse_date(period_end)
             overlap_start = max(leave_start, period_s)
             overlap_end = min(leave_end, period_e)
-            overlap_calendar_days = 0
+            overlap_dates = []
             d = overlap_start
             while d <= overlap_end:
-                approved_leave_dates.add(d.isoformat())
-                overlap_calendar_days += 1
+                d_iso = d.isoformat()
+                approved_leave_dates.add(d_iso)
+                if d_iso not in paid_leave_dates:
+                    overlap_dates.append(d_iso)
                 d += timedelta(days=1)
-            requested_days = float(lr.get("days") or 0)
-            total_calendar_days = max(1, (leave_end - leave_start).days + 1)
-            paid_days_in_cutoff = min(requested_days, requested_days * (overlap_calendar_days / total_calendar_days)) if overlap_calendar_days else 0
+            paid_days_in_cutoff = float(len(overlap_dates))
             if int(lr.get("paid") or 0) and paid_days_in_cutoff > 0:
                 if not ent or not int(ent.get("entitled") or 0):
                     warnings.append(f"Approved paid leave '{lr['leave_name']}' exists but employee entitlement is not enabled.")
                 elif float(ent.get("used") or 0) > float(ent.get("credits") or 0) + 0.001:
                     warnings.append(f"Leave '{lr['leave_name']}' usage exceeds configured credits.")
-                result.paid_leave_days += paid_days_in_cutoff
-                leave_pay = paid_days_in_cutoff * standard_paid_hours * hourly_rate
-                result.paid_leave_pay += leave_pay
-                warnings.append(f"Paid leave '{lr['leave_name']}' pays {paid_days_in_cutoff:g} day(s) x {standard_paid_hours:g} standard hours.")
-
-        for hol_date, holiday in regular_holidays.items():
-            if hol_date in regular_holiday_base_paid_dates or hol_date in log_dates or hol_date in approved_leave_dates:
-                continue
-            result.holiday_pay += standard_paid_hours * hourly_rate
-            regular_holiday_base_paid_dates.add(hol_date)
-            warnings.append(f"Regular holiday base pay on {hol_date} was paid even with no worked log.")
+                else:
+                    for d_iso in overlap_dates:
+                        paid_leave_dates.add(d_iso)
+                    result.paid_leave_days += paid_days_in_cutoff
+                    result.paid_leave_pay += paid_days_in_cutoff * standard_paid_hours * hourly_rate
+                    warnings.append(f"Paid leave '{lr['leave_name']}' pays {paid_days_in_cutoff:g} unique day(s) x {standard_paid_hours:g} standard hours.")
 
         for work_date, sched in sched_by_date.items():
             if work_date in regular_holidays:
