@@ -31,20 +31,33 @@ st.set_page_config(page_title="Hidden Oasis Staff & Payroll", layout="wide", pag
 CSS = """
 <style>
 .block-container { padding-top: 1.2rem; padding-bottom: 3rem; }
-[data-testid="stSidebar"] { background: #f7f7f5; }
+
+[data-testid="stSidebar"] {
+    background: #11151b !important;
+}
+
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] * {
+    color: #f7f7f5 !important;
+}
+
+[data-testid="stSidebar"] button {
+    background: #2b2d38 !important;
+    color: #ffffff !important;
+    border: 1px solid #444756 !important;
+}
+
 .metric-card { border: 1px solid #e8e4dc; border-radius: 18px; padding: 18px; background: #fffdf8; }
 .small-note { color: #666; font-size: 0.9rem; }
 .status-pill { border-radius: 999px; padding: 4px 10px; background: #f2efe9; display: inline-block; }
 .login-view [data-testid="stSidebar"] { display: none; }
 .login-card {
-    width: min(420px, 100%);
-    display: grid;
-    gap: 18px;
-    margin: 0 auto;
+    max-width: 420px;
+    margin: 8vh auto 0 auto;
     border: 1px solid #e1e6df;
     border-radius: 22px;
     padding: 30px;
-    background: rgba(255,255,255,.9);
+    background: rgba(255,255,255,.92);
     box-shadow: 0 24px 70px rgba(26,38,30,.09);
 }
 .login-mark {
@@ -53,30 +66,461 @@ CSS = """
     display: grid;
     place-items: center;
     border-radius: 15px;
-    background: #1f6a47;
-    color: #fff;
+    background: #5f6f52;
+    color: #24262f;
     font-weight: 720;
-    letter-spacing: 0;
+    letter-spacing: .03em;
+    margin-bottom: 18px;
 }
 .login-title {
-    margin: 0;
-    font-size: 34px;
+    font-size: 2.1rem;
     font-weight: 720;
-    letter-spacing: 0;
     line-height: 1;
+    letter-spacing: -0.04em;
+    margin-bottom: 1.1rem;
 }
 .login-credit {
     color: #7b8179;
-    font-size: 12px;
+    font-size: 0.8rem;
+    margin-top: 1rem;
 }
-.login-card label {
+
+.login-title,
+.login-subtitle {
+    color: #24262f !important;
+    text-shadow: none !important;
+}
+
+.login-hero,
+.login-card,
+.auth-hero {
+    color: #24262f !important;
+}
+
+
+/* Login contrast repair */
+.login-card {
+    background: #f7f7f2 !important;
+    color: #24262f !important;
+}
+
+.login-title {
+    color: #24262f !important;
+    text-shadow: none !important;
+}
+
+.login-mark {
+    color: #ffffff !important;
+}
+
+/* Keep the actual login form visually attached to the hero card */
+.login-view [data-testid="stForm"] {
+    max-width: 420px !important;
+    margin: 0 auto !important;
+    border: 1px solid #343944 !important;
+    border-top: 0 !important;
+    border-radius: 0 0 18px 18px !important;
+    padding: 22px 30px 28px 30px !important;
+    background: #10151c !important;
+}
+
+.login-view [data-testid="stForm"] label,
+.login-view [data-testid="stForm"] p,
+.login-view [data-testid="stForm"] span {
+    color: #f7f7f5 !important;
+}
+
+
+/* Login container repair only */
+.login-card {
+    max-width: 420px !important;
+    margin: 8vh auto 0 auto !important;
+    border: 1px solid #e1e6df !important;
+    border-bottom: 0 !important;
+    border-radius: 22px 22px 0 0 !important;
+    padding: 30px 30px 24px 30px !important;
+    background: rgba(255,255,255,.92) !important;
+    color: #24262f !important;
+    box-shadow: 0 24px 70px rgba(26,38,30,.09) !important;
+}
+
+.login-title {
+    color: #24262f !important;
+    text-shadow: none !important;
+}
+
+.login-mark {
+    color: #ffffff !important;
+}
+
+.login-view [data-testid="stForm"] {
+    max-width: 420px !important;
+    margin: 0 auto !important;
+    border: 1px solid #e1e6df !important;
+    border-top: 0 !important;
+    border-radius: 0 0 22px 22px !important;
+    padding: 24px 30px 30px 30px !important;
+    background: rgba(255,255,255,.92) !important;
+    box-shadow: 0 24px 70px rgba(26,38,30,.09) !important;
+}
+
+.login-view [data-testid="stForm"] label,
+.login-view [data-testid="stForm"] p,
+.login-view [data-testid="stForm"] span {
+    color: #24262f !important;
+}
+
+.login-view [data-testid="stForm"] input,
+.login-view [data-testid="stForm"] div[data-baseweb="select"] > div {
+    background: #f3f2ef !important;
+    color: #24262f !important;
+}
+
+
+/* Accounting-style Staff login */
+.login-view .block-container {
+    max-width: 760px !important;
+    padding-top: 7vh !important;
+}
+
+.login-card {
+    max-width: 560px !important;
+    margin: 0 auto !important;
+    border: 1px solid #dfe6dc !important;
+    border-bottom: 0 !important;
+    border-radius: 26px 26px 0 0 !important;
+    padding: 48px 46px 10px 46px !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+    box-shadow: 0 28px 90px rgba(35, 45, 35, .10) !important;
+}
+
+.login-mark {
+    width: 64px !important;
+    height: 64px !important;
+    border-radius: 18px !important;
+    background: #197044 !important;
+    color: #ffffff !important;
+    display: grid !important;
+    place-items: center !important;
+    font-size: 1.35rem !important;
+    font-weight: 900 !important;
+    letter-spacing: .04em !important;
+    margin-bottom: 32px !important;
+}
+
+.login-title {
+    color: #111111 !important;
+    font-size: 3.1rem !important;
+    font-weight: 900 !important;
+    line-height: .98 !important;
+    letter-spacing: -0.055em !important;
+    margin: 0 0 22px 0 !important;
+    text-shadow: none !important;
+}
+
+.login-view [data-testid="stForm"] {
+    max-width: 560px !important;
+    margin: 0 auto !important;
+    border: 1px solid #dfe6dc !important;
+    border-top: 0 !important;
+    border-radius: 0 0 26px 26px !important;
+    padding: 0 46px 46px 46px !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+    box-shadow: 0 28px 90px rgba(35, 45, 35, .10) !important;
+}
+
+.login-view [data-testid="stForm"] label,
+.login-view [data-testid="stForm"] p,
+.login-view [data-testid="stForm"] span {
+    color: #525850 !important;
+    font-weight: 800 !important;
+    font-size: 1rem !important;
+}
+
+.login-view [data-testid="stForm"] input,
+.login-view [data-baseweb="select"] > div {
+    height: 54px !important;
+    border-radius: 16px !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+    border-color: #d8ddd5 !important;
+}
+
+.login-view [data-testid="stFormSubmitButton"] button {
+    width: 100% !important;
+    height: 64px !important;
+    border-radius: 16px !important;
+    background: #111111 !important;
+    color: #ffffff !important;
+    font-size: 1.15rem !important;
+    font-weight: 800 !important;
+    border: none !important;
+    margin-top: 12px !important;
+}
+
+.login-view [data-testid="stFormSubmitButton"] button:hover {
+    background: #1e1e1e !important;
+    color: #ffffff !important;
+}
+
+.login-credit {
+    color: #7b8179 !important;
+    font-size: 1rem !important;
+    margin-top: 26px !important;
+}
+
+
+/* Single-card login fix: Streamlit form is the real card */
+.login-view .block-container {
+    max-width: 620px !important;
+    padding-top: 6vh !important;
+}
+
+.login-card {
+    max-width: 560px !important;
+    margin: 0 auto -1px auto !important;
+    border: 1px solid #dfe6dc !important;
+    border-bottom: 0 !important;
+    border-radius: 26px 26px 0 0 !important;
+    padding: 46px 46px 8px 46px !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+    box-shadow: 0 28px 90px rgba(35, 45, 35, .10) !important;
+}
+
+.login-mark {
+    width: 64px !important;
+    height: 64px !important;
+    border-radius: 18px !important;
+    background: #197044 !important;
+    color: #ffffff !important;
+    display: grid !important;
+    place-items: center !important;
+    font-size: 1.35rem !important;
+    font-weight: 900 !important;
+    letter-spacing: .04em !important;
+    margin-bottom: 30px !important;
+}
+
+.login-title {
+    color: #111111 !important;
+    font-size: 3rem !important;
+    font-weight: 900 !important;
+    line-height: .98 !important;
+    letter-spacing: -0.055em !important;
+    margin: 0 !important;
+    text-shadow: none !important;
+}
+
+.login-view [data-testid="stForm"] {
+    max-width: 560px !important;
+    margin: 0 auto !important;
+    border: 1px solid #dfe6dc !important;
+    border-top: 0 !important;
+    border-radius: 0 0 26px 26px !important;
+    padding: 22px 46px 46px 46px !important;
+    background: #ffffff !important;
+    box-shadow: 0 28px 90px rgba(35, 45, 35, .10) !important;
+}
+
+.login-view [data-testid="stForm"] label,
+.login-view [data-testid="stForm"] p,
+.login-view [data-testid="stForm"] span {
+    color: #525850 !important;
+    font-weight: 800 !important;
+}
+
+.login-view [data-baseweb="select"] > div,
+.login-view input {
+    min-height: 56px !important;
+    border-radius: 16px !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+    border-color: #d8ddd5 !important;
+}
+
+.login-view [data-testid="stFormSubmitButton"] button {
+    width: 100% !important;
+    height: 64px !important;
+    border-radius: 16px !important;
+    background: #111111 !important;
+    color: #ffffff !important;
+    font-size: 1.15rem !important;
+    font-weight: 800 !important;
+    border: none !important;
+    margin-top: 12px !important;
+}
+
+.login-view [data-testid="stFormSubmitButton"] button:hover {
+    background: #1e1e1e !important;
+    color: #ffffff !important;
+}
+
+.login-credit {
+    max-width: 560px !important;
+    margin: 18px auto 0 auto !important;
+    color: #7b8179 !important;
+    font-size: 1rem !important;
+}
+
+
+/* Accounting-proportion Staff login correction */
+.login-view .block-container {
+    max-width: 560px !important;
+    padding-top: 8vh !important;
+}
+
+.login-view [data-testid="stForm"] {
+    max-width: 520px !important;
+    margin: 0 auto !important;
+    background: #ffffff !important;
+    border: 1px solid #e6e7e4 !important;
+    border-radius: 14px !important;
+    padding: 34px !important;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.045) !important;
+    color: #111110 !important;
+}
+
+.login-mark {
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 15px !important;
+    background: #1f6a47 !important;
+    color: #ffffff !important;
+    font-size: 1rem !important;
+    font-weight: 800 !important;
+    margin-bottom: 28px !important;
+}
+
+.login-title {
+    color: #111110 !important;
+    font-size: 2.1rem !important;
+    font-weight: 720 !important;
+    letter-spacing: -0.04em !important;
+    line-height: 1 !important;
+    margin-bottom: 1.1rem !important;
+}
+
+.login-view [data-testid="stForm"] label,
+.login-view [data-testid="stForm"] p,
+.login-view [data-testid="stForm"] span {
     color: #565b55 !important;
     font-size: 12px !important;
-    font-weight: 650 !important;
+    font-weight: 530 !important;
 }
-.login-card input, .login-card [data-baseweb="select"] > div {
-    border-radius: 12px !important;
+
+.login-view input,
+.login-view [data-baseweb="select"] > div {
+    min-height: 42px !important;
+    border-radius: 9px !important;
+    padding: 9px 11px !important;
+    background: #ffffff !important;
+    color: #111110 !important;
+    border: 1px solid #d7dad4 !important;
+    font-weight: 430 !important;
 }
+
+.login-view [data-testid="stFormSubmitButton"] button {
+    width: auto !important;
+    min-height: 42px !important;
+    height: 42px !important;
+    border-radius: 9px !important;
+    padding: 9px 18px !important;
+    background: #111111 !important;
+    color: #ffffff !important;
+    border: 1px solid #111111 !important;
+    font-weight: 540 !important;
+    font-size: 1rem !important;
+}
+
+.login-credit {
+    color: #6f736d !important;
+    font-size: 0.95rem !important;
+    margin-top: 18px !important;
+}
+
+
+/* TRUE Accounting login match */
+.login-view .block-container {
+    max-width: 520px !important;
+    padding-top: 8vh !important;
+}
+
+.login-view [data-testid="stForm"] {
+    max-width: 520px !important;
+    margin: 0 auto 14px auto !important;
+    background: #ffffff !important;
+    border: 1px solid #e6e7e4 !important;
+    border-radius: 14px !important;
+    padding: 17px !important;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.045) !important;
+    color: #111110 !important;
+}
+
+.login-mark {
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 15px !important;
+    background: #1f6a47 !important;
+    color: #ffffff !important;
+    display: grid !important;
+    place-items: center !important;
+    font-size: 1rem !important;
+    font-weight: 720 !important;
+    letter-spacing: .03em !important;
+    margin: 0 0 18px 0 !important;
+}
+
+.login-title {
+    color: #111110 !important;
+    font-size: 2.1rem !important;
+    font-weight: 720 !important;
+    line-height: 1 !important;
+    letter-spacing: -0.04em !important;
+    margin: 0 0 1.1rem 0 !important;
+    text-shadow: none !important;
+}
+
+.login-view [data-testid="stForm"] label,
+.login-view [data-testid="stForm"] p,
+.login-view [data-testid="stForm"] span {
+    color: #565b55 !important;
+    font-size: 12px !important;
+    font-weight: 530 !important;
+}
+
+.login-view [data-baseweb="select"] > div,
+.login-view input {
+    padding: 9px 11px !important;
+    border-radius: 9px !important;
+    border: 1px solid #d7dad4 !important;
+    background: #ffffff !important;
+    color: #111110 !important;
+    font-weight: 430 !important;
+    min-height: 42px !important;
+    box-shadow: none !important;
+}
+
+.login-view [data-testid="stFormSubmitButton"] button {
+    padding: 9px 11px !important;
+    border-radius: 9px !important;
+    border: 1px solid #111111 !important;
+    background: #111111 !important;
+    color: #ffffff !important;
+    font-weight: 540 !important;
+    width: 100% !important;
+    min-height: 44px !important;
+    margin-top: 8px !important;
+}
+
+.login-credit {
+    color: #6f736d !important;
+    font-size: 0.95rem !important;
+    margin-top: 14px !important;
+}
+
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -139,61 +583,116 @@ if st.session_state["auth_user"] is None:
         """
         <style>
         [data-testid="stSidebar"] { display: none; }
+
         .stApp {
             background:
-                radial-gradient(circle at top left, #f7fbf8 0, transparent 32%),
-                radial-gradient(circle at bottom right, #edf5f0 0, transparent 28%),
-                #f6f6f4;
+                radial-gradient(circle at 0 0, #f8fbf9 0, transparent 30%),
+                radial-gradient(circle at 100% 100%, #edf5f0 0, transparent 26%),
+                #f6f6f4 !important;
+            color: #111110 !important;
         }
+
         .block-container {
-            max-width: 480px;
-            min-height: 100vh;
-            padding: 24px;
+            max-width: 560px !important;
+            padding-top: 8vh !important;
+        }
+
+        .login-view [data-testid="stForm"] {
+            background: #ffffff !important;
+            border: 1px solid #e6e7e4 !important;
+            border-radius: 14px !important;
+            padding: 34px !important;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.045) !important;
+            color: #111110 !important;
+        }
+
+        .login-mark {
+            width: 64px;
+            height: 64px;
+            border-radius: 18px;
+            background: #1f6a47;
+            color: #ffffff;
             display: grid;
             place-items: center;
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: .04em;
+            margin-bottom: 28px;
         }
-        div[data-testid="stForm"] {
-            border: 0;
-            padding: 0;
-            background: transparent;
+
+        .login-title {
+            color: #111110 !important;
+            font-size: 3rem !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.05em !important;
+            line-height: 1 !important;
+            margin: 0 0 30px 0 !important;
         }
-        div[data-testid="stForm"] > div {
-            display: grid;
-            gap: 13px;
+
+        .login-view label,
+        .login-view [data-testid="stMarkdownContainer"] p,
+        .login-view span {
+            color: #565b55 !important;
+            font-weight: 650 !important;
         }
-        .stButton button {
-            width: 100%;
-            padding: 11px 12px;
-            border-radius: 12px;
-            border: 1px solid #111;
-            background: #111;
-            color: #fff;
-            font-weight: 650;
+
+        .login-view input,
+        .login-view [data-baseweb="select"] > div {
+            background: #ffffff !important;
+            color: #111110 !important;
+            border: 1px solid #d7dad4 !important;
+            border-radius: 9px !important;
+            min-height: 46px !important;
+        }
+
+        .login-view [data-testid="stFormSubmitButton"] button {
+            background: #111111 !important;
+            color: #ffffff !important;
+            border: 1px solid #111111 !important;
+            border-radius: 9px !important;
+            min-height: 46px !important;
+            width: 100% !important;
+            font-weight: 650 !important;
+            margin-top: 10px !important;
+        }
+
+        .login-credit {
+            color: #6f736d !important;
+            font-size: 0.95rem !important;
+            margin-top: 22px !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
     st.markdown("<div class='login-view'>", unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="login-card">
-            <div class="login-mark">HO</div>
-            <h1 class="login-title">Staff & Payroll</h1>
-        """,
-        unsafe_allow_html=True,
-    )
+
     if bootstrapped_passwords:
         st.warning(f"Temporary passwords were created for {bootstrapped_passwords} existing user(s). Use `{DEFAULT_TEMP_PASSWORD}` once, then change the password immediately.")
+
     active_users = fetchall(conn, "SELECT display_name FROM app_users WHERE active=1 ORDER BY display_name")
     user_names = [u["display_name"] for u in active_users]
+
     if not user_names:
         st.error("No active app users exist. Add an Owner user directly in the database or reinitialize the local prototype database.")
         st.stop()
+
     with st.form("login_form"):
+        st.markdown(
+            """
+            <div class="login-mark">HO</div>
+            <div class="login-title">Staff & Payroll</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         login_name = st.selectbox("User", user_names)
         login_password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
+
+        st.markdown("<div class='login-credit'>by C.M.</div>", unsafe_allow_html=True)
+
         if submitted:
             user = authenticate_user(conn, login_name, login_password)
             if not user:
@@ -206,8 +705,8 @@ if st.session_state["auth_user"] is None:
                     "must_change_password": int(user.get("must_change_password") or 0),
                 }
                 st.rerun()
-    st.markdown("<small class='login-credit'>by C.M.</small>", unsafe_allow_html=True)
-    st.markdown("</div></div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
 st.sidebar.title("Hidden Oasis")

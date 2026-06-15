@@ -313,12 +313,26 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
 
             comp = compute_overlap(s_start, s_end, log["work_date"], log.get("actual_in"), log.get("actual_out"), break_mins)
             paid_actual = comp["paid_actual_hours"]
-            regular_hours = min(standard_paid_hours, paid_actual)
-            detected_extra = max(0.0, paid_actual - regular_hours)
+
+            # Non-overlapping daily pay-hour split:
+            # first standard paid hours are regular; anything beyond that is overtime,
+            # even if the longer shift was scheduled.
+            regular_hours = round(min(standard_paid_hours, paid_actual), 4)
+            detected_extra = round(max(0.0, paid_actual - standard_paid_hours), 4)
             approved_ot = float(log.get("approved_ot_hours") or 0)
-            payable_ot = min(approved_ot, detected_extra) if detected_extra > 0 else 0.0
-            if approved_ot > payable_ot + 0.01:
-                warnings.append(f"Approved OT on {log['work_date']} exceeds detected extra time; capped for draft payroll.")
+
+            # Payroll should pay all detected hours beyond the standard day as OT.
+            # approved_ot_hours is kept for review/audit context, not as a cap that erases payable OT.
+            payable_ot = detected_extra
+
+            # Safety guard: regular + OT must never exceed paid actual hours.
+            if regular_hours + payable_ot > paid_actual + 0.0001:
+                payable_ot = round(max(0.0, paid_actual - regular_hours), 4)
+
+            if detected_extra > 0 and approved_ot <= 0:
+                warnings.append(f"Detected OT on {log['work_date']} from paid hours beyond {standard_paid_hours:g}; included in payroll draft.")
+            elif approved_ot > detected_extra + 0.01:
+                warnings.append(f"Approved OT on {log['work_date']} exceeds detected worked extra time; payroll uses detected worked OT.")
             if log.get("attendance_status") in ("Pending", "Needs Manager", "Disputed"):
                 warnings.append(f"Attendance on {log['work_date']} is still {log.get('attendance_status')}.")
             if log.get("ot_status") == "Pending":
