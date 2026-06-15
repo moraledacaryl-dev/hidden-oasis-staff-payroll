@@ -2,28 +2,26 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
+import html
 
-import pandas as pd
 import streamlit as st
 
 from .db import execute, fetchall, fetchone, now_iso
 
 
 def _iso(d: date | str | None) -> str:
-    if d is None:
-        return ""
-    return d.isoformat() if isinstance(d, date) else str(d)
+    return "" if d is None else (d.isoformat() if isinstance(d, date) else str(d))
 
 
 def _time_text(value: Any) -> str:
-    if value is None:
-        return ""
-    text = str(value).strip()
+    text = str(value or "").strip()
     if not text:
         return ""
     for fmt in ("%H:%M", "%I:%M %p", "%H:%M:%S"):
         try:
-            return datetime.strptime(text, fmt).strftime("%I:%M %p").lstrip("0")
+            t = datetime.strptime(text, fmt)
+            return t.strftime("%I:%M%p").lstrip("0").lower().replace("m", "")
         except Exception:
             pass
     return text
@@ -39,31 +37,8 @@ def _parse_time(value: Any, fallback: str = "08:00"):
     return datetime.strptime(fallback, "%H:%M").time()
 
 
-def _status_badge(cell: dict[str, Any], holiday: dict[str, Any] | None = None) -> tuple[str, str, str]:
-    schedule = cell.get("schedule")
-    log = cell.get("log")
-    if log and int(log.get("is_absent") or 0):
-        absence_type = str(log.get("absence_type") or "Absent")
-        return absence_type, "🔴", "bad"
-    if log and str(log.get("absence_type") or "").strip():
-        return str(log.get("absence_type")), "🟣", "leave"
-    if schedule and int(schedule.get("is_rest_day") or 0):
-        return "Rest", "⚪", "empty"
-    if schedule and not log:
-        return "No log", "🟡", "warn"
-    if log and not str(log.get("actual_out") or "").strip() and not int(log.get("is_absent") or 0):
-        return "Missing out", "🟡", "warn"
-    if log and str(log.get("attendance_status") or "").lower() in {"pending", "needs manager", "disputed"}:
-        return str(log.get("attendance_status") or "Pending"), "🔵", "pending"
-    if log and "late" in str(log.get("notes") or "").lower():
-        return "Late", "🟡", "warn"
-    if holiday and (schedule or log):
-        return f"{holiday.get('holiday_type', 'Holiday')}", "🎌", "holiday"
-    if schedule or log:
-        return "OK", "🟢", "ok"
-    if holiday:
-        return f"{holiday.get('holiday_type', 'Holiday')}", "🎌", "holiday"
-    return "—", "⚪", "empty"
+def _h(value: Any) -> str:
+    return html.escape(str(value or ""))
 
 
 def _department_names(conn, include_all: bool = True) -> list[str]:
@@ -101,364 +76,308 @@ def _employee_options(conn, department: str) -> dict[str, int]:
 
 def _load_week(conn, start: date, end: date, department: str) -> tuple[list[dict[str, Any]], dict[tuple[int, str], dict[str, Any]], dict[str, dict[str, Any]]]:
     employees = _employee_rows(conn, department)
-    emp_ids = [int(e["id"]) for e in employees]
     grid: dict[tuple[int, str], dict[str, Any]] = {}
     holidays = {
         str(h["holiday_date"]): h
         for h in fetchall(conn, "SELECT * FROM holidays WHERE active=1 AND holiday_date BETWEEN ? AND ?", (_iso(start), _iso(end)))
     }
+    emp_ids = [int(e["id"]) for e in employees]
     if not emp_ids:
         return employees, grid, holidays
-
-    placeholders = ",".join(["?"] * len(emp_ids))
-    sched_rows = fetchall(
+    ph = ",".join(["?"] * len(emp_ids))
+    schedules = fetchall(
         conn,
-        f"""
-        SELECT * FROM schedules
-        WHERE employee_id IN ({placeholders}) AND work_date BETWEEN ? AND ?
-        ORDER BY work_date, shift_start
-        """,
+        f"SELECT * FROM schedules WHERE employee_id IN ({ph}) AND work_date BETWEEN ? AND ? ORDER BY work_date, shift_start",
         (*emp_ids, _iso(start), _iso(end)),
     )
-    log_rows = fetchall(
+    logs = fetchall(
         conn,
-        f"""
-        SELECT * FROM time_logs
-        WHERE employee_id IN ({placeholders}) AND work_date BETWEEN ? AND ?
-        ORDER BY work_date, actual_in
-        """,
+        f"SELECT * FROM time_logs WHERE employee_id IN ({ph}) AND work_date BETWEEN ? AND ? ORDER BY work_date, actual_in",
         (*emp_ids, _iso(start), _iso(end)),
     )
-
-    for s in sched_rows:
-        key = (int(s["employee_id"]), str(s["work_date"]))
-        grid.setdefault(key, {})["schedule"] = s
-    for l in log_rows:
-        key = (int(l["employee_id"]), str(l["work_date"]))
-        grid.setdefault(key, {})["log"] = l
+    for row in schedules:
+        grid.setdefault((int(row["employee_id"]), str(row["work_date"])), {})["schedule"] = row
+    for row in logs:
+        grid.setdefault((int(row["employee_id"]), str(row["work_date"])), {})["log"] = row
     return employees, grid, holidays
 
 
-def _cell_label(day: date, cell: dict[str, Any], holiday: dict[str, Any] | None) -> str:
+def _status(cell: dict[str, Any], holiday: dict[str, Any] | None = None) -> tuple[str, str, str]:
     schedule = cell.get("schedule")
     log = cell.get("log")
-    label, icon, _kind = _status_badge(cell, holiday)
-    lines = [f"{icon} {day.strftime('%a %d')}", label]
+    if log and int(log.get("is_absent") or 0):
+        absence = str(log.get("absence_type") or "Absent")
+        if any(word in absence.lower() for word in ("leave", "sick", "bereavement", "service")):
+            return absence, "🟣", "leave"
+        return absence, "🔴", "absent"
+    if log and str(log.get("absence_type") or "").strip():
+        return str(log.get("absence_type")), "🟣", "leave"
     if holiday:
-        lines.append(f"Holiday: {holiday['name']}")
-    if schedule:
-        if int(schedule.get("is_rest_day") or 0):
-            lines.append("Sched: Rest day")
-        else:
-            lines.append(f"S: {_time_text(schedule.get('shift_start'))}-{_time_text(schedule.get('shift_end'))}")
+        return str(holiday.get("holiday_type") or "Holiday"), "🎌", "holiday"
+    if schedule and int(schedule.get("is_rest_day") or 0):
+        return "Rest day", "⚪", "rest"
+    if schedule and not log:
+        return "Scheduled", "🟡", "scheduled"
+    if log and not str(log.get("actual_out") or "").strip() and not int(log.get("is_absent") or 0):
+        return "Missing out", "🟡", "late"
+    if log and str(log.get("attendance_status") or "").lower() in {"pending", "needs manager", "disputed"}:
+        return str(log.get("attendance_status") or "Pending"), "🔵", "pending"
+    if log and "late" in str(log.get("notes") or "").lower():
+        return "Late", "🟡", "late"
+    if schedule or log:
+        return "OK", "🟢", "ok"
+    return "Empty", "⚪", "empty"
+
+
+def _short(label: str) -> str:
+    return {
+        "Service Incentive Leave": "SIL",
+        "Sick Leave": "Sick leave",
+        "Bereavement Leave": "BL",
+        "Needs Manager": "Needs mgr",
+        "Regular": "Regular hol",
+        "Special": "Special hol",
+    }.get(label, label[:14])
+
+
+def _cell_html(emp: dict[str, Any], day: date, cell: dict[str, Any], holiday: dict[str, Any] | None) -> str:
+    schedule = cell.get("schedule")
+    log = cell.get("log")
+    label, icon, kind = _status(cell, holiday)
+    if schedule and int(schedule.get("is_rest_day") or 0):
+        s_text = "Rest"
+    elif schedule:
+        s_text = f"{_time_text(schedule.get('shift_start'))}-{_time_text(schedule.get('shift_end'))}"
     else:
-        lines.append("S: —")
-    if log:
-        if int(log.get("is_absent") or 0):
-            lines.append(f"A: {log.get('absence_type') or 'Absent'}")
-        else:
-            lines.append(f"A: {_time_text(log.get('actual_in'))}-{_time_text(log.get('actual_out')) or '—'}")
+        s_text = "—"
+    if log and int(log.get("is_absent") or 0):
+        a_text = str(log.get("absence_type") or "Absent")
+    elif log:
+        a_text = f"{_time_text(log.get('actual_in'))}-{_time_text(log.get('actual_out')) or '—'}"
     else:
-        lines.append("A: —")
-    return "\n".join(lines)
+        a_text = "—"
+    day_iso = _iso(day)
+    href = "?" + urlencode({"cal_emp": int(emp["id"]), "cal_date": day_iso})
+    mini_holiday = f"<div class='cal-mini'>🎌 {_h(holiday['name'])}</div>" if holiday else ""
+    return f"""
+    <a class="cal-cell cal-{kind}" href="{href}" target="_self">
+      <div class="cal-top"><span>{icon}</span><span>{day.strftime('%a %d')}</span></div>
+      <div class="cal-status">{_h(_short(label))}</div>
+      <div class="cal-line"><b>S</b> {_h(s_text)}</div>
+      <div class="cal-line"><b>A</b> {_h(a_text)}</div>
+      {mini_holiday}
+    </a>
+    """
+
+
+def _render_grid(employees: list[dict[str, Any]], days: list[date], grid: dict[tuple[int, str], dict[str, Any]], holidays: dict[str, dict[str, Any]]) -> None:
+    css = """
+    <style>
+    .cal-legend{border:1px solid #e7dfd5;background:#fffaf2;border-radius:16px;padding:10px 12px;margin:8px 0 12px;color:#584f45;font-size:.86rem;}
+    .cal-shell{overflow-x:auto;border:1px solid #e7dfd5;border-radius:18px;background:#fffaf3;padding:12px;}
+    .cal-grid{display:grid;grid-template-columns:220px repeat(7,154px);gap:8px;align-items:stretch;min-width:1320px;}
+    .cal-head,.cal-emp,.cal-cell{box-sizing:border-box;border-radius:14px;border:1px solid #ded4c8;overflow:hidden;}
+    .cal-head{background:#f7f0e7;color:#332d26;font-weight:800;padding:10px 12px;height:62px;min-height:62px;max-height:62px;display:flex;flex-direction:column;justify-content:center;}
+    .cal-head-sub{font-size:.68rem;color:#8a5b0a;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
+    .cal-emp{background:#fffdf8;height:104px;min-height:104px;max-height:104px;padding:12px;display:flex;flex-direction:column;justify-content:center;}
+    .cal-emp-name{font-weight:800;color:#2f2923;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:5px;}
+    .cal-emp-meta{font-size:.72rem;color:#74695f;line-height:1.25;}
+    a.cal-cell{height:104px;min-height:104px;max-height:104px;text-decoration:none;color:#302a24;padding:9px 10px;display:block;transition:.08s ease;}
+    a.cal-cell:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(45,35,25,.10);border-color:#b8a794;}
+    .cal-top{display:flex;gap:5px;align-items:center;font-size:.76rem;font-weight:800;white-space:nowrap;}
+    .cal-status{font-size:.72rem;font-weight:800;margin:4px 0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .cal-line{font-size:.69rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .cal-mini{display:block;margin-top:3px;font-size:.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8a5b0a;font-weight:700;}
+    .cal-empty{background:#f3f1ee;border-color:#ddd8d1;color:#77716a;}
+    .cal-rest{background:#eeeae3;border-color:#d6cec4;color:#6e665f;}
+    .cal-scheduled{background:#fff8df;border-color:#e6c96d;}
+    .cal-ok{background:#edf8ee;border-color:#9fd3a4;}
+    .cal-late{background:#fff0cd;border-color:#e2b341;}
+    .cal-pending{background:#e8f0ff;border-color:#9fbde9;}
+    .cal-absent{background:#ffe7e2;border-color:#e69a90;}
+    .cal-leave{background:#f1e7ff;border-color:#c5a6ed;}
+    .cal-holiday{background:#fff3d2;border-color:#d9ac45;}
+    </style>
+    """
+    html_parts = [css, "<div class='cal-legend'><b>Legend:</b> green OK · yellow scheduled/late/missing · blue pending · red absent · purple leave · gold holiday · gray empty/rest</div>"]
+    html_parts.append("<div class='cal-shell'><div class='cal-grid'>")
+    html_parts.append("<div class='cal-head'>Employee</div>")
+    for d in days:
+        hday = holidays.get(_iso(d))
+        sub = f"<div class='cal-head-sub'>🎌 {_h(hday['name'])}</div>" if hday else ""
+        html_parts.append(f"<div class='cal-head'>{d.strftime('%a %b %d')}{sub}</div>")
+    for emp in employees:
+        html_parts.append(f"<div class='cal-emp'><div class='cal-emp-name'>{_h(emp['full_name'])}</div><div class='cal-emp-meta'>{_h(emp.get('employee_code',''))}<br>{_h(emp.get('department',''))} • {_h(emp.get('position',''))}</div></div>")
+        for d in days:
+            html_parts.append(_cell_html(emp, d, grid.get((int(emp["id"]), _iso(d)), {}), holidays.get(_iso(d))))
+    html_parts.append("</div></div>")
+    st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+
+def _query_params() -> tuple[int | None, str | None]:
+    try:
+        params = st.query_params
+        emp = params.get("cal_emp")
+        day = params.get("cal_date")
+    except Exception:
+        params = st.experimental_get_query_params()
+        emp = (params.get("cal_emp") or [None])[0]
+        day = (params.get("cal_date") or [None])[0]
+    try:
+        return (int(emp), str(day)) if emp and day else (None, None)
+    except Exception:
+        return None, None
+
+
+def _clear_query() -> None:
+    try:
+        st.query_params.clear()
+    except Exception:
+        st.experimental_set_query_params()
 
 
 def _save_schedule(conn, employee_id: int, work_date: str, shift_start: str, shift_end: str, break_minutes: int, department: str, rest_day: bool, notes: str, schedule_id: int | None = None) -> None:
     if schedule_id:
-        execute(
-            conn,
-            """
-            UPDATE schedules
-            SET shift_start=?, shift_end=?, break_minutes=?, department=?, location=?, is_rest_day=?, notes=?
-            WHERE id=?
-            """,
-            (shift_start, shift_end, int(break_minutes), department, department, int(rest_day), notes, schedule_id),
-        )
-        return
-    execute(
-        conn,
-        """
-        INSERT OR REPLACE INTO schedules(employee_id, work_date, shift_start, shift_end, break_minutes, department, location, is_rest_day, notes)
-        VALUES(?,?,?,?,?,?,?,?,?)
-        """,
-        (employee_id, work_date, shift_start, shift_end, int(break_minutes), department, department, int(rest_day), notes),
-    )
+        execute(conn, "UPDATE schedules SET shift_start=?, shift_end=?, break_minutes=?, department=?, location=?, is_rest_day=?, notes=? WHERE id=?", (shift_start, shift_end, int(break_minutes), department, department, int(rest_day), notes, schedule_id))
+    else:
+        execute(conn, "INSERT OR REPLACE INTO schedules(employee_id, work_date, shift_start, shift_end, break_minutes, department, location, is_rest_day, notes) VALUES(?,?,?,?,?,?,?,?,?)", (employee_id, work_date, shift_start, shift_end, int(break_minutes), department, department, int(rest_day), notes))
 
 
-def _save_time_log(conn, employee_id: int, work_date: str, actual_in: str, actual_out: str, absent: bool, absence_type: str, approved_ot: float, ot_status: str, ot_reason_category: str, ot_reason_note: str, attendance_status: str, notes: str, log_id: int | None = None) -> None:
+def _save_log(conn, employee_id: int, work_date: str, actual_in: str, actual_out: str, absent: bool, absence_type: str, approved_ot: float, ot_status: str, attendance_status: str, notes: str, log_id: int | None = None) -> None:
     if log_id:
-        execute(
-            conn,
-            """
-            UPDATE time_logs
-            SET actual_in=?, actual_out=?, source='calendar', verification_type='Calendar Review',
-                is_absent=?, absence_type=?, approved_ot_hours=?, ot_status=?, ot_reason_category=?, ot_reason_note=?,
-                attendance_status=?, notes=?, updated_at=?
-            WHERE id=?
-            """,
-            (actual_in, actual_out, int(absent), absence_type, float(approved_ot), ot_status, ot_reason_category, ot_reason_note, attendance_status, notes, now_iso(), log_id),
-        )
-        return
-    execute(
-        conn,
-        """
-        INSERT INTO time_logs(employee_id, work_date, actual_in, actual_out, source, verification_type,
-            is_absent, absence_type, approved_ot_hours, ot_status, ot_reason_category, ot_reason_note,
-            attendance_status, notes, created_at, updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (employee_id, work_date, actual_in, actual_out, "calendar", "Calendar Review", int(absent), absence_type, float(approved_ot), ot_status, ot_reason_category, ot_reason_note, attendance_status, notes, now_iso(), now_iso()),
-    )
+        execute(conn, "UPDATE time_logs SET actual_in=?, actual_out=?, source='calendar', verification_type='Calendar Review', is_absent=?, absence_type=?, approved_ot_hours=?, ot_status=?, attendance_status=?, notes=?, updated_at=? WHERE id=?", (actual_in, actual_out, int(absent), absence_type, float(approved_ot), ot_status, attendance_status, notes, now_iso(), log_id))
+    else:
+        execute(conn, "INSERT INTO time_logs(employee_id, work_date, actual_in, actual_out, source, verification_type, is_absent, absence_type, approved_ot_hours, ot_status, attendance_status, notes, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (employee_id, work_date, actual_in, actual_out, "calendar", "Calendar Review", int(absent), absence_type, float(approved_ot), ot_status, attendance_status, notes, now_iso(), now_iso()))
 
 
-def _create_leave_and_absence(conn, employee_id: int, day: str, leave_type_name: str, actor: str) -> None:
-    lt = fetchone(conn, "SELECT id FROM leave_types WHERE lower(name)=lower(?)", (leave_type_name,))
-    if not lt:
-        execute(conn, "INSERT INTO leave_types(name, default_credits, paid, statutory, requires_approval, active, notes) VALUES(?,?,?,?,?,?,?)", (leave_type_name, 0, 1, 0, 1, 1, "Created from Calendar Review"))
-        lt = fetchone(conn, "SELECT id FROM leave_types WHERE lower(name)=lower(?)", (leave_type_name,))
-    execute(
-        conn,
-        "INSERT INTO leave_requests(employee_id, leave_type_id, start_date, end_date, days, paid, status, reason, reviewed_by, reviewed_at, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-        (employee_id, int(lt["id"]), day, day, 1, 1, "Approved", "Calendar Review quick action", actor, now_iso(), now_iso()),
-    )
+def _save_holiday(conn, holiday_date: str, name: str, holiday_type: str, notes: str) -> None:
+    execute(conn, "INSERT INTO holidays(holiday_date, name, holiday_type, active, notes, created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(holiday_date) DO UPDATE SET name=excluded.name, holiday_type=excluded.holiday_type, active=excluded.active, notes=excluded.notes", (holiday_date, name, holiday_type, 1, notes, now_iso()))
+
+
+def _leave_type_id(conn, name: str) -> int:
+    row = fetchone(conn, "SELECT id FROM leave_types WHERE lower(name)=lower(?)", (name,))
+    if not row:
+        execute(conn, "INSERT INTO leave_types(name, default_credits, paid, statutory, requires_approval, active, notes) VALUES(?,?,?,?,?,?,?)", (name, 0, 1, 0, 1, 1, "Created from Calendar Review"))
+        row = fetchone(conn, "SELECT id FROM leave_types WHERE lower(name)=lower(?)", (name,))
+    return int(row["id"])
+
+
+def _mark_leave(conn, employee_id: int, day: str, leave_name: str, actor: str) -> None:
+    lt_id = _leave_type_id(conn, leave_name)
+    execute(conn, "INSERT INTO leave_requests(employee_id, leave_type_id, start_date, end_date, days, paid, status, reason, reviewed_by, reviewed_at, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (employee_id, lt_id, day, day, 1, 1, "Approved", "Calendar Review quick action", actor, now_iso(), now_iso()))
     existing = fetchone(conn, "SELECT id FROM time_logs WHERE employee_id=? AND work_date=? ORDER BY id DESC LIMIT 1", (employee_id, day))
-    _save_time_log(conn, employee_id, day, "", "", True, leave_type_name, 0, "None", "", "", "Reviewed", f"Marked {leave_type_name} from calendar", int(existing["id"]) if existing else None)
+    _save_log(conn, employee_id, day, "", "", True, leave_name, 0, "None", "Reviewed", f"Marked {leave_name} from Calendar Review", int(existing["id"]) if existing else None)
 
 
-def _upsert_holiday(conn, holiday_date: str, name: str, holiday_type: str, notes: str) -> None:
-    execute(
-        conn,
-        """
-        INSERT INTO holidays(holiday_date, name, holiday_type, active, notes, created_at)
-        VALUES(?,?,?,?,?,?)
-        ON CONFLICT(holiday_date) DO UPDATE SET name=excluded.name, holiday_type=excluded.holiday_type, active=excluded.active, notes=excluded.notes
-        """,
-        (holiday_date, name, holiday_type, 1, notes, now_iso()),
-    )
-
-
-def _delete_schedule(conn, schedule_id: int | None) -> None:
-    if schedule_id:
-        execute(conn, "DELETE FROM schedules WHERE id=?", (schedule_id,))
-
-
-def _clear_log(conn, log_id: int | None) -> None:
-    if log_id:
-        execute(conn, "DELETE FROM time_logs WHERE id=?", (log_id,))
-
-
-def _copy_schedule_to_actual(conn, employee_id: int, selected_iso: str, schedule: dict[str, Any] | None, log: dict[str, Any] | None) -> None:
-    if not schedule:
-        return
-    _save_time_log(
-        conn,
-        employee_id,
-        selected_iso,
-        str(schedule["shift_start"]),
-        str(schedule["shift_end"]),
-        False,
-        "",
-        0,
-        "None",
-        "Copied from schedule",
-        "",
-        "Reviewed",
-        "Copied scheduled shift to actual log",
-        int(log["id"]) if log else None,
-    )
-
-
-def _render_cell_editor(conn, current_user: str, employee_id: int, selected_date: date, audit_func=None) -> None:
-    selected_iso = _iso(selected_date)
+def _render_editor(conn, current_user: str, employee_id: int, selected_date: date, audit_func=None) -> None:
+    day = _iso(selected_date)
     emp = fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,)) or {}
-    schedule = fetchone(conn, "SELECT * FROM schedules WHERE employee_id=? AND work_date=? ORDER BY shift_start LIMIT 1", (employee_id, selected_iso))
-    log = fetchone(conn, "SELECT * FROM time_logs WHERE employee_id=? AND work_date=? ORDER BY id DESC LIMIT 1", (employee_id, selected_iso))
-    holiday = fetchone(conn, "SELECT * FROM holidays WHERE holiday_date=? AND active=1", (selected_iso,))
+    schedule = fetchone(conn, "SELECT * FROM schedules WHERE employee_id=? AND work_date=? ORDER BY shift_start LIMIT 1", (employee_id, day))
+    log = fetchone(conn, "SELECT * FROM time_logs WHERE employee_id=? AND work_date=? ORDER BY id DESC LIMIT 1", (employee_id, day))
+    holiday = fetchone(conn, "SELECT * FROM holidays WHERE holiday_date=? AND active=1", (day,))
+    st.markdown(f"### {emp.get('full_name','Employee')} — {selected_date.strftime('%a, %b %d, %Y')}")
+    tabs = st.tabs(["Schedule", "Actual / OT", "Leave", "Holiday", "Quick"])
 
-    st.markdown(f"### {emp.get('full_name', 'Employee')} — {selected_date.strftime('%a, %b %d, %Y')}")
-    if holiday:
-        st.info(f"Holiday on this date: {holiday['name']} ({holiday['holiday_type']})")
-
-    tab_sched, tab_log, tab_leave, tab_holiday, tab_quick = st.tabs(["Schedule", "Actual / OT", "Leave / Absence", "Holiday", "Quick Actions"])
-
-    with tab_sched:
-        with st.form(f"schedule_form_{employee_id}_{selected_iso}"):
-            s1, s2, s3 = st.columns(3)
-            shift_start = s1.time_input("Shift start", value=_parse_time((schedule or {}).get("shift_start"), "08:00"), key=f"sched_start_{employee_id}_{selected_iso}")
-            shift_end = s2.time_input("Shift end", value=_parse_time((schedule or {}).get("shift_end"), "17:00"), key=f"sched_end_{employee_id}_{selected_iso}")
+    with tabs[0]:
+        with st.form(f"sched_{employee_id}_{day}"):
+            a, b, c = st.columns(3)
+            shift_start = a.time_input("Shift start", value=_parse_time((schedule or {}).get("shift_start"), "08:00"))
+            shift_end = b.time_input("Shift end", value=_parse_time((schedule or {}).get("shift_end"), "17:00"))
             default_break = int((schedule or {}).get("break_minutes") or (0 if str(emp.get("department", "")).lower() == "security" else 60))
-            break_minutes = s3.number_input("Break minutes", min_value=0, value=default_break, step=15, key=f"sched_break_{employee_id}_{selected_iso}")
+            break_minutes = c.number_input("Break minutes", min_value=0, value=default_break, step=15)
             dept_options = [""] + _department_names(conn, include_all=False)
             default_dept = (schedule or {}).get("department") or emp.get("department") or ""
             dept_idx = dept_options.index(default_dept) if default_dept in dept_options else 0
-            sched_dept = st.selectbox("Department / Area", dept_options, index=dept_idx, key=f"sched_dept_{employee_id}_{selected_iso}")
-            rest_day = st.checkbox("Rest day", value=bool((schedule or {}).get("is_rest_day") or 0), key=f"rest_{employee_id}_{selected_iso}")
-            sched_notes = st.text_area("Schedule notes", value=str((schedule or {}).get("notes") or ""), key=f"sched_notes_{employee_id}_{selected_iso}")
-            c1, c2 = st.columns(2)
-            if c1.form_submit_button("Save schedule", type="primary"):
-                _save_schedule(conn, employee_id, selected_iso, shift_start.strftime("%H:%M"), shift_end.strftime("%H:%M"), int(break_minutes), sched_dept, bool(rest_day), sched_notes, int(schedule["id"]) if schedule else None)
-                if audit_func:
-                    audit_func(current_user, "Calendar saved schedule", "schedules", employee_id, f"{emp.get('full_name')} {selected_iso}")
+            dept = st.selectbox("Department / Area", dept_options, index=dept_idx)
+            rest = st.checkbox("Rest day", value=bool((schedule or {}).get("is_rest_day") or 0))
+            notes = st.text_area("Schedule notes", value=str((schedule or {}).get("notes") or ""))
+            if st.form_submit_button("Save schedule", type="primary"):
+                _save_schedule(conn, employee_id, day, shift_start.strftime("%H:%M"), shift_end.strftime("%H:%M"), int(break_minutes), dept, rest, notes, int(schedule["id"]) if schedule else None)
                 st.success("Schedule saved.")
                 st.rerun()
-            if c2.form_submit_button("Delete schedule"):
-                _delete_schedule(conn, int(schedule["id"]) if schedule else None)
-                st.success("Schedule deleted.")
-                st.rerun()
 
-    with tab_log:
-        with st.form(f"log_form_{employee_id}_{selected_iso}"):
-            l1, l2, l3 = st.columns(3)
-            actual_in = l1.time_input("Actual in", value=_parse_time((log or {}).get("actual_in"), "08:00"), key=f"actual_in_{employee_id}_{selected_iso}")
-            actual_out = l2.time_input("Actual out", value=_parse_time((log or {}).get("actual_out"), "17:00"), key=f"actual_out_{employee_id}_{selected_iso}")
-            missing_out = l3.checkbox("No time out yet", value=not bool((log or {}).get("actual_out")), key=f"missing_out_{employee_id}_{selected_iso}")
-            absent = st.checkbox("Mark absent", value=bool((log or {}).get("is_absent") or 0), key=f"absent_{employee_id}_{selected_iso}")
-            absence_options = ["", "Absent", "Service Incentive Leave", "Sick Leave", "Bereavement Leave", "Unpaid Leave", "AWOL", "Suspension"]
-            existing_absence = str((log or {}).get("absence_type") or "")
-            absence_idx = absence_options.index(existing_absence) if existing_absence in absence_options else 0
-            absence_type = st.selectbox("Absence / leave type", absence_options, index=absence_idx, key=f"absence_type_{employee_id}_{selected_iso}")
-            a1, a2, a3 = st.columns(3)
+    with tabs[1]:
+        with st.form(f"log_{employee_id}_{day}"):
+            a, b, c = st.columns(3)
+            actual_in = a.time_input("Actual in", value=_parse_time((log or {}).get("actual_in"), "08:00"))
+            actual_out = b.time_input("Actual out", value=_parse_time((log or {}).get("actual_out"), "17:00"))
+            missing_out = c.checkbox("No time out yet", value=not bool((log or {}).get("actual_out")))
+            absent = st.checkbox("Mark absent", value=bool((log or {}).get("is_absent") or 0))
+            absence_options = ["", "Absent", "Service Incentive Leave", "Sick Leave", "Bereavement Leave", "Unpaid Leave"]
+            old_absence = str((log or {}).get("absence_type") or "")
+            absence_type = st.selectbox("Absence / leave type", absence_options, index=absence_options.index(old_absence) if old_absence in absence_options else 0)
+            d, e, f = st.columns(3)
             attendance_options = ["Pending", "Reviewed", "Needs Manager", "Disputed"]
-            existing_att = (log or {}).get("attendance_status") if (log or {}).get("attendance_status") in attendance_options else "Pending"
-            attendance_status = a1.selectbox("Attendance status", attendance_options, index=attendance_options.index(existing_att), key=f"att_status_{employee_id}_{selected_iso}")
+            old_att = (log or {}).get("attendance_status") if (log or {}).get("attendance_status") in attendance_options else "Pending"
+            attendance_status = d.selectbox("Attendance status", attendance_options, index=attendance_options.index(old_att))
             ot_options = ["None", "Pending", "Approved", "Rejected"]
-            existing_ot = (log or {}).get("ot_status") if (log or {}).get("ot_status") in ot_options else "None"
-            ot_status = a2.selectbox("OT status", ot_options, index=ot_options.index(existing_ot), key=f"ot_status_{employee_id}_{selected_iso}")
-            approved_ot = a3.number_input("Approved OT hours", min_value=0.0, value=float((log or {}).get("approved_ot_hours") or 0), step=0.25, key=f"approved_ot_{employee_id}_{selected_iso}")
-            ot_reason_category = st.selectbox("OT reason category", ["", "High guest volume", "Event", "Late checkout", "Emergency coverage", "Manager approved", "Other"], key=f"ot_cat_{employee_id}_{selected_iso}")
-            ot_reason_note = st.text_area("OT reason note", value=str((log or {}).get("ot_reason_note") or ""), key=f"ot_note_{employee_id}_{selected_iso}")
-            notes = st.text_area("Log notes", value=str((log or {}).get("notes") or ""), key=f"log_notes_{employee_id}_{selected_iso}")
-            c1, c2 = st.columns(2)
-            if c1.form_submit_button("Save actual / OT", type="primary"):
-                out_text = "" if missing_out or absent else actual_out.strftime("%H:%M")
+            old_ot = (log or {}).get("ot_status") if (log or {}).get("ot_status") in ot_options else "None"
+            ot_status = e.selectbox("OT status", ot_options, index=ot_options.index(old_ot))
+            approved_ot = f.number_input("Approved OT hours", min_value=0.0, value=float((log or {}).get("approved_ot_hours") or 0), step=0.25)
+            notes = st.text_area("Log / OT notes", value=str((log or {}).get("notes") or ""))
+            if st.form_submit_button("Save actual / OT", type="primary"):
                 in_text = "" if absent else actual_in.strftime("%H:%M")
-                _save_time_log(conn, employee_id, selected_iso, in_text, out_text, bool(absent), absence_type, float(approved_ot), ot_status, ot_reason_category, ot_reason_note, attendance_status, notes, int(log["id"]) if log else None)
-                if audit_func:
-                    audit_func(current_user, "Calendar saved time log", "time_logs", employee_id, f"{emp.get('full_name')} {selected_iso}")
+                out_text = "" if absent or missing_out else actual_out.strftime("%H:%M")
+                _save_log(conn, employee_id, day, in_text, out_text, absent, absence_type, approved_ot, ot_status, attendance_status, notes, int(log["id"]) if log else None)
                 st.success("Actual log saved.")
                 st.rerun()
-            if c2.form_submit_button("Clear actual log"):
-                _clear_log(conn, int(log["id"]) if log else None)
-                st.success("Actual log cleared.")
-                st.rerun()
 
-    with tab_leave:
-        leave_types = fetchall(conn, "SELECT name FROM leave_types WHERE active=1 ORDER BY name")
-        leave_names = [r["name"] for r in leave_types] or ["Service Incentive Leave", "Sick Leave", "Bereavement Leave", "Unpaid Leave"]
-        with st.form(f"leave_form_{employee_id}_{selected_iso}"):
-            leave_name = st.selectbox("Leave type", leave_names, key=f"leave_name_{employee_id}_{selected_iso}")
-            paid = st.checkbox("Paid leave", value=True, key=f"leave_paid_{employee_id}_{selected_iso}")
-            status = st.selectbox("Leave status", ["Pending", "Approved", "Rejected"], index=1, key=f"leave_status_{employee_id}_{selected_iso}")
-            reason = st.text_area("Reason", value="Calendar Review entry", key=f"leave_reason_{employee_id}_{selected_iso}")
-            if st.form_submit_button("Save leave / absence", type="primary"):
-                lt = fetchone(conn, "SELECT id FROM leave_types WHERE lower(name)=lower(?)", (leave_name,))
-                if not lt:
-                    execute(conn, "INSERT INTO leave_types(name, default_credits, paid, statutory, requires_approval, active, notes) VALUES(?,?,?,?,?,?,?)", (leave_name, 0, int(paid), 0, 1, 1, "Created from Calendar Review"))
-                    lt = fetchone(conn, "SELECT id FROM leave_types WHERE lower(name)=lower(?)", (leave_name,))
-                execute(conn, "INSERT INTO leave_requests(employee_id, leave_type_id, start_date, end_date, days, paid, status, reason, reviewed_by, reviewed_at, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (employee_id, int(lt["id"]), selected_iso, selected_iso, 1, int(paid), status, reason, current_user if status == "Approved" else "", now_iso() if status == "Approved" else "", now_iso()))
-                _save_time_log(conn, employee_id, selected_iso, "", "", True, leave_name, 0, "None", "", "", "Reviewed" if status == "Approved" else "Pending", f"Marked {leave_name} from Calendar Review", int(log["id"]) if log else None)
-                st.success("Leave / absence saved.")
-                st.rerun()
+    with tabs[2]:
+        leave_names = [r["name"] for r in fetchall(conn, "SELECT name FROM leave_types WHERE active=1 ORDER BY name")] or ["Service Incentive Leave", "Sick Leave", "Bereavement Leave", "Unpaid Leave"]
+        leave_name = st.selectbox("Leave type", leave_names)
+        if st.button("Save approved leave", type="primary"):
+            _mark_leave(conn, employee_id, day, leave_name, current_user)
+            st.success("Leave saved.")
+            st.rerun()
 
-    with tab_holiday:
-        st.caption("Holiday is date-level. Once saved here, the holiday applies to everyone for this date and can be used by payroll holiday logic.")
-        with st.form(f"holiday_form_{selected_iso}"):
-            hname = st.text_input("Holiday name", value=str((holiday or {}).get("name") or ""), key=f"holiday_name_{selected_iso}")
-            htype_options = ["Regular", "Special"]
-            existing_htype = (holiday or {}).get("holiday_type") if (holiday or {}).get("holiday_type") in htype_options else "Regular"
-            htype = st.selectbox("Holiday type", htype_options, index=htype_options.index(existing_htype), key=f"holiday_type_{selected_iso}")
-            hnotes = st.text_area("Holiday notes", value=str((holiday or {}).get("notes") or ""), key=f"holiday_notes_{selected_iso}")
+    with tabs[3]:
+        with st.form(f"holiday_{day}"):
+            hname = st.text_input("Holiday name", value=str((holiday or {}).get("name") or ""))
+            htype = st.selectbox("Holiday type", ["Regular", "Special"], index=0 if (holiday or {}).get("holiday_type") != "Special" else 1)
+            hnotes = st.text_area("Holiday notes", value=str((holiday or {}).get("notes") or ""))
             if st.form_submit_button("Save holiday for this date", type="primary"):
                 if not hname.strip():
                     st.error("Holiday name is required.")
                 else:
-                    _upsert_holiday(conn, selected_iso, hname.strip(), htype, hnotes)
-                    if audit_func:
-                        audit_func(current_user, "Calendar saved holiday", "holidays", None, f"{selected_iso} {hname.strip()} {htype}")
-                    st.success("Holiday saved for this date.")
+                    _save_holiday(conn, day, hname.strip(), htype, hnotes)
+                    st.success("Holiday saved.")
                     st.rerun()
 
-    with tab_quick:
+    with tabs[4]:
         q1, q2, q3, q4 = st.columns(4)
-        if q1.button("Mark reviewed", key=f"q_review_{employee_id}_{selected_iso}"):
+        if q1.button("Mark reviewed"):
             if log:
                 execute(conn, "UPDATE time_logs SET attendance_status='Reviewed', reviewed_by=?, reviewed_at=?, updated_at=? WHERE id=?", (current_user, now_iso(), now_iso(), int(log["id"])))
             else:
-                _save_time_log(conn, employee_id, selected_iso, "", "", False, "", 0, "None", "", "", "Reviewed", "Reviewed empty day from calendar", None)
-            st.success("Marked reviewed.")
+                _save_log(conn, employee_id, day, "", "", False, "", 0, "None", "Reviewed", "Reviewed empty day", None)
+            st.success("Reviewed.")
             st.rerun()
-        if q2.button("Mark rest day", key=f"q_rest_{employee_id}_{selected_iso}"):
-            _save_schedule(conn, employee_id, selected_iso, "00:00", "00:00", 0, str(emp.get("department") or ""), True, "Marked rest day from calendar", int(schedule["id"]) if schedule else None)
-            st.success("Marked rest day.")
+        if q2.button("Rest day"):
+            _save_schedule(conn, employee_id, day, "00:00", "00:00", 0, str(emp.get("department") or ""), True, "Marked rest day", int(schedule["id"]) if schedule else None)
+            st.success("Rest day saved.")
             st.rerun()
-        if q3.button("Copy schedule → actual", key=f"q_copy_{employee_id}_{selected_iso}"):
-            if not schedule:
-                st.warning("No schedule to copy.")
-            else:
-                _copy_schedule_to_actual(conn, employee_id, selected_iso, schedule, log)
-                st.success("Copied schedule to actual.")
+        if q3.button("Copy S → A"):
+            if schedule:
+                _save_log(conn, employee_id, day, str(schedule["shift_start"]), str(schedule["shift_end"]), False, "", 0, "None", "Reviewed", "Copied schedule to actual", int(log["id"]) if log else None)
+                st.success("Copied.")
                 st.rerun()
-        if q4.button("Approve detected OT", key=f"q_ot_{employee_id}_{selected_iso}"):
-            if not log:
-                st.warning("No time log yet.")
-            else:
-                detected = float(log.get("detected_ot_hours") or log.get("approved_ot_hours") or 0)
-                execute(conn, "UPDATE time_logs SET approved_ot_hours=?, ot_status='Approved', attendance_status='Reviewed', reviewed_by=?, reviewed_at=?, updated_at=? WHERE id=?", (detected, current_user, now_iso(), now_iso(), int(log["id"])))
-                st.success("Detected OT approved.")
-                st.rerun()
-        q5, q6, q7, q8 = st.columns(4)
-        if q5.button("SIL", key=f"q_sil_{employee_id}_{selected_iso}"):
-            _create_leave_and_absence(conn, employee_id, selected_iso, "Service Incentive Leave", current_user)
-            st.success("Marked SIL.")
+        if q4.button("Absent"):
+            _save_log(conn, employee_id, day, "", "", True, "Absent", 0, "None", "Reviewed", "Marked absent", int(log["id"]) if log else None)
+            st.success("Absent saved.")
             st.rerun()
-        if q6.button("Sick leave", key=f"q_sl_{employee_id}_{selected_iso}"):
-            _create_leave_and_absence(conn, employee_id, selected_iso, "Sick Leave", current_user)
-            st.success("Marked sick leave.")
-            st.rerun()
-        if q7.button("Bereavement", key=f"q_bl_{employee_id}_{selected_iso}"):
-            _create_leave_and_absence(conn, employee_id, selected_iso, "Bereavement Leave", current_user)
-            st.success("Marked bereavement leave.")
-            st.rerun()
-        if q8.button("Absent", key=f"q_abs_{employee_id}_{selected_iso}"):
-            _save_time_log(conn, employee_id, selected_iso, "", "", True, "Absent", 0, "None", "", "", "Reviewed", "Marked absent from Calendar Review", int(log["id"]) if log else None)
-            st.success("Marked absent.")
-            st.rerun()
-
-
-def _open_editor(conn, current_user: str, audit_func=None) -> None:
-    payload = st.session_state.get("calendar_cell_to_edit")
-    if not payload:
-        return
-    employee_id = int(payload["employee_id"])
-    selected_date = datetime.strptime(payload["date"], "%Y-%m-%d").date()
-
-    if hasattr(st, "dialog"):
-        @st.dialog("Edit schedule / actual / leave / holiday / OT", width="large")
-        def popup() -> None:
-            _render_cell_editor(conn, current_user, employee_id, selected_date, audit_func)
-            if st.button("Close", key=f"close_popup_{employee_id}_{payload['date']}"):
-                st.session_state.pop("calendar_cell_to_edit", None)
-                st.rerun()
-        popup()
-    else:
-        st.warning("This Streamlit version does not support modal popups yet, so the cell editor is shown below the calendar.")
-        _render_cell_editor(conn, current_user, employee_id, selected_date, audit_func)
 
 
 def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
     st.title("Calendar Review")
-    st.caption("Sling-style weekly review: click any employee/day cell to edit schedule, actual log, rest day, leave, holiday, and OT details.")
-
+    st.caption("Same-size semi-colored clickable calendar cells. Click a cell to edit schedule, actual log, rest day, leave, holiday, and OT details.")
     c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1])
     week_start = c1.date_input("Week start", value=date.today() - timedelta(days=date.today().weekday()))
     week_start = week_start - timedelta(days=week_start.weekday())
     week_end = week_start + timedelta(days=6)
-    departments = _department_names(conn)
-    department = c2.selectbox("Department", departments)
+    department = c2.selectbox("Department", _department_names(conn))
     view_mode = c3.selectbox("View", ["All", "Exceptions only", "Missing logs", "Pending review", "Holidays"])
     if c4.button("Refresh"):
         st.rerun()
-
     employees, grid, holidays = _load_week(conn, week_start, week_end, department)
     days = [week_start + timedelta(days=i) for i in range(7)]
 
@@ -466,11 +385,10 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
         if view_mode == "All":
             return True
         for d in days:
-            cell = grid.get((int(emp["id"]), _iso(d)), {})
-            label, _icon, _kind = _status_badge(cell, holidays.get(_iso(d)))
-            if view_mode == "Exceptions only" and label not in {"OK", "—", "Regular", "Special"}:
+            label, _icon, _kind = _status(grid.get((int(emp["id"]), _iso(d)), {}), holidays.get(_iso(d)))
+            if view_mode == "Exceptions only" and label not in {"OK", "Empty", "Regular", "Special"}:
                 return True
-            if view_mode == "Missing logs" and label in {"No log", "Missing out"}:
+            if view_mode == "Missing logs" and label in {"No log", "Missing out", "Scheduled"}:
                 return True
             if view_mode == "Pending review" and label in {"Pending", "Needs Manager", "Disputed"}:
                 return True
@@ -479,36 +397,31 @@ def render_calendar_review(conn, current_user: str, audit_func=None) -> None:
         return False
 
     employees = [e for e in employees if include_emp(e)]
+    _render_grid(employees, days, grid, holidays)
 
-    st.markdown("**Legend:** 🟢 OK · 🟡 Needs checking · 🔵 Pending · 🔴 Absent/problem · 🟣 Leave · 🎌 Holiday · ⚪ Empty/rest")
-    header_cols = st.columns([1.8] + [1] * 7)
-    header_cols[0].markdown("**Employee**")
-    for i, d in enumerate(days):
-        h = holidays.get(_iso(d))
-        header_cols[i + 1].markdown(f"**{d.strftime('%a %b %d')}**" + (f"  🎌  \\n{h['name']}" if h else ""))
+    emp_id, day_iso = _query_params()
+    if emp_id and day_iso:
+        try:
+            selected_date = datetime.strptime(day_iso, "%Y-%m-%d").date()
+            if hasattr(st, "dialog"):
+                @st.dialog("Edit schedule / actual / leave / holiday / OT", width="large")
+                def popup() -> None:
+                    _render_editor(conn, current_user, emp_id, selected_date, audit_func)
+                    if st.button("Close"):
+                        _clear_query()
+                        st.rerun()
+                popup()
+            else:
+                st.markdown("---")
+                _render_editor(conn, current_user, emp_id, selected_date, audit_func)
+        except Exception as exc:
+            st.error(f"Could not open calendar cell: {exc}")
 
-    for emp in employees:
-        cols = st.columns([1.8] + [1] * 7)
-        cols[0].markdown(f"**{emp['full_name']}**  \\n<small>{emp.get('employee_code','')} • {emp.get('department','')} • {emp.get('position','')}</small>", unsafe_allow_html=True)
-        for i, d in enumerate(days):
-            d_iso = _iso(d)
-            cell = grid.get((int(emp["id"]), d_iso), {})
-            h = holidays.get(d_iso)
-            btn_label = _cell_label(d, cell, h)
-            if cols[i + 1].button(btn_label, key=f"cal_cell_{emp['id']}_{d_iso}", use_container_width=True):
-                st.session_state["calendar_cell_to_edit"] = {"employee_id": int(emp["id"]), "date": d_iso}
-                st.rerun()
-
-    _open_editor(conn, current_user, audit_func)
-
-    with st.expander("Selected cell editor fallback / direct selector"):
-        emp_options = _employee_options(conn, department)
-        if not emp_options:
-            st.info("No active employees for this filter.")
-            return
-        e1, e2 = st.columns([2, 1])
-        emp_label = e1.selectbox("Employee", list(emp_options.keys()))
-        selected_date = e2.date_input("Date to edit", value=week_start, min_value=week_start, max_value=week_end, key="calendar_fallback_date")
-        if st.button("Open editor for selected employee/date"):
-            st.session_state["calendar_cell_to_edit"] = {"employee_id": int(emp_options[emp_label]), "date": _iso(selected_date)}
-            st.rerun()
+    with st.expander("Direct selector fallback"):
+        opts = _employee_options(conn, department)
+        if opts:
+            left, right = st.columns([2, 1])
+            emp_label = left.selectbox("Employee", list(opts.keys()))
+            selected_date = right.date_input("Date", value=week_start, min_value=week_start, max_value=week_end, key="fallback_cal_date")
+            if st.button("Open editor"):
+                _render_editor(conn, current_user, int(opts[emp_label]), selected_date, audit_func)
