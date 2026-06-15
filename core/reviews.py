@@ -18,10 +18,29 @@ def _score_from_rate(rate: float, good_threshold: float, fair_threshold: float) 
     return 1
 
 
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    """Return True when a SQLite table contains a column.
+
+    Some existing local prototype databases were created before review metrics
+    like time_logs.late_minutes / undertime_minutes existed. Annual review
+    summaries should degrade gracefully instead of crashing when those older
+    databases are opened.
+    """
+    try:
+        return any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})").fetchall())
+    except sqlite3.Error:
+        return False
+
+
 def build_annual_review_auto_summary(conn: sqlite3.Connection, employee_id: int, start_date: str, end_date: str) -> dict:
     emp = fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,))
     if not emp:
         return {"summary": "Employee not found.", "scores": {}}
+
+    has_late_minutes = _has_column(conn, "time_logs", "late_minutes")
+    has_undertime_minutes = _has_column(conn, "time_logs", "undertime_minutes")
+    late_expr = "SUM(late_minutes)" if has_late_minutes else "0"
+    undertime_expr = "SUM(undertime_minutes)" if has_undertime_minutes else "0"
 
     sched = fetchone(
         conn,
@@ -30,11 +49,11 @@ def build_annual_review_auto_summary(conn: sqlite3.Connection, employee_id: int,
     ) or {}
     logs = fetchone(
         conn,
-        """
+        f"""
         SELECT COUNT(*) AS log_count,
                SUM(CASE WHEN attendance_status IN ('Pending','Needs Manager','Disputed') THEN 1 ELSE 0 END) AS pending_logs,
-               SUM(late_minutes) AS late_minutes,
-               SUM(undertime_minutes) AS undertime_minutes,
+               {late_expr} AS late_minutes,
+               {undertime_expr} AS undertime_minutes,
                SUM(approved_ot_hours) AS approved_ot_hours,
                SUM(CASE WHEN is_absent=1 THEN 1 ELSE 0 END) AS absent_logs
         FROM time_logs WHERE employee_id=? AND work_date BETWEEN ? AND ?
@@ -70,7 +89,9 @@ def build_annual_review_auto_summary(conn: sqlite3.Connection, employee_id: int,
         SELECT COUNT(DISTINCT pr.id) AS payroll_runs,
                SUM(pi.regular_hours) AS regular_hours,
                SUM(pi.approved_ot_hours) AS payroll_ot_hours,
-               SUM(pi.net_pay) AS total_net_pay
+               SUM(pi.net_pay) AS total_net_pay,
+               SUM(pi.late_minutes) AS payroll_late_minutes,
+               SUM(pi.undertime_minutes) AS payroll_undertime_minutes
         FROM payroll_items pi
         JOIN payroll_runs pr ON pr.id=pi.payroll_run_id
         WHERE pi.employee_id=? AND pr.period_start <= ? AND pr.period_end >= ?
@@ -85,6 +106,15 @@ def build_annual_review_auto_summary(conn: sqlite3.Connection, employee_id: int,
     absent_logs = int(logs.get("absent_logs") or 0)
     late_minutes = float(logs.get("late_minutes") or 0)
     undertime_minutes = float(logs.get("undertime_minutes") or 0)
+
+    # Older time log schemas may not store late/undertime minutes. When payroll
+    # runs exist, use payroll item totals as a safe fallback so annual reviews
+    # still get useful punctuality/undertime context.
+    if not has_late_minutes:
+        late_minutes = float(payroll.get("payroll_late_minutes") or 0)
+    if not has_undertime_minutes:
+        undertime_minutes = float(payroll.get("payroll_undertime_minutes") or 0)
+
     approved_ot_hours = float(logs.get("approved_ot_hours") or 0)
 
     late_hours = late_minutes / 60.0
@@ -102,6 +132,12 @@ def build_annual_review_auto_summary(conn: sqlite3.Connection, employee_id: int,
     guest_service_score = 3
 
     leave_text = ", ".join([f"{r['name']}: {float(r['days'] or 0):g} day(s)" for r in leaves]) or "No approved leave recorded"
+    metric_source_notes = []
+    if not has_late_minutes:
+        metric_source_notes.append("time-log late minutes not present; used payroll late totals if available")
+    if not has_undertime_minutes:
+        metric_source_notes.append("time-log undertime minutes not present; used payroll undertime totals if available")
+
     summary_lines = [
         f"Auto-summary for {emp.get('full_name')} from {start_date} to {end_date}:",
         f"- Scheduled workdays: {scheduled_days}",
@@ -113,6 +149,10 @@ def build_annual_review_auto_summary(conn: sqlite3.Connection, employee_id: int,
         f"- Approved leaves: {leave_text}",
         f"- Infractions: {infraction_count}; memos: {memo_count}",
         f"- Payroll runs included: {int(payroll.get('payroll_runs') or 0)}; payroll regular hours: {float(payroll.get('regular_hours') or 0):.2f}",
+    ]
+    if metric_source_notes:
+        summary_lines.append(f"- Metric note: {'; '.join(metric_source_notes)}.")
+    summary_lines += [
         "",
         "Suggested score starting points:",
         f"- Reliability: {reliability_score}/5",
