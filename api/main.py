@@ -21,7 +21,7 @@ from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import compute_payroll
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
-APP_VERSION = "0.1.4-api-wrapper-attendance-actions"
+APP_VERSION = "0.1.5-api-wrapper-attendance-history"
 API_PREFIX = "/api/v1"
 SESSION_TTL_SECONDS = 12 * 60 * 60
 ROLE_OWNER = "owner"
@@ -248,6 +248,21 @@ def build_app() -> FastAPI:
             conn.commit()
             updated = fetchone(conn, "SELECT * FROM time_logs WHERE id=?", (time_log_id,))
         return {"ok": True, "time_log": clean_row(updated or {}), "decision": decision, "reviewed_by": user["display_name"], "reviewed_at": timestamp}
+
+    @app.get(f"{API_PREFIX}/attendance/reviews", dependencies=[Depends(require_api_key)])
+    def attendance_reviews(start_date: date, end_date: date, user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_SUPERVISOR))) -> list[dict[str, Any]]:
+        start, end = parse_date_order(start_date, end_date)
+        with db_conn(read_only=True) as conn:
+            rows = fetchall(conn, """
+                SELECT ar.*, tl.work_date, e.employee_code, e.full_name, e.department, e.position
+                FROM attendance_reviews ar
+                JOIN time_logs tl ON tl.id=ar.time_log_id
+                JOIN employees e ON e.id=tl.employee_id
+                WHERE tl.work_date BETWEEN ? AND ?
+                ORDER BY ar.created_at DESC, ar.id DESC
+                LIMIT 100
+            """, (start, end))
+        return clean_rows(rows)
 
     @app.get(f"{API_PREFIX}/meta", dependencies=[Depends(require_api_key)])
     def meta() -> dict[str, Any]:
