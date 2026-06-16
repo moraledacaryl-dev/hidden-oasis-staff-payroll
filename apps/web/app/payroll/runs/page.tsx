@@ -3,11 +3,10 @@ import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getPayrollRuns, peso } from "@/lib/api";
 
-function statusTone(status: string): "success" | "warning" | "danger" | "default" {
-  if (status === "Approved") return "success";
+function statusTone(status: string): "ok" | "warning" | "danger" {
+  if (status === "Approved" || status === "Paid" || status === "Released") return "ok";
   if (status === "Draft" || status === "For Owner Review") return "warning";
-  if (status === "Paid" || status === "Released") return "success";
-  return "default";
+  return "danger";
 }
 
 export default async function PayrollRunsPage({ searchParams }: { searchParams: Promise<{ status?: string; start?: string; end?: string }> }) {
