@@ -23,6 +23,7 @@ DATE_COLUMNS = ["work_date", "leave_date", "date", "day"]
 START_COLUMNS = ["start_date", "date_start", "from_date", "leave_start"]
 END_COLUMNS = ["end_date", "date_end", "to_date", "leave_end"]
 TYPE_COLUMNS = ["leave_type", "type", "category", "leave_name", "name"]
+TYPE_ID_COLUMNS = ["leave_type_id", "type_id", "category_id", "leave_id"]
 DAYS_COLUMNS = ["days", "leave_days", "paid_leave_days", "duration_days", "number_of_days"]
 STATUS_COLUMNS = ["status", "approval_status", "state"]
 
@@ -54,6 +55,10 @@ def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
+def _table_columns(conn, table_name: str) -> set[str]:
+    return {str(row.get("name")) for row in fetchall(conn, f"PRAGMA table_info({_quote(table_name)})") if row.get("name")}
+
+
 def _leave_tables(conn) -> list[tuple[str, set[str]]]:
     tables = fetchall(conn, "SELECT name FROM sqlite_master WHERE type='table' AND lower(name) LIKE '%leave%'")
     results: list[tuple[str, set[str]]] = []
@@ -61,23 +66,44 @@ def _leave_tables(conn) -> list[tuple[str, set[str]]]:
         name = table.get("name")
         if not name:
             continue
-        cols = {row.get("name") for row in fetchall(conn, f"PRAGMA table_info({_quote(str(name))})") if row.get("name")}
+        cols = _table_columns(conn, str(name))
         if "employee_id" in cols:
-            results.append((str(name), set(str(col) for col in cols)))
+            results.append((str(name), cols))
     return results
+
+
+def _leave_type_lookup(conn) -> dict[int, str]:
+    tables = fetchall(conn, "SELECT name FROM sqlite_master WHERE type='table' AND lower(name) IN ('leave_types','leave_type')")
+    lookup: dict[int, str] = {}
+    for table in tables:
+        table_name = str(table.get("name"))
+        cols = _table_columns(conn, table_name)
+        if "id" not in cols:
+            continue
+        name_col = _pick(cols, ["name", "leave_type", "type", "title", "label"])
+        if not name_col:
+            continue
+        for row in fetchall(conn, f"SELECT id, {_quote(name_col)} AS leave_type_name FROM {_quote(table_name)}"):
+            try:
+                lookup[int(row.get("id"))] = str(row.get("leave_type_name") or "Paid Leave")
+            except (TypeError, ValueError):
+                continue
+    return lookup
 
 
 def _fetch_leave_rows(conn, employee_id: int, period_start: str, period_end: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    type_lookup = _leave_type_lookup(conn)
     for table, columns in _leave_tables(conn):
         start_col = _pick(columns, START_COLUMNS)
         end_col = _pick(columns, END_COLUMNS)
         single_col = _pick(columns, DATE_COLUMNS)
         type_col = _pick(columns, TYPE_COLUMNS)
+        type_id_col = _pick(columns, TYPE_ID_COLUMNS)
         days_col = _pick(columns, DAYS_COLUMNS)
         status_col = _pick(columns, STATUS_COLUMNS)
         select_cols = ["employee_id"]
-        for col in [start_col, end_col, single_col, type_col, days_col, status_col]:
+        for col in [start_col, end_col, single_col, type_col, type_id_col, days_col, status_col]:
             if col and col not in select_cols:
                 select_cols.append(col)
         if start_col and end_col:
@@ -92,7 +118,15 @@ def _fetch_leave_rows(conn, employee_id: int, period_start: str, period_end: str
             where += f" AND lower(coalesce({_quote(status_col)}, '')) NOT IN ('rejected','declined','cancelled','canceled','void')"
         sql = f"SELECT {', '.join(_quote(col) for col in select_cols)} FROM {_quote(table)} WHERE {where} ORDER BY { _quote(start_col or single_col or 'employee_id') }"
         for row in fetchall(conn, sql, params):
-            leave_type = str(row.get(type_col) or "Paid Leave") if type_col else "Paid Leave"
+            if type_col and row.get(type_col):
+                leave_type = str(row.get(type_col))
+            elif type_id_col and row.get(type_id_col) is not None:
+                try:
+                    leave_type = type_lookup.get(int(row.get(type_id_col)), "Paid Leave")
+                except (TypeError, ValueError):
+                    leave_type = "Paid Leave"
+            else:
+                leave_type = "Paid Leave"
             start_date = _parse_date(row.get(start_col or single_col))
             end_date = _parse_date(row.get(end_col or single_col)) or start_date
             if not start_date or not end_date:
