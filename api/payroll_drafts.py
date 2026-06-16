@@ -103,7 +103,9 @@ def list_payroll_runs(authorization: str | None = Header(default=None, alias="Au
 @router.post("/payroll/runs/draft")
 def create_payroll_draft(payload: PayrollDraftRequest, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     user = must_be_payroll_user(authorization, x_api_key)
-    start = payload.period_start.isoformat(); end = payload.period_end.isoformat(); label = payload.run_label.strip() or "Semi-monthly"
+    start = payload.period_start.isoformat()
+    end = payload.period_end.isoformat()
+    label = payload.run_label.strip() or "Semi-monthly"
     if payload.period_end < payload.period_start:
         raise HTTPException(status_code=422, detail="End date cannot be before start date.")
     conn = get_conn(DB_PATH)
@@ -129,5 +131,26 @@ def create_payroll_draft(payload: PayrollDraftRequest, authorization: str | None
         return {"ok": True, "run": run, "checks": checks, "mode": "draft_saved_not_released"}
     except HTTPException:
         conn.rollback(); raise
+    finally:
+        conn.close()
+
+
+@router.post("/payroll/runs/{run_id}/approve")
+def approve_payroll_run(run_id: int, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    user = must_be_payroll_user(authorization, x_api_key)
+    if user.get("role_key") != "owner":
+        raise HTTPException(status_code=403, detail="Only owner can approve payroll.")
+    conn = get_conn(DB_PATH)
+    try:
+        run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
+        if not run:
+            raise HTTPException(status_code=404, detail="Payroll run not found.")
+        if run.get("status") != "For Owner Review":
+            raise HTTPException(status_code=409, detail="Only owner-review runs can be approved.")
+        conn.execute("UPDATE payroll_runs SET status='Approved', approved_by=?, approved_at=? WHERE id=?", (user.get("display_name"), now_iso(), run_id))
+        conn.commit()
+        updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
+        updated["totals"] = totals(conn, run_id)
+        return {"ok": True, "run": updated, "mode": "approved_not_released"}
     finally:
         conn.close()
