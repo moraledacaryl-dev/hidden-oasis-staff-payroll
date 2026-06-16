@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
+import os
+import time
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from typing import Any
@@ -7,8 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from api.main import current_user_from_token, require_api_key
-from core.db import fetchall, fetchone, get_conn, DB_PATH
+from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import compute_payroll
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
@@ -25,10 +30,48 @@ def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
 
+def role_key(role: str | None) -> str:
+    text = (role or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if text in {"owner", "admin", "administrator"}:
+        return "owner"
+    if text in {"payroll", "payroll_admin", "hr", "hr_payroll"}:
+        return "payroll"
+    return "staff"
+
+
+def secret() -> str:
+    return os.getenv("STAFF_PAYROLL_SESSION_SECRET") or os.getenv("STAFF_PAYROLL_API_KEY") or "dev-only-change-staff-payroll-session-secret"
+
+
+def b64decode(data: str) -> bytes:
+    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+
+
 def must_be_payroll_user(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
-    require_api_key(x_api_key)
-    user = current_user_from_token(authorization)
-    if user.get("role_key") not in {"owner", "payroll"}:
+    expected_key = os.getenv("STAFF_PAYROLL_API_KEY")
+    if expected_key and x_api_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+    try:
+        body, signature = authorization.removeprefix("Bearer ").strip().split(".", 1)
+        expected = hmac.new(secret().encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
+        if not hmac.compare_digest(b64decode(signature), expected):
+            raise ValueError("bad signature")
+        payload = json.loads(b64decode(body).decode("utf-8"))
+        if int(payload.get("exp") or 0) < int(time.time()):
+            raise ValueError("expired")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired session token.")
+    conn = get_conn(DB_PATH)
+    try:
+        user = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (payload.get("sub"),))
+    finally:
+        conn.close()
+    if not user:
+        raise HTTPException(status_code=401, detail="User no longer exists or is inactive.")
+    user["role_key"] = role_key(user.get("role"))
+    if user["role_key"] not in {"owner", "payroll"}:
         raise HTTPException(status_code=403, detail="Payroll draft actions require owner or payroll role.")
     return user
 
@@ -60,9 +103,7 @@ def list_payroll_runs(authorization: str | None = Header(default=None, alias="Au
 @router.post("/payroll/runs/draft")
 def create_payroll_draft(payload: PayrollDraftRequest, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     user = must_be_payroll_user(authorization, x_api_key)
-    start = payload.period_start.isoformat()
-    end = payload.period_end.isoformat()
-    label = payload.run_label.strip() or "Semi-monthly"
+    start = payload.period_start.isoformat(); end = payload.period_end.isoformat(); label = payload.run_label.strip() or "Semi-monthly"
     if payload.period_end < payload.period_start:
         raise HTTPException(status_code=422, detail="End date cannot be before start date.")
     conn = get_conn(DB_PATH)
