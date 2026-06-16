@@ -21,6 +21,11 @@
   justify-content: center;
 }
 
+.sidebar-button {
+  width: 100%;
+  cursor: pointer;
+}
+
 .login-page {
   min-height: 100vh;
   display: grid;
