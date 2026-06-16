@@ -5,7 +5,9 @@ import { useState } from "react";
 
 const positions = ["Receptionist", "Cook", "Barista", "Bartender", "Security", "Housekeeper", "Other"];
 
-export function ScheduleShiftForm({ weekStart }: { weekStart: string }) {
+type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
+
+export function ScheduleShiftForm({ weekStart, employees }: { weekStart: string; employees: ScheduleEmployee[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [message, setMessage] = useState<string>("");
@@ -42,7 +44,7 @@ export function ScheduleShiftForm({ weekStart }: { weekStart: string }) {
   return (
     <form action={submit} className="form-grid">
       <label>Date<input name="shift_date" type="date" defaultValue={weekStart} required /></label>
-      <label>Employee ID<input name="employee_id" type="number" min="1" placeholder="Leave blank for unassigned" /></label>
+      <label>Employee<select name="employee_id" defaultValue=""><option value="">Unassigned shift</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name} · {employee.department || "No dept"} · {employee.position || "No position"}</option>)}</select></label>
       <label>Start<input name="start_time" type="time" defaultValue="08:00" required /></label>
       <label>End<input name="end_time" type="time" defaultValue="17:00" required /></label>
       <label>Position<select name="position" defaultValue="Receptionist">{positions.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
