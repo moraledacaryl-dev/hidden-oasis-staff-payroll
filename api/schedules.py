@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
+from typing import Any
+
+from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel
+
+from api.payroll_drafts import must_be_payroll_user
+from core.db import DB_PATH, fetchall, fetchone, get_conn
+
+router = APIRouter(prefix="/api/v1")
+
+POSITIONS = {"Receptionist", "Cook", "Barista", "Bartender", "Security", "Housekeeper", "Other"}
+
+class ShiftPayload(BaseModel):
+    employee_id: int | None = None
+    shift_date: date
+    start_time: str
+    end_time: str
+    position: str = "Other"
+    department: str | None = None
+    break_minutes: int = 60
+    notes: str | None = None
+
+
+def ensure_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scheduled_shifts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER,
+            shift_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            position TEXT NOT NULL DEFAULT 'Other',
+            department TEXT,
+            break_minutes INTEGER NOT NULL DEFAULT 60,
+            status TEXT NOT NULL DEFAULT 'Draft',
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_date ON scheduled_shifts(shift_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_employee ON scheduled_shifts(employee_id)")
+    conn.commit()
+
+
+def hours_for_shift(shift_date: str, start_time: str, end_time: str, break_minutes: int) -> float:
+    start = datetime.fromisoformat(f"{shift_date}T{start_time}")
+    end = datetime.fromisoformat(f"{shift_date}T{end_time}")
+    if end <= start:
+        end += timedelta(days=1)
+    gross = (end - start).total_seconds() / 3600
+    return max(0.0, gross - max(0, break_minutes) / 60)
+
+
+def clean_shift(row: dict[str, Any]) -> dict[str, Any]:
+    data = dict(row)
+    data["planned_paid_hours"] = hours_for_shift(str(row.get("shift_date")), str(row.get("start_time")), str(row.get("end_time")), int(row.get("break_minutes") or 0))
+    data["is_overnight"] = str(row.get("end_time")) <= str(row.get("start_time"))
+    return data
+
+
+def week_bounds(week_start: date) -> tuple[str, str]:
+    return week_start.isoformat(), (week_start + timedelta(days=6)).isoformat()
+
+
+@router.get("/schedules/week")
+def schedule_week(
+    week_start: date = Query(...),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    must_be_payroll_user(authorization, x_api_key)
+    start, end = week_bounds(week_start)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        rows = fetchall(
+            conn,
+            """
+            SELECT ss.*, e.full_name AS employee_name, e.employee_code, e.department AS employee_department
+            FROM scheduled_shifts ss
+            LEFT JOIN employees e ON e.id = ss.employee_id
+            WHERE date(ss.shift_date) BETWEEN date(?) AND date(?)
+            ORDER BY ss.shift_date, ss.start_time, COALESCE(e.full_name, 'Unassigned')
+            """,
+            (start, end),
+        )
+        return {"ok": True, "week_start": start, "week_end": end, "items": [clean_shift(row) for row in rows], "mode": "schedule_planned_hours_only_not_payroll"}
+    finally:
+        conn.close()
+
+
+@router.post("/schedules/shifts")
+def create_shift(
+    payload: ShiftPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = must_be_payroll_user(authorization, x_api_key)
+    if user.get("role_key") not in {"owner", "payroll"}:
+        raise HTTPException(status_code=403, detail="Only owner or payroll can edit schedules.")
+    if payload.position not in POSITIONS:
+        raise HTTPException(status_code=422, detail="Invalid position.")
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        if payload.employee_id:
+            employee = fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,))
+            if not employee:
+                raise HTTPException(status_code=404, detail="Employee not found.")
+        conn.execute(
+            """
+            INSERT INTO scheduled_shifts (employee_id, shift_date, start_time, end_time, position, department, break_minutes, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (payload.employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, payload.notes),
+        )
+        conn.commit()
+        shift_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,)) or {}
+        return {"ok": True, "shift": clean_shift(row), "mode": "planned_schedule_only"}
+    finally:
+        conn.close()
