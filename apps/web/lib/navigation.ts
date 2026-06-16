@@ -15,6 +15,12 @@ export const navItems: NavItem[] = [
     roles: ["owner", "payroll", "supervisor"],
   },
   {
+    href: "/me",
+    label: "My Portal",
+    description: "Personal schedule, leave, payslip, and request shell.",
+    roles: ["staff"],
+  },
+  {
     href: "/staff",
     label: "Staff",
     description: "Staff list, departments, employment status, benefit toggles.",
