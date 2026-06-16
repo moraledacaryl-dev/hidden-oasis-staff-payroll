@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,9 +22,13 @@ from core.payroll_engine import compute_payroll
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 
-APP_VERSION = "0.1.2-api-wrapper-auth-foundation"
+APP_VERSION = "0.1.3-api-wrapper-role-guards"
 API_PREFIX = "/api/v1"
 SESSION_TTL_SECONDS = 12 * 60 * 60
+ROLE_OWNER = "owner"
+ROLE_PAYROLL = "payroll"
+ROLE_SUPERVISOR = "supervisor"
+ROLE_STAFF = "staff"
 
 
 class PayrollPreviewRequest(BaseModel):
@@ -104,14 +108,14 @@ def table_exists(conn: Any, table: str) -> bool:
 def role_to_key(role: str | None) -> str:
     text = (role or "").strip().lower().replace(" ", "_").replace("-", "_")
     if text in {"owner", "admin", "administrator"}:
-        return "owner"
+        return ROLE_OWNER
     if text in {"payroll", "payroll_admin", "hr", "hr_payroll"}:
-        return "payroll"
+        return ROLE_PAYROLL
     if text in {"supervisor", "manager", "department_head"}:
-        return "supervisor"
+        return ROLE_SUPERVISOR
     if text in {"staff", "employee"}:
-        return "staff"
-    return "staff"
+        return ROLE_STAFF
+    return ROLE_STAFF
 
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
@@ -167,6 +171,24 @@ def current_user_from_token(authorization: str | None = Header(default=None, ali
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists or is inactive.")
     return public_user(user)
+
+
+def require_authenticated_user(user: dict[str, Any] = Depends(current_user_from_token)) -> dict[str, Any]:
+    return user
+
+
+def require_roles(*allowed_roles: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    normalized_allowed = {role_to_key(role) for role in allowed_roles}
+
+    def _require_role(user: dict[str, Any] = Depends(require_authenticated_user)) -> dict[str, Any]:
+        if user.get("role_key") not in normalized_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This action requires one of these roles: {', '.join(sorted(normalized_allowed))}.",
+            )
+        return user
+
+    return _require_role
 
 
 def normalize_employee(row: dict[str, Any], department_name: str | None = None) -> dict[str, Any]:
@@ -233,6 +255,18 @@ def build_app() -> FastAPI:
     @app.get(f"{API_PREFIX}/auth/me", dependencies=[Depends(require_api_key)])
     def auth_me(user: dict[str, Any] = Depends(current_user_from_token)) -> dict[str, Any]:
         return {"user": user}
+
+    @app.get(f"{API_PREFIX}/auth/can-approve-payroll", dependencies=[Depends(require_api_key)])
+    def auth_can_approve_payroll(user: dict[str, Any] = Depends(require_roles(ROLE_OWNER))) -> dict[str, Any]:
+        return {"ok": True, "action": "approve_payroll", "user": user}
+
+    @app.get(f"{API_PREFIX}/auth/can-manage-attendance", dependencies=[Depends(require_api_key)])
+    def auth_can_manage_attendance(user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_SUPERVISOR))) -> dict[str, Any]:
+        return {"ok": True, "action": "manage_attendance", "user": user}
+
+    @app.get(f"{API_PREFIX}/auth/can-preview-payroll", dependencies=[Depends(require_api_key)])
+    def auth_can_preview_payroll(user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict[str, Any]:
+        return {"ok": True, "action": "preview_payroll", "user": user}
 
     @app.get(f"{API_PREFIX}/meta", dependencies=[Depends(require_api_key)])
     def meta() -> dict[str, Any]:
