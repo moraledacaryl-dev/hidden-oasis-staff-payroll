@@ -75,6 +75,7 @@ tr:last-child td { border-bottom: 0; }
 .payslip-card { break-inside: avoid; page-break-inside: avoid; display: grid; gap: 18px; padding: 26px 28px; }
 .payslip-top { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
 .payslip-top h2 { font-size: 1.6rem; line-height: 1; }
+.payslip-meta { display: grid; gap: 4px; margin-top: 7px; }
 .payslip-net { text-align: right; display: grid; gap: 4px; min-width: 145px; }
 .payslip-net span { color: var(--muted); font-size: 0.82rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 .payslip-net strong { font-size: 1.45rem; }
@@ -106,6 +107,7 @@ tr:last-child td { border-bottom: 0; }
   .card { box-shadow: none; border-color: #999; border-radius: 10px; padding: 12px; }
   .payslip-card { page-break-inside: avoid; break-inside: avoid; gap: 9px; }
   .payslip-top h2 { font-size: 15px; }
+  .payslip-meta { gap: 3px; margin-top: 5px; }
   .payslip-net strong { font-size: 14px; }
   .payslip-columns { gap: 14px; }
   .payslip-columns section { gap: 3px; }
