@@ -15,6 +15,12 @@ export const navItems: NavItem[] = [
     roles: ["owner", "payroll", "supervisor"],
   },
   {
+    href: "/cutoff",
+    label: "Cutoff Control",
+    description: "One readiness cockpit for payroll QA, attendance exceptions, and review history.",
+    roles: ["owner", "payroll", "supervisor"],
+  },
+  {
     href: "/me",
     label: "My Portal",
     description: "Personal schedule, leave, payslip, and request shell.",
