@@ -22,6 +22,21 @@ export type AttendanceException = {
   notes?: string | null;
 };
 
+export type AttendanceReview = {
+  id: number;
+  time_log_id: number;
+  reviewer: string;
+  decision: string;
+  reason: string;
+  approved_ot_hours: number;
+  created_at: string;
+  work_date: string;
+  employee_code: string;
+  full_name: string;
+  department?: string | null;
+  position?: string | null;
+};
+
 export function apiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || DEFAULT_API_BASE_URL).replace(/\/$/, "");
 }
@@ -64,6 +79,10 @@ export function getEmployees(): Promise<Employee[]> {
 
 export function getAttendanceExceptions(periodStart: string, periodEnd: string): Promise<AttendanceException[]> {
   return apiGet<AttendanceException[]>(`/api/v1/attendance/exceptions?start_date=${periodStart}&end_date=${periodEnd}`, true);
+}
+
+export function getAttendanceReviews(periodStart: string, periodEnd: string): Promise<AttendanceReview[]> {
+  return apiGet<AttendanceReview[]>(`/api/v1/attendance/reviews?start_date=${periodStart}&end_date=${periodEnd}`, true);
 }
 
 export function getPayrollPreview(periodStart: string, periodEnd: string): Promise<PayrollPreview> {
