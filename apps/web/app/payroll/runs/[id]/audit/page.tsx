@@ -2,16 +2,13 @@ import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getPayrollRunReview, peso } from "@/lib/api";
+import styles from "./page.module.css";
 
 function fmt(value?: string | null) {
   if (!value) return "Not recorded";
   const date = new Date(value.replace(" ", "T"));
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" });
-}
-
-function timelineTone(done: boolean) {
-  return done ? "ok" : "pending";
 }
 
 export default async function PayrollRunAuditPage({ params }: { params: Promise<{ id: string }> }) {
@@ -51,10 +48,10 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
 
         <section className="card">
           <div className="panel-title"><div><h2>Lifecycle Timeline</h2><p className="muted">This page does not approve, release, or mark payroll as paid.</p></div></div>
-          <div className="timeline">
+          <div className={styles.timeline}>
             {events.map((event) => (
-              <article className={`timeline-item ${timelineTone(event.done)}`} key={event.title}>
-                <div className="timeline-dot" />
+              <article className={`${styles.item} ${event.done ? styles.done : ""}`} key={event.title}>
+                <div className={styles.dot} />
                 <div>
                   <div className="panel-title"><h3>{event.title}</h3><strong>{event.time}</strong></div>
                   <p className="muted">{event.detail}</p>
@@ -65,8 +62,8 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
         </section>
 
         <section className="grid cols-2">
-          <div className="card"><h2>Run Details</h2><div className="audit-facts"><p><span>Period</span><strong>{run.period_start} to {run.period_end}</strong></p><p><span>Payout date</span><strong>{run.payout_date}</strong></p><p><span>Run label</span><strong>{run.run_label}</strong></p><p><span>Validation</span><strong>{run.validation_summary || "No summary"}</strong></p></div></div>
-          <div className="card"><h2>Safety Status</h2><div className="audit-facts"><p><span>Approved</span><strong>{run.approved_at ? "Yes" : "No"}</strong></p><p><span>Paid / released</span><strong>{run.paid_at ? "Yes" : "No"}</strong></p><p><span>Release mode</span><strong>Not triggered from audit page</strong></p></div></div>
+          <div className="card"><h2>Run Details</h2><div className={styles.facts}><p><span>Period</span><strong>{run.period_start} to {run.period_end}</strong></p><p><span>Payout date</span><strong>{run.payout_date}</strong></p><p><span>Run label</span><strong>{run.run_label}</strong></p><p><span>Validation</span><strong>{run.validation_summary || "No summary"}</strong></p></div></div>
+          <div className="card"><h2>Safety Status</h2><div className={styles.facts}><p><span>Approved</span><strong>{run.approved_at ? "Yes" : "No"}</strong></p><p><span>Paid / released</span><strong>{run.paid_at ? "Yes" : "No"}</strong></p><p><span>Release mode</span><strong>Not triggered from audit page</strong></p></div></div>
         </section>
       </div>
     </Shell>
