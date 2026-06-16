@@ -24,6 +24,10 @@ class ShiftPayload(BaseModel):
     notes: str | None = None
 
 
+def table_columns(conn, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def ensure_schema(conn) -> None:
     conn.execute(
         """
@@ -76,13 +80,20 @@ def schedule_employees(
     must_be_payroll_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
+        cols = table_columns(conn, "employees")
+        name_col = "full_name" if "full_name" in cols else "name"
+        code_expr = "employee_code" if "employee_code" in cols else "'' AS employee_code"
+        dept_expr = "department" if "department" in cols else "'' AS department"
+        position_expr = "position" if "position" in cols else "'' AS position"
+        status_expr = "employment_status" if "employment_status" in cols else "'active' AS employment_status"
+        where = "WHERE COALESCE(employment_status, 'active') NOT IN ('inactive', 'terminated', 'resigned')" if "employment_status" in cols else ""
         rows = fetchall(
             conn,
-            """
-            SELECT id, full_name, employee_code, department, position, employment_status
+            f"""
+            SELECT id, {name_col} AS full_name, {code_expr}, {dept_expr}, {position_expr}, {status_expr}
             FROM employees
-            WHERE COALESCE(employment_status, 'active') NOT IN ('inactive', 'terminated', 'resigned')
-            ORDER BY COALESCE(department, ''), full_name
+            {where}
+            ORDER BY COALESCE(department, ''), {name_col}
             """,
         )
         return {"ok": True, "items": rows}
