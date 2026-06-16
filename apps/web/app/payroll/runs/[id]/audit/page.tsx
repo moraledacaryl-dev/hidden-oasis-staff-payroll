@@ -11,6 +11,12 @@ function fmt(value?: string | null) {
   return date.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function statusTone(status: string): "ok" | "warning" | "danger" {
+  if (status === "Approved" || status === "Paid" || status === "Released") return "ok";
+  if (status === "Draft" || status === "For Owner Review") return "warning";
+  return "danger";
+}
+
 export default async function PayrollRunAuditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const review = await getPayrollRunReview(Number(id));
@@ -40,7 +46,7 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
         </header>
 
         <section className="grid cols-4">
-          <div className="card metric"><span className="eyebrow">Status</span><StatusBadge value={run.status} /></div>
+          <div className="card metric"><span className="eyebrow">Status</span><StatusBadge label={run.status} tone={statusTone(run.status)} /></div>
           <div className="card metric"><span className="eyebrow">Employees</span><strong className="metric-value">{totals?.employees || review.items.length}</strong></div>
           <div className="card metric"><span className="eyebrow">Gross</span><strong className="metric-value">{peso(totals?.gross_pay)}</strong></div>
           <div className="card metric"><span className="eyebrow">Net</span><strong className="metric-value">{peso(totals?.net_pay)}</strong></div>
