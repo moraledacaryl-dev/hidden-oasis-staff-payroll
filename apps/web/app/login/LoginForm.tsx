@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { defaultPathForRole, NAME_COOKIE, ROLE_COOKIE } from "@/lib/session";
+import { defaultPathForRole, NAME_COOKIE, ROLE_COOKIE } from "@/lib/session-client";
 import { roleLabels } from "@/lib/navigation";
 import type { RoleKey } from "@/lib/types";
 
@@ -42,28 +42,19 @@ export function LoginForm() {
           This is the migration role shell. It controls the Next.js interface only; real password authentication will connect to the backend after the API auth endpoints are added.
         </p>
       </div>
-
       <div className="field">
         <label htmlFor="name">Display name</label>
         <input id="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" />
       </div>
-
       <div className="role-grid">
         {roleOptions.map((option) => (
           <label className={`role-option ${role === option.role ? "selected" : ""}`} key={option.role}>
-            <input
-              type="radio"
-              name="role"
-              value={option.role}
-              checked={role === option.role}
-              onChange={() => setRole(option.role)}
-            />
+            <input type="radio" name="role" value={option.role} checked={role === option.role} onChange={() => setRole(option.role)} />
             <strong>{roleLabels[option.role]}</strong>
             <span>{option.description}</span>
           </label>
         ))}
       </div>
-
       <button className="primary-button" type="submit">Enter workspace</button>
     </form>
   );
