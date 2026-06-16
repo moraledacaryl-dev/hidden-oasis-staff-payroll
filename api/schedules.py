@@ -68,6 +68,28 @@ def week_bounds(week_start: date) -> tuple[str, str]:
     return week_start.isoformat(), (week_start + timedelta(days=6)).isoformat()
 
 
+@router.get("/schedules/employees")
+def schedule_employees(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    must_be_payroll_user(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        rows = fetchall(
+            conn,
+            """
+            SELECT id, full_name, employee_code, department, position, employment_status
+            FROM employees
+            WHERE COALESCE(employment_status, 'active') NOT IN ('inactive', 'terminated', 'resigned')
+            ORDER BY COALESCE(department, ''), full_name
+            """,
+        )
+        return {"ok": True, "items": rows}
+    finally:
+        conn.close()
+
+
 @router.get("/schedules/week")
 def schedule_week(
     week_start: date = Query(...),
