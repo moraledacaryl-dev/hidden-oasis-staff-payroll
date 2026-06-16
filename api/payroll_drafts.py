@@ -154,3 +154,40 @@ def approve_payroll_run(run_id: int, authorization: str | None = Header(default=
         return {"ok": True, "run": updated, "mode": "approved_not_released"}
     finally:
         conn.close()
+
+@router.post("/payroll/runs/{run_id}/lock")
+def lock_payroll_run(
+    run_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = must_be_payroll_user(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
+        if not run:
+            raise HTTPException(status_code=404, detail="Payroll run not found.")
+        if run.get("status") != "Draft":
+            raise HTTPException(status_code=409, detail="Only Draft runs can be locked for owner review.")
+
+        conn.execute(
+            """
+            UPDATE payroll_runs
+            SET status='For Owner Review',
+                locked_at=?,
+                prepared_by=COALESCE(prepared_by, ?)
+            WHERE id=?
+            """,
+            (now_iso(), user.get("display_name"), run_id),
+        )
+        conn.commit()
+
+        updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
+        updated["totals"] = totals(conn, run_id)
+        return {
+            "ok": True,
+            "run": updated,
+            "mode": "locked_for_owner_review_not_released",
+        }
+    finally:
+        conn.close()

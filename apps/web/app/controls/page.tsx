@@ -36,7 +36,7 @@ export default async function OperationsControlsPage() {
       <div className="page">
         <header className="page-header">
           <div className="grid"><span className="eyebrow">Operations Controls</span><h1>Payroll Control Map</h1><p className="muted">One page for the migrated payroll routes while the sidebar remains conservative.</p></div>
-          <StatusBadge label="read only" tone="success" />
+          <StatusBadge label="read only" tone="ok" />
         </header>
         <section className="grid cols-3">
           {groups.map((group) => (

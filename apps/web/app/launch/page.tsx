@@ -31,7 +31,7 @@ export default async function LaunchCenterPage() {
             <h1>System Health</h1>
             <p className="muted">Read-only launch checklist for the migrated payroll system.</p>
           </div>
-          <StatusBadge label={health.ok ? "API online" : "API issue"} tone={health.ok ? "success" : "danger"} />
+          <StatusBadge label={health.ok ? "API online" : "API issue"} tone={health.ok ? "ok" : "danger"} />
         </header>
 
         <section className="grid cols-3">
@@ -45,7 +45,7 @@ export default async function LaunchCenterPage() {
           <div className="action-list">
             {checks.map((check) => (
               <div className="action-item" key={check.title}>
-                <div className="panel-title"><strong>{check.title}</strong><StatusBadge label={check.ok ? "OK" : "Needed"} tone={check.ok ? "success" : "warning"} /></div>
+                <div className="panel-title"><strong>{check.title}</strong><StatusBadge label={check.ok ? "OK" : "Needed"} tone={check.ok ? "ok" : "warning"} /></div>
                 <p className="muted">{check.detail}</p>
               </div>
             ))}

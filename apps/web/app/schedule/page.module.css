@@ -1,6 +1,6 @@
 .scheduleGrid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(180px, 1fr));
+  grid-template-columns: repeat(7, minmax(210px, 1fr));
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 4px;
@@ -24,6 +24,16 @@
   margin-bottom: 10px;
 }
 
+.scheduleDayHead div {
+  display: grid;
+  gap: 3px;
+}
+
+.scheduleDayHead span {
+  color: rgb(100, 116, 139);
+  font-size: 0.82rem;
+}
+
 .scheduleStack {
   display: grid;
   gap: 10px;
@@ -31,7 +41,7 @@
 
 .shiftCard {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   border: 1px solid rgba(37, 99, 235, 0.18);
   border-left: 4px solid rgba(37, 99, 235, 0.72);
   border-radius: 14px;
@@ -39,6 +49,22 @@
   padding: 10px;
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
   font-size: 0.9rem;
+}
+
+.shiftTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shiftTop span {
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: rgb(30, 64, 175);
+  padding: 3px 8px;
+  font-size: 0.74rem;
+  white-space: nowrap;
 }
 
 .emptyDay {
@@ -50,8 +76,69 @@
   font-size: 0.9rem;
 }
 
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.filterGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.chip,
+.activeChip {
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  padding: 7px 11px;
+  text-decoration: none;
+  font-size: 0.86rem;
+}
+
+.chip {
+  color: rgb(51, 65, 85);
+  background: white;
+}
+
+.activeChip {
+  color: white;
+  background: rgb(15, 23, 42);
+}
+
+.peopleList {
+  display: grid;
+  gap: 8px;
+}
+
+.personRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 8px 0;
+}
+
+.personRow span {
+  color: rgb(100, 116, 139);
+  font-size: 0.86rem;
+}
+
 @media (max-width: 1100px) {
   .scheduleGrid {
-    grid-template-columns: repeat(7, 210px);
+    grid-template-columns: repeat(7, 220px);
+  }
+
+  .filterGrid {
+    grid-template-columns: 1fr;
   }
 }
