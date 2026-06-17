@@ -142,14 +142,6 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
 
   const totalHours = filteredItems.reduce((sum, item) => sum + Number(item.planned_paid_hours || 0), 0);
   const actualRecorded = filteredItems.filter((item) => item.actual_in || item.actual_out || item.is_absent || item.actual_source === "legacy_schedule").length;
-  const unassignedCount = filteredItems.filter((item) => !item.employee_id).length;
-  const peopleHours = filteredItems.reduce<Record<string, { id: number | null; shifts: number; hours: number }>>((acc, item) => {
-    const person = item.employee_name || "Unassigned";
-    acc[person] ||= { id: item.employee_id, shifts: 0, hours: 0 };
-    acc[person].shifts += 1;
-    acc[person].hours += Number(item.planned_paid_hours || 0);
-    return acc;
-  }, {});
 
   const selectedEmployeeRows = selectedEmployee
     ? days.map((day) => ({ day, shifts: filteredItems.filter((item) => item.employee_id === selectedEmployee.id && item.shift_date === day) }))
@@ -183,7 +175,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
 
         <section className="card"><div className={styles.filterGrid}><div><strong>Department</strong><div className={styles.chips}><Link className={selectedDepartment === "all" ? styles.activeChip : styles.chip} href={filterHref("all", selectedPosition)}>All</Link>{departments.map((dept) => (<Link className={selectedDepartment === dept ? styles.activeChip : styles.chip} href={filterHref(dept, selectedPosition)} key={dept}>{dept}</Link>))}</div></div><div><strong>Position</strong><div className={styles.chips}><Link className={selectedPosition === "all" ? styles.activeChip : styles.chip} href={filterHref(selectedDepartment, "all")}>All</Link>{positions.map((pos) => (<Link className={selectedPosition === pos ? styles.activeChip : styles.chip} href={filterHref(selectedDepartment, pos)} key={pos}>{pos}</Link>))}</div></div><div className={styles.employeeFilter}><strong>Employee</strong><div className={styles.chips}><Link className={selectedEmployeeId === "all" ? styles.activeChip : styles.chip} href={filterHref(selectedDepartment, selectedPosition, "all")}>All</Link>{employeeOptions.map((employee) => (<Link className={selectedEmployeeId === String(employee.id) ? styles.activeChip : styles.chip} href={filterHref(selectedDepartment, selectedPosition, String(employee.id))} key={employee.id}>{employee.full_name}</Link>))}</div></div></div></section>
 
-        <section className="grid cols-2">{canEditSchedule ? <div className="card"><div className="panel-title"><h2>Add shift</h2></div><ScheduleShiftForm weekStart={week.week_start} employees={employees} /></div> : null}<div className="card"><div className="panel-title"><h2>People</h2></div><div className={styles.peopleList}>{Object.entries(peopleHours).length ? Object.entries(peopleHours).map(([person, stats]) => (<Link className={styles.personRow} key={person} href={stats.id ? filterHref(selectedDepartment, selectedPosition, String(stats.id)) : filterHref(selectedDepartment, selectedPosition, "all")}><strong>{person}</strong><span>{stats.shifts} · {numberText(stats.hours)} hrs</span></Link>)) : <p className="muted">No scheduled people yet.</p>}</div></div></section>
+        {canEditSchedule ? <section className={`card ${styles.compactAddShift}`}><div className="panel-title"><h2>Add shift</h2><p className="muted">Use this only when adding a new scheduled shift.</p></div><ScheduleShiftForm weekStart={week.week_start} employees={employees} /></section> : null}
 
         {selectedEmployee ? (
           <section className="card">
