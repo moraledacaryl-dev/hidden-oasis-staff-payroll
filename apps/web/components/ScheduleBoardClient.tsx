@@ -79,13 +79,16 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   const [isPending, startTransition] = useTransition();
 
   const rows = useMemo(() => {
-    const filteredEmployees = employees.filter((employee) => {
-      return shifts.some((shift) => shift.employee_id === employee.id) || employees.length <= 80;
-    });
-    return [
-      ...filteredEmployees.map((employee) => ({ id: employee.id, name: employee.full_name, department: employee.department || "", position: employee.position || "" })),
-      { id: null, name: "Unassigned", department: "", position: "" },
-    ];
+    const employeeRows = employees.map((employee) => ({
+      id: employee.id,
+      name: employee.full_name,
+      department: employee.department || "",
+      position: employee.position || "",
+    }));
+    const hasUnassigned = shifts.some((shift) => !shift.employee_id);
+    return hasUnassigned
+      ? [...employeeRows, { id: null, name: "Unassigned", department: "", position: "" }]
+      : employeeRows;
   }, [employees, shifts]);
 
   const shiftsByCell = useMemo(() => {
