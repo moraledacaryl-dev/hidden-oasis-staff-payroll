@@ -24,8 +24,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from api.schedules import POSITIONS, ensure_schema, fetch_legacy_schedule_rows  # noqa: E402
 from core.db import get_conn  # noqa: E402
+
+POSITIONS = {"Receptionist", "Cook", "Barista", "Bartender", "Security", "Housekeeper", "Other"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,11 +44,110 @@ def validate_date(value: str) -> str:
     return value
 
 
+def table_exists(conn, table: str) -> bool:
+    row = conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+    return bool(row and int(row[0] or 0) > 0)
+
+
+def table_columns(conn, table: str) -> set[str]:
+    if not table_exists(conn, table):
+        return set()
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def first_existing(cols: set[str], names: list[str]) -> str | None:
+    for name in names:
+        if name in cols:
+            return name
+    return None
+
+
+def ensure_column(conn, table: str, column: str, definition: str) -> None:
+    if column not in table_columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def ensure_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scheduled_shifts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER,
+            shift_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            position TEXT NOT NULL DEFAULT 'Other',
+            department TEXT,
+            break_minutes INTEGER NOT NULL DEFAULT 60,
+            status TEXT NOT NULL DEFAULT 'Draft',
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    ensure_column(conn, "scheduled_shifts", "legacy_schedule_id", "INTEGER")
+    ensure_column(conn, "scheduled_shifts", "source", "TEXT NOT NULL DEFAULT 'planned'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_date ON scheduled_shifts(shift_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_employee ON scheduled_shifts(employee_id)")
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_shifts_legacy_schedule_id
+        ON scheduled_shifts(legacy_schedule_id)
+        WHERE legacy_schedule_id IS NOT NULL
+        """
+    )
+    conn.commit()
+
+
 def legacy_bounds(conn) -> tuple[str, str]:
-    row = conn.execute("SELECT MIN(work_date), MAX(work_date) FROM schedules").fetchone()
+    if not table_exists(conn, "schedules"):
+        raise SystemExit("No legacy schedules table found.")
+    cols = table_columns(conn, "schedules")
+    date_col = first_existing(cols, ["work_date", "shift_date", "date", "schedule_date"])
+    if not date_col:
+        raise SystemExit("Legacy schedules table has no usable date column.")
+    row = conn.execute(f"SELECT MIN({date_col}), MAX({date_col}) FROM schedules").fetchone()
     if not row or not row[0] or not row[1]:
         raise SystemExit("No legacy schedule rows found.")
     return str(row[0]), str(row[1])
+
+
+def fetch_legacy_rows(conn, start: str, end: str) -> list[dict[str, Any]]:
+    if not table_exists(conn, "schedules"):
+        return []
+    cols = table_columns(conn, "schedules")
+    date_col = first_existing(cols, ["work_date", "shift_date", "date", "schedule_date"])
+    start_col = first_existing(cols, ["shift_start", "start_time", "time_in", "scheduled_in"])
+    end_col = first_existing(cols, ["shift_end", "end_time", "time_out", "scheduled_out"])
+    if not date_col or not start_col or not end_col or "employee_id" not in cols:
+        return []
+    position_col = first_existing(cols, ["position", "role"])
+    department_col = first_existing(cols, ["department", "department_name"])
+    break_col = first_existing(cols, ["break_minutes", "break_mins", "unpaid_break_minutes"])
+    notes_col = first_existing(cols, ["notes", "note"])
+    select_cols = [
+        "s.id AS legacy_id",
+        "s.employee_id AS employee_id",
+        f"s.{date_col} AS shift_date",
+        f"s.{start_col} AS start_time",
+        f"s.{end_col} AS end_time",
+        f"s.{position_col} AS position" if position_col else "'Other' AS position",
+        f"s.{department_col} AS department" if department_col else "NULL AS department",
+        f"s.{break_col} AS break_minutes" if break_col else "60 AS break_minutes",
+        f"s.{notes_col} AS notes" if notes_col else "NULL AS notes",
+    ]
+    cursor = conn.execute(
+        f"""
+        SELECT {', '.join(select_cols)}
+        FROM schedules s
+        WHERE date(s.{date_col}) BETWEEN date(?) AND date(?)
+        ORDER BY s.{date_col}, s.{start_col}, s.id
+        """,
+        (start, end),
+    )
+    names = [description[0] for description in cursor.description]
+    return [dict(zip(names, row)) for row in cursor.fetchall()]
 
 
 def already_migrated(conn, legacy_id: int) -> bool:
@@ -94,13 +194,13 @@ def main() -> None:
         if end < start:
             raise SystemExit("End date cannot be before start date.")
 
-        rows = fetch_legacy_schedule_rows(conn, start, end)
+        rows = fetch_legacy_rows(conn, start, end)
         inserted = 0
         skipped_invalid = 0
         skipped_existing = 0
         skipped_employee = 0
         for row in rows:
-            legacy_id = abs(int(row.get("legacy_id") or row.get("id") or 0))
+            legacy_id = abs(int(row.get("legacy_id") or 0))
             employee_id = int(row.get("employee_id") or 0)
             shift_date = str(row.get("shift_date") or "")[:10]
             start_time = clean_time(row.get("start_time"))
@@ -117,7 +217,7 @@ def main() -> None:
             position = str(row.get("position") or "Other")
             if position not in POSITIONS:
                 position = "Other"
-            department = row.get("department") or row.get("employee_department")
+            department = row.get("department")
             break_minutes = int(row.get("break_minutes") or 0)
             notes = row.get("notes")
             inserted += 1
