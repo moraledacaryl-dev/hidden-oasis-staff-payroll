@@ -181,6 +181,7 @@ def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any
     employee_name_expr = "e.full_name AS employee_name" if "employee_id" in cols else "NULL AS employee_name"
     employee_code_expr = "e.employee_code" if "employee_id" in cols else "NULL"
     employee_department_expr = "e.department AS employee_department" if "employee_id" in cols else "NULL AS employee_department"
+    employee_order_expr = "COALESCE(e.full_name, 'Unassigned')" if "employee_id" in cols else "'Unassigned'"
     position_expr = sql_value_expr(cols, ["position", "role"], "'Other'", "position")
     department_expr = sql_value_expr(cols, ["department", "department_name"], "NULL", "department")
     break_expr = sql_value_expr(cols, ["break_minutes", "break_mins", "unpaid_break_minutes"], "60", "break_minutes")
@@ -205,7 +206,7 @@ def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any
         FROM schedules s
         {employee_join}
         WHERE date(s.{date_col}) BETWEEN date(?) AND date(?)
-        ORDER BY s.{date_col}, s.{start_col}, COALESCE(e.full_name, 'Unassigned')
+        ORDER BY s.{date_col}, s.{start_col}, {employee_order_expr}
     """, (start, end))
 
     imported: list[dict[str, Any]] = []
