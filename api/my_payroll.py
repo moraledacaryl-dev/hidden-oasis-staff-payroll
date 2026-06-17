@@ -2,39 +2,41 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
-from api.main import current_user_from_token
-from core.db import DB_PATH, fetchall, get_conn
+from api.main import current_user_from_token, require_api_key
+from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
-
-
-def norm(value: Any) -> str:
-    return " ".join(str(value or "").strip().lower().split())
 
 
 def employee_name(row: dict[str, Any]) -> str:
     return str(row.get("full_name") or row.get("name") or row.get("employee_name") or "")
 
 
-def find_employee(conn, display_name: str) -> dict[str, Any]:
-    target = norm(display_name)
-    rows = fetchall(conn, "SELECT * FROM employees WHERE COALESCE(status, 'Active') != 'Inactive'")
-    exact = [row for row in rows if norm(employee_name(row)) == target]
-    if len(exact) == 1:
-        return exact[0]
-    loose = [row for row in rows if target and (target in norm(employee_name(row)) or norm(employee_name(row)) in target)]
-    if len(loose) == 1:
-        return loose[0]
-    raise HTTPException(status_code=403, detail="Account is not linked to exactly one employee record.")
+def ensure_user_employee_column(conn) -> None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(app_users)").fetchall()}
+    if "employee_id" not in columns:
+        conn.execute("ALTER TABLE app_users ADD COLUMN employee_id INTEGER")
+        conn.commit()
 
 
 @router.get("/me/payroll")
-def my_payroll(user: dict[str, Any] = Depends(current_user_from_token)) -> dict[str, Any]:
+def my_payroll(
+    user: dict[str, Any] = Depends(current_user_from_token),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_api_key(x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        employee = find_employee(conn, str(user.get("display_name") or ""))
+        ensure_user_employee_column(conn)
+        account = fetchone(conn, "SELECT employee_id FROM app_users WHERE id=? AND active=1", (user.get("id"),))
+        employee_id = int(account.get("employee_id") or 0) if account else 0
+        if not employee_id:
+            raise HTTPException(status_code=403, detail="Account is not linked to an employee record.")
+        employee = fetchone(conn, "SELECT * FROM employees WHERE id=? AND COALESCE(status, 'Active') != 'Inactive'", (employee_id,))
+        if not employee:
+            raise HTTPException(status_code=403, detail="Linked employee record is inactive or missing.")
         employee_id = int(employee.get("id"))
         rows = fetchall(
             conn,

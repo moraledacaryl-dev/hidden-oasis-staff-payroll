@@ -63,6 +63,15 @@ def run_schema_migrations(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "app_users", "password_hash", "TEXT")
     ensure_column(conn, "app_users", "must_change_password", "INTEGER NOT NULL DEFAULT 1")
     ensure_column(conn, "app_users", "last_login_at", "TEXT")
+    ensure_column(conn, "app_users", "employee_id", "INTEGER")
+    ensure_column(conn, "scheduled_shifts", "legacy_schedule_id", "INTEGER")
+    ensure_column(conn, "scheduled_shifts", "source", "TEXT NOT NULL DEFAULT 'planned'")
+    ensure_column(conn, "payroll_corrections", "status", "TEXT NOT NULL DEFAULT 'Recorded'")
+    ensure_column(conn, "payroll_corrections", "applied_to_run_id", "INTEGER")
+    ensure_column(conn, "payroll_corrections", "applied_at", "TEXT")
+    ensure_column(conn, "payroll_corrections", "voided_by", "TEXT")
+    ensure_column(conn, "payroll_corrections", "void_reason", "TEXT")
+    ensure_column(conn, "payroll_corrections", "voided_at", "TEXT")
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
@@ -129,6 +138,23 @@ def init_db(conn: sqlite3.Connection) -> None:
             is_rest_day INTEGER NOT NULL DEFAULT 0,
             notes TEXT,
             UNIQUE(employee_id, work_date, shift_start)
+        );
+
+        CREATE TABLE IF NOT EXISTS scheduled_shifts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+            shift_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            position TEXT NOT NULL DEFAULT 'Other',
+            department TEXT,
+            break_minutes INTEGER NOT NULL DEFAULT 60,
+            status TEXT NOT NULL DEFAULT 'Draft',
+            notes TEXT,
+            legacy_schedule_id INTEGER,
+            source TEXT NOT NULL DEFAULT 'planned',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS biometric_import_batches (
@@ -326,6 +352,24 @@ def init_db(conn: sqlite3.Connection) -> None:
             validation_summary TEXT,
             created_at TEXT NOT NULL,
             UNIQUE(period_start, period_end, run_label)
+        );
+
+        CREATE TABLE IF NOT EXISTS payroll_corrections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payroll_run_id INTEGER NOT NULL REFERENCES payroll_runs(id) ON DELETE CASCADE,
+            employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+            adjustment_type TEXT NOT NULL,
+            amount REAL NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL,
+            apply_to_next_run INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'Recorded',
+            applied_to_run_id INTEGER,
+            applied_at TEXT,
+            voided_by TEXT,
+            void_reason TEXT,
+            voided_at TEXT,
+            created_by TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS payroll_items (
@@ -560,8 +604,11 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_time_logs_emp_date ON time_logs(employee_id, work_date);
         CREATE INDEX IF NOT EXISTS idx_schedules_emp_date ON schedules(employee_id, work_date);
+        CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_emp_date ON scheduled_shifts(employee_id, shift_date);
         CREATE INDEX IF NOT EXISTS idx_leave_requests_emp_dates ON leave_requests(employee_id, start_date, end_date, status);
         CREATE INDEX IF NOT EXISTS idx_payroll_items_run_emp ON payroll_items(payroll_run_id, employee_id);
+        CREATE INDEX IF NOT EXISTS idx_payroll_corrections_run ON payroll_corrections(payroll_run_id);
+        CREATE INDEX IF NOT EXISTS idx_payroll_corrections_status ON payroll_corrections(status, apply_to_next_run);
         CREATE INDEX IF NOT EXISTS idx_payroll_adjustments_emp_period ON payroll_adjustments(employee_id, period_start, period_end, status);
         CREATE INDEX IF NOT EXISTS idx_accounting_export_source ON accounting_export_queue(source_type, source_id, status);
         CREATE INDEX IF NOT EXISTS idx_integration_outbox_status ON integration_outbox(status, event_type, external_id);

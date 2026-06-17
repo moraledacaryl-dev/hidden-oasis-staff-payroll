@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.payroll_drafts import must_be_payroll_user, totals
 from core.db import DB_PATH, fetchone, get_conn
+from core.payroll_engine import update_payroll_status
 
 router = APIRouter(prefix="/api/v1")
 
@@ -36,13 +37,18 @@ def mark_payroll_run_paid(
         existing_paid_at = run.get("paid_at")
         if existing_paid_at:
             raise HTTPException(status_code=409, detail="Payroll run is already marked paid.")
-        conn.execute(
-            "UPDATE payroll_runs SET status='Paid', paid_at=datetime('now') WHERE id=?",
-            (run_id,),
-        )
-        conn.commit()
+        try:
+            update_payroll_status(
+                conn,
+                run_id,
+                "Paid",
+                str(user.get("display_name") or "Owner"),
+                payload.reference.strip() if payload.reference else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
         updated["totals"] = totals(conn, run_id)
-        return {"ok": True, "run": updated, "mode": "marked_paid_record_only_no_money_moved"}
+        return {"ok": True, "run": updated, "mode": "marked_paid_with_payroll_lifecycle"}
     finally:
         conn.close()

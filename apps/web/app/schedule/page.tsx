@@ -9,6 +9,7 @@ import { numberText } from "@/lib/api";
 import { ScheduleShiftForm } from "@/components/ScheduleShiftForm";
 import { ScheduleCopyWeekForm } from "@/components/ScheduleCopyWeekForm";
 import { ScheduleBoardClient } from "@/components/ScheduleBoardClient";
+import { mondayOfWeek } from "@/lib/period";
 import styles from "./page.module.css";
 
 type Shift = { id: number; employee_id: number | null; shift_date: string; start_time: string; end_time: string; position: string; department?: string | null; employee_department?: string | null; break_minutes: number; status: string; notes?: string | null; employee_name?: string | null; planned_paid_hours: number; is_overnight: boolean; source?: string; movable?: boolean };
@@ -23,7 +24,7 @@ function uniq(values: string[]) { return Array.from(new Set(values.filter(Boolea
 async function apiHeaders(): Promise<HeadersInit> {
   const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
   const headers: HeadersInit = { Accept: "application/json" };
-  const key = process.env.STAFF_PAYROLL_API_KEY || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_KEY;
+  const key = process.env.STAFF_PAYROLL_API_KEY;
   if (key) headers["X-API-Key"] = key;
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
@@ -45,10 +46,13 @@ async function loadEmployees(): Promise<ScheduleEmployee[]> {
 export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ week_start?: string; department?: string; position?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
+  if (!["owner", "payroll", "supervisor"].includes(session.role_key)) {
+    return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div /></Shell>;
+  }
   const canEditSchedule = session.role_key === "owner" || session.role_key === "payroll";
 
   const params = await searchParams;
-  const weekStart = params.week_start || "2026-06-15";
+  const weekStart = params.week_start || mondayOfWeek();
   const selectedDepartment = params.department || "all";
   const selectedPosition = params.position || "all";
 

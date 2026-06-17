@@ -28,7 +28,7 @@ python3 -m pip install -r requirements.txt
 ## Run Locally
 
 ```bash
-python3 -m uvicorn api.main:app --host 127.0.0.1 --port 8001 --reload
+python3 -m uvicorn api.server_review:app --host 127.0.0.1 --port 8001 --reload
 ```
 
 Open:

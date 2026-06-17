@@ -13,8 +13,9 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchall, fetchone, get_conn
-from core.payroll_engine import compute_payroll
+from core.payroll_engine import REVIEW_STATUS, compute_payroll, update_payroll_status
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 router = APIRouter(prefix="/api/v1")
@@ -125,6 +126,7 @@ def create_payroll_draft(payload: PayrollDraftRequest, authorization: str | None
             data = item_dict(result)
             values = [run_id] + [data.get(c, 0) for c in cols] + [ts]
             conn.execute(f"INSERT INTO payroll_items (payroll_run_id,{','.join(cols)},created_at) VALUES ({','.join('?' for _ in values)})", values)
+        mark_eligible_corrections_applied(conn, run_id, start)
         conn.commit()
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
         run["totals"] = totals(conn, run_id)
@@ -145,10 +147,12 @@ def approve_payroll_run(run_id: int, authorization: str | None = Header(default=
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
-        if run.get("status") != "For Owner Review":
+        if run.get("status") not in {REVIEW_STATUS, "Reviewed"}:
             raise HTTPException(status_code=409, detail="Only owner-review runs can be approved.")
-        conn.execute("UPDATE payroll_runs SET status='Approved', approved_by=?, approved_at=? WHERE id=?", (user.get("display_name"), now_iso(), run_id))
-        conn.commit()
+        try:
+            update_payroll_status(conn, run_id, "Approved", str(user.get("display_name") or "Owner"))
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
         updated["totals"] = totals(conn, run_id)
         return {"ok": True, "run": updated, "mode": "approved_not_released"}
@@ -170,17 +174,10 @@ def lock_payroll_run(
         if run.get("status") != "Draft":
             raise HTTPException(status_code=409, detail="Only Draft runs can be locked for owner review.")
 
-        conn.execute(
-            """
-            UPDATE payroll_runs
-            SET status='For Owner Review',
-                locked_at=?,
-                prepared_by=COALESCE(prepared_by, ?)
-            WHERE id=?
-            """,
-            (now_iso(), user.get("display_name"), run_id),
-        )
-        conn.commit()
+        try:
+            update_payroll_status(conn, run_id, REVIEW_STATUS, str(user.get("display_name") or "Payroll"))
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
 
         updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
         updated["totals"] = totals(conn, run_id)

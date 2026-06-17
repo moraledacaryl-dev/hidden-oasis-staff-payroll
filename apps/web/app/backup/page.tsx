@@ -10,7 +10,7 @@ export default async function BackupCenterPage() {
     { title: "Restore path", detail: "Know where the database goes before restart." },
   ];
   return (
-    <Shell allowedRoles={["owner", "payroll"]}>
+    <Shell allowedRoles={["owner"]}>
       <div className="page">
         <header className="page-header">
           <div className="grid"><span className="eyebrow">Backup Center</span><h1>Data Safety</h1><p className="muted">Recovery checks before payroll changes.</p></div>

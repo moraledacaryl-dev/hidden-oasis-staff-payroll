@@ -1,6 +1,6 @@
-# Hidden Oasis Staff & Payroll — Final Local Prototype
+# Hidden Oasis Staff Payroll
 
-GitHub-ready local prototype for the Hidden Oasis Staff/Payroll module.
+Production codebase for the Hidden Oasis Staff Payroll app.
 
 This module is designed to sit beside:
 
@@ -41,36 +41,49 @@ It remains a **Staff/Payroll source app**, not the Accounting ledger, not the PO
 - Withholding tax is opt-in per employee. Most minimum-wage staff should keep it off/zero; employees who exceed the taxable threshold can be enabled, and nonzero withholding appears in payroll, Accounting payloads, and payslips.
 - Payroll locks after approval/payment and requires reopening with reason/audit trail.
 
-## Run locally
+## Run Locally
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-api.txt
+STAFF_PAYROLL_API_KEY=<local-api-key> .venv/bin/python -m uvicorn api.server_review:app --host 127.0.0.1 --port 8001 --reload
 ```
 
-On Mac:
+In another terminal:
 
 ```bash
-chmod +x run.command
-./run.command
+cd apps/web
+npm install
+STAFF_PAYROLL_API_URL=http://127.0.0.1:8001 STAFF_PAYROLL_API_KEY=<local-api-key> npm run dev
 ```
 
-On Windows:
+## Production Deploy
 
-```bat
-run.bat
-```
-
-## Verify before GitHub deploy
+Production deploys by pulling GitHub:
 
 ```bash
+cd /root/repos/hidden-oasis-staff-payroll
+git pull --ff-only origin main
+cd apps/web
+npm run build
+systemctl restart hidden-oasis-payroll-api
+systemctl restart hidden-oasis-payroll-web
+systemctl reload nginx
+```
+
+## Verify
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/hidden-oasis-pycache python3 -m compileall api core scripts -q
 python3 -m unittest discover
 python3 smoke_test.py
+cd apps/web
+npm run build
 ```
 
-The test suite covers login/password hashing, payroll tax behavior, payroll status transitions, Accounting payload tax export, and the Operations preview query.
+The test suite covers login/password hashing, payroll tax behavior, schedule source-of-truth behavior, payroll status transitions, corrections, Accounting payload tax export, and Operations-safe payloads.
 
-## First login
+## Passwords
 
 On an existing local database, active users without passwords receive a temporary password:
 
@@ -78,7 +91,7 @@ On an existing local database, active users without passwords receive a temporar
 ChangeMe123!
 ```
 
-The app forces those users to change the password before continuing. New users and password resets are managed in **Access Control**, which is Owner-only.
+The app forces those users to change the password before continuing. Owner-managed resets are in **Settings → Users**.
 
 ## Main workflow
 
@@ -168,8 +181,22 @@ Keep inside Staff/Payroll:
 
 - `data/staff_payroll.sqlite` is ignored by `.gitignore`.
 - Runtime exports, payload ZIPs, and local uploads are ignored.
-- The package excludes virtual environments and `__pycache__`.
-- Keep this prototype local until final rebuild in FastAPI + PostgreSQL + Next.js.
+- Do not commit `.env`, database files, backups, private keys, certificates, or generated build folders.
+- The production API entrypoint is `api.server_review:app`.
+- Runtime database files stay on the server and must be backed up before migrations.
+
+## One-Time Schedule Migration
+
+Run only after a backup:
+
+```bash
+cd /root/repos/hidden-oasis-staff-payroll
+/root/backups/hidden-oasis-payroll/backup.sh
+python3 scripts/migrate_old_schedules_to_new.py
+systemctl restart hidden-oasis-payroll-api
+systemctl restart hidden-oasis-payroll-web
+systemctl reload nginx
+```
 
 ## Important docs
 
@@ -179,14 +206,9 @@ Keep inside Staff/Payroll:
 - `docs/CODEX_PROMPT_OTHER_APPS.md`
 - `docs/FINAL_RELEASE_NOTES.md`
 
-## Current rating
+## Payroll Safety Notes
 
-**9.45/10 as a local GitHub-ready prototype.**
-
-Not 10/10 because the final system still needs:
-
-- final biometric device parser after hardware purchase
-- live POS/Operations data feed for OT context
-- full production rebuild in FastAPI + PostgreSQL + Next.js
-
-This local prototype now has login, hashed passwords, sessions, role-restricted pages, and guarded payroll approvals. Before live payroll, replace/validate the starter SSS table and payroll tax assumptions against the official/current government tables or your accountant's configuration.
+- The editable schedule source is `scheduled_shifts`; legacy `schedules` is fallback only.
+- Paid payroll dates are protected from schedule, actual attendance, and leave edits.
+- Post-payment changes should be recorded through payroll corrections.
+- Before live payroll, validate SSS/tax assumptions against the official/current government tables or your accountant's configuration.

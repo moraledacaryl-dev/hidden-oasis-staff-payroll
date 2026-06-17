@@ -54,15 +54,31 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   const [dragId, setDragId] = useState<number | null>(null);
   const [overDay, setOverDay] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  const [editor, setEditor] = useState<{ day: string; shift: Shift | null } | null>(null);
+  const [editor, setEditor] = useState<{ day: string; shift: Shift | null; employeeId?: number | null } | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const byDay = useMemo(() => {
-    return days.reduce<Record<string, Shift[]>>((acc, day) => {
-      acc[day] = shifts.filter((item) => item.shift_date === day);
+  const rows = useMemo(() => {
+    const filteredEmployees = employees.filter((employee) => {
+      return shifts.some((shift) => shift.employee_id === employee.id) || employees.length <= 80;
+    });
+    return [
+      ...filteredEmployees.map((employee) => ({ id: employee.id, name: employee.full_name, department: employee.department || "", position: employee.position || "" })),
+      { id: null, name: "Unassigned", department: "", position: "" },
+    ];
+  }, [employees, shifts]);
+
+  const shiftsByCell = useMemo(() => {
+    return shifts.reduce<Record<string, Shift[]>>((acc, shift) => {
+      const key = `${shift.employee_id || "unassigned"}:${shift.shift_date}`;
+      acc[key] ||= [];
+      acc[key].push(shift);
       return acc;
     }, {});
-  }, [days, shifts]);
+  }, [shifts]);
+
+  function cellKey(employeeId: number | null, day: string) {
+    return `${employeeId || "unassigned"}:${day}`;
+  }
 
   function onDrop(day: string) {
     if (!canEdit || !dragId) return;
@@ -85,74 +101,73 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   return (
     <>
       <div className={styles.boardHint}>{isPending ? "Saving…" : message || (canEdit ? "Click a card or empty day to edit. Drag planned shifts to move days." : "Supervisor view is read-only.")}</div>
-      <div className={styles.scheduleGrid}>
-        {days.map((day) => {
-          const dayShifts = byDay[day] || [];
-          const dayHours = dayShifts.reduce((sum, item) => sum + Number(item.planned_paid_hours || 0), 0);
-          const isOver = overDay === day;
-
-          return (
-            <div
-              className={`${styles.scheduleDay} ${isOver ? styles.dropTarget : ""}`}
-              key={day}
-              onDragOver={(event) => {
-                if (!canEdit) return;
-                event.preventDefault();
-                setOverDay(day);
-              }}
-              onDragLeave={() => setOverDay(null)}
-              onDrop={() => onDrop(day)}
-            >
-              <div className={styles.scheduleDayHead}>
-                <div>
-                  <strong>{dayLabel(day)}</strong>
-                  <span>{numberText(dayHours)} hrs</span>
-                </div>
-                <span>{dayShifts.length} shift{dayShifts.length === 1 ? "" : "s"}</span>
-              </div>
-
-              <div className={styles.scheduleStack}>
-                {dayShifts.map((shift) => (
-                  <button
-                    type="button"
-                    className={`${styles.shiftCard} ${dragId === shift.id ? styles.dragging : ""}`}
-                    draggable={canEdit && shift.id > 0 && shift.movable !== false}
-                    key={shift.id}
-                    onClick={() => setEditor({ day, shift })}
-                    onDragStart={() => {
-                      if (!canEdit || shift.id < 0 || shift.movable === false) return;
-                      setDragId(shift.id);
-                    }}
-                    onDragEnd={() => {
-                      setDragId(null);
-                      setOverDay(null);
-                    }}
-                  >
-                    <div className={styles.shiftTop}>
-                      <strong>{shift.employee_name || "Unassigned"}</strong>
-                      <span>{shift.position}</span>
-                    </div>
-                    <span>{shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</span>
-                    <span>{numberText(shift.planned_paid_hours)} paid hrs · break {shift.break_minutes}m</span>
-                    <span>{shift.employee_department || shift.department || "No department"}</span>
-                    {shift.source === "imported" ? <span className={styles.legacyNote}>Legacy imported row</span> : null}
-                    {shift.notes ? <p className="muted">{shift.notes}</p> : null}
-                  </button>
-                ))}
-                {dayShifts.length === 0 ? (
-                  <button className={styles.emptyDay} type="button" onClick={() => canEdit && setEditor({ day, shift: null })}>
-                    {canEdit ? "Click to add or edit day" : "No shifts"}
-                  </button>
-                ) : null}
-              </div>
+      <div className={styles.matrixGrid}>
+        <div className={styles.matrixCorner}>Staff</div>
+        {days.map((day) => <div className={styles.matrixHeader} key={day}>{dayLabel(day)}</div>)}
+        {rows.map((row) => (
+          <div className={styles.matrixRow} key={row.id || "unassigned"}>
+            <div className={styles.employeeCell}>
+              <strong>{row.name}</strong>
+              {row.department || row.position ? <span>{[row.department, row.position].filter(Boolean).join(" · ")}</span> : null}
             </div>
-          );
-        })}
+            {days.map((day) => {
+              const cellShifts = shiftsByCell[cellKey(row.id, day)] || [];
+              const isOver = overDay === `${row.id || "unassigned"}:${day}`;
+              return (
+                <div
+                  className={`${styles.scheduleCell} ${isOver ? styles.dropTarget : ""}`}
+                  key={`${row.id || "unassigned"}-${day}`}
+                  onDragOver={(event) => {
+                    if (!canEdit) return;
+                    event.preventDefault();
+                    setOverDay(`${row.id || "unassigned"}:${day}`);
+                  }}
+                  onDragLeave={() => setOverDay(null)}
+                  onDrop={() => onDrop(day)}
+                >
+                  <div className={styles.scheduleStack}>
+                    {cellShifts.map((shift) => (
+                      <button
+                        type="button"
+                        className={`${styles.shiftCard} ${dragId === shift.id ? styles.dragging : ""}`}
+                        draggable={canEdit && shift.id > 0 && shift.movable !== false}
+                        key={shift.id}
+                        onClick={() => setEditor({ day, shift })}
+                        onDragStart={() => {
+                          if (!canEdit || shift.id < 0 || shift.movable === false) return;
+                          setDragId(shift.id);
+                        }}
+                        onDragEnd={() => {
+                          setDragId(null);
+                          setOverDay(null);
+                        }}
+                      >
+                        <div className={styles.shiftTop}>
+                          <strong>{shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</strong>
+                          <span>{shift.position}</span>
+                        </div>
+                        <span>{numberText(shift.planned_paid_hours)} hrs · break {shift.break_minutes}m</span>
+                        {shift.source === "imported" ? <span className={styles.legacyNote}>Legacy imported row</span> : null}
+                        {shift.notes ? <p className="muted">{shift.notes}</p> : null}
+                      </button>
+                    ))}
+                    {cellShifts.length === 0 ? (
+                      <button className={styles.emptyDay} type="button" onClick={() => canEdit && setEditor({ day, shift: null, employeeId: row.id })}>
+                        {canEdit ? "Add" : "—"}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
       <ScheduleDayEditorModal
         open={Boolean(editor)}
         day={editor?.day || days[0]}
         shift={editor?.shift || null}
+        initialEmployeeId={editor?.employeeId || null}
         employees={employees}
         canEdit={canEdit}
         onClose={() => setEditor(null)}

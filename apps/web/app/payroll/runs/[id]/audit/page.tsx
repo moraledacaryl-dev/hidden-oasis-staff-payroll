@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { getPayrollRunReview, peso } from "@/lib/api";
+import { getPayrollCorrections, getPayrollRunReview, peso } from "@/lib/api";
+import { currentSession } from "@/lib/session";
 import styles from "./page.module.css";
 
 function fmt(value?: string | null) {
@@ -18,8 +20,13 @@ function statusTone(status: string): "ok" | "warning" | "danger" {
 }
 
 export default async function PayrollRunAuditPage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  if (session.role_key !== "owner" && session.role_key !== "payroll") {
+    return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
+  }
   const { id } = await params;
-  const review = await getPayrollRunReview(Number(id));
+  const [review, corrections] = await Promise.all([getPayrollRunReview(Number(id)), getPayrollCorrections(Number(id))]);
   const run = review.run;
   const totals = run.totals;
   const events = [
@@ -71,6 +78,11 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
         <section className="grid cols-2">
           <div className="card"><h2>Run Details</h2><div className={styles.facts}><p><span>Period</span><strong>{run.period_start} to {run.period_end}</strong></p><p><span>Payout date</span><strong>{run.payout_date}</strong></p><p><span>Run label</span><strong>{run.run_label}</strong></p><p><span>Validation</span><strong>{run.validation_summary || "No summary"}</strong></p></div></div>
           <div className="card"><h2>Status</h2><div className={styles.facts}><p><span>Approved</span><strong>{run.approved_at ? "Yes" : "No"}</strong></p><p><span>Paid</span><strong>{run.paid_at ? "Yes" : "No"}</strong></p><p><span>Paid marker</span><strong>{run.paid_at ? fmt(run.paid_at) : "Not recorded"}</strong></p></div></div>
+        </section>
+
+        <section className="card">
+          <div className="panel-title"><div><h2>Corrections</h2><p className="muted">Recorded, applied, or voided entries.</p></div></div>
+          <div className="table-wrap"><table><thead><tr><th>Created</th><th>Employee</th><th>Type</th><th>Status</th><th>Amount</th><th>Reason</th></tr></thead><tbody>{corrections.items.map((item) => (<tr key={item.id}><td>{item.created_at || "—"}</td><td>{item.employee_name || `Employee ${item.employee_id}`}</td><td>{item.adjustment_type}</td><td>{item.status || "Recorded"}</td><td>{item.adjustment_type === "Note" ? "—" : peso(item.amount)}</td><td>{item.reason}</td></tr>))}{corrections.items.length === 0 ? <tr><td colSpan={6}>No corrections recorded.</td></tr> : null}</tbody></table></div>
         </section>
       </div>
     </Shell>

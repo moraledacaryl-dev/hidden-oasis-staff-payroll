@@ -16,6 +16,7 @@ from core.payroll_engine import (
     save_payroll_draft,
     update_payroll_status,
 )
+from core.quality import build_payroll_preflight_checks
 
 
 class PayrollCoreTests(unittest.TestCase):
@@ -94,6 +95,103 @@ class PayrollCoreTests(unittest.TestCase):
         update_payroll_status(self.conn, run_id, "Paid", "Owner")
         run = fetchone(self.conn, "SELECT status FROM payroll_runs WHERE id=?", (run_id,))
         self.assertEqual(run["status"], "Paid")
+
+    def test_scheduled_shifts_override_legacy_schedule_for_payroll(self):
+        employee_id = self.add_taxable_employee(hourly_rate=200)
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_shifts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id INTEGER,
+                shift_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                position TEXT NOT NULL DEFAULT 'Other',
+                department TEXT,
+                break_minutes INTEGER NOT NULL DEFAULT 60,
+                status TEXT NOT NULL DEFAULT 'Draft',
+                notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        self.conn.execute(
+            """
+            INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time, position, department, break_minutes)
+            VALUES(?, '2026-06-01', '09:00', '18:00', 'Manager', 'Admin', 60)
+            """,
+            (employee_id,),
+        )
+        self.conn.commit()
+        result = compute_payroll(self.conn, "2026-06-01", "2026-06-15")[0]
+        self.assertEqual(result.regular_hours, 7.0)
+
+    def test_preflight_missing_logs_uses_scheduled_shifts(self):
+        employee_id = self.add_taxable_employee(hourly_rate=200)
+        self.conn.execute("DELETE FROM time_logs")
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_shifts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id INTEGER,
+                shift_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                position TEXT NOT NULL DEFAULT 'Other',
+                department TEXT,
+                break_minutes INTEGER NOT NULL DEFAULT 60,
+                status TEXT NOT NULL DEFAULT 'Draft',
+                notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        self.conn.execute(
+            """
+            INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time, position, department, break_minutes)
+            VALUES(?, '2026-06-02', '08:00', '17:00', 'Manager', 'Admin', 60)
+            """,
+            (employee_id,),
+        )
+        self.conn.commit()
+        checks = build_payroll_preflight_checks(self.conn, "2026-06-01", "2026-06-15")
+        missing = [check for check in checks if "Scheduled workdays" in check["issue"]]
+        self.assertTrue(missing)
+
+    def test_recorded_correction_applies_to_next_saved_run(self):
+        employee_id = self.add_taxable_employee(hourly_rate=200)
+        original_run_id = self.save_run()
+        self.conn.execute(
+            """
+            INSERT INTO payroll_corrections(payroll_run_id, employee_id, adjustment_type, amount, reason, apply_to_next_run, status)
+            VALUES(?, ?, 'Earning', 125, 'Adjustment', 1, 'Recorded')
+            """,
+            (original_run_id, employee_id),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO schedules(employee_id, work_date, shift_start, shift_end, break_minutes, department, location, is_rest_day, notes)
+            VALUES(?, '2026-06-16', '08:00', '17:00', 60, 'Admin', '', 0, '')
+            """,
+            (employee_id,),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO time_logs(employee_id, work_date, actual_in, actual_out, source, verification_type,
+                attendance_status, ot_status, created_at, updated_at)
+            VALUES(?, '2026-06-16', '08:00', '17:00', 'manual', 'Manual', 'Reviewed', 'None', ?, ?)
+            """,
+            (employee_id, now_iso(), now_iso()),
+        )
+        self.conn.commit()
+        results = compute_payroll(self.conn, "2026-06-16", "2026-06-30")
+        self.assertEqual(results[0].other_earnings, 125)
+        next_run_id = save_payroll_draft(self.conn, "2026-06-16", "2026-06-30", "2026-06-30", "Regular", "Owner", results)
+        correction = fetchone(self.conn, "SELECT status, applied_to_run_id FROM payroll_corrections WHERE payroll_run_id=?", (original_run_id,))
+        self.assertEqual(correction["status"], "Applied")
+        self.assertEqual(correction["applied_to_run_id"], next_run_id)
 
     def test_accounting_payload_includes_withholding_tax_when_present(self):
         self.add_taxable_employee()

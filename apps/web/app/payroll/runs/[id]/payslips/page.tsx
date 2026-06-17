@@ -1,6 +1,8 @@
+import { redirect } from "next/navigation";
 import { PrintButton } from "@/components/PrintButton";
 import { Shell } from "@/components/Shell";
 import { getPayrollRunReview, peso } from "@/lib/api";
+import { currentSession } from "@/lib/session";
 
 function mandatoryDeductions(item: { sss_ee: number; philhealth_ee: number; pagibig_ee: number }) {
   return Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0);
@@ -11,6 +13,11 @@ function taxAdvanceOther(item: { tax: number; cash_advance_deduction: number; ot
 }
 
 export default async function PayslipPreviewPage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  if (session.role_key !== "owner" && session.role_key !== "payroll") {
+    return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
+  }
   const { id } = await params;
   const review = await getPayrollRunReview(Number(id));
   const run = review.run;

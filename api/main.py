@@ -151,8 +151,8 @@ def require_roles(*allowed_roles: str) -> Callable[[dict[str, Any]], dict[str, A
         return user
     return _require_role
 
-def normalize_employee(row: dict[str, Any], department_name: str | None = None) -> dict[str, Any]:
-    return clean_row({"id": row.get("id"), "employee_code": row.get("employee_code") or row.get("code") or "", "full_name": row.get("full_name") or row.get("name") or "", "department_id": row.get("department_id"), "department_name": department_name or row.get("department_name") or row.get("department") or None, "position": row.get("position") or row.get("role") or None, "employment_type": row.get("employment_type") or None, "status": row.get("status") or "Active", "default_shift_start": row.get("default_shift_start"), "default_shift_end": row.get("default_shift_end"), "standard_paid_hours": row.get("standard_paid_hours"), "break_mins": row.get("break_mins"), "benefits_sss": int(row.get("benefits_sss") or 0), "benefits_philhealth": int(row.get("benefits_philhealth") or 0), "benefits_pagibig": int(row.get("benefits_pagibig") or 0), "benefits_tax": int(row.get("benefits_tax") or 0), "created_at": row.get("created_at") or ""})
+def normalize_employee(row: dict[str, Any], department_name: str | None = None, include_private: bool = True) -> dict[str, Any]:
+    return clean_row({"id": row.get("id"), "employee_code": row.get("employee_code") or row.get("code") or "", "full_name": row.get("full_name") or row.get("name") or "", "department_id": row.get("department_id"), "department_name": department_name or row.get("department_name") or row.get("department") or None, "position": row.get("position") or row.get("role") or None, "employment_type": row.get("employment_type") or None, "status": row.get("status") or "Active", "default_shift_start": row.get("default_shift_start"), "default_shift_end": row.get("default_shift_end"), "standard_paid_hours": row.get("standard_paid_hours"), "break_mins": row.get("break_mins"), "benefits_sss": int(row.get("benefits_sss") or 0) if include_private else 0, "benefits_philhealth": int(row.get("benefits_philhealth") or 0) if include_private else 0, "benefits_pagibig": int(row.get("benefits_pagibig") or 0) if include_private else 0, "benefits_tax": int(row.get("benefits_tax") or 0) if include_private else 0, "created_at": row.get("created_at") or ""})
 
 def department_lookup(conn: Any) -> dict[int, str]:
     if not table_exists(conn, "departments"): return {}
@@ -275,7 +275,7 @@ def build_app() -> FastAPI:
         return {"app": "hidden-oasis-staff-payroll", "api_version": APP_VERSION, "database_path": str(db_path), "database_exists": db_path.exists(), "table_count": table_count, "employee_count": employees, "payroll_run_count": payroll_runs, "employee_columns": employee_columns, "mode": "api-wrapper-first-migration"}
 
     @app.get(f"{API_PREFIX}/staff/employees", dependencies=[Depends(require_api_key)])
-    def list_employees(status_filter: str | None = Query(default=None), department_id: int | None = Query(default=None)) -> list[dict[str, Any]]:
+    def list_employees(status_filter: str | None = Query(default=None), department_id: int | None = Query(default=None), user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR))) -> list[dict[str, Any]]:
         with db_conn(read_only=True) as conn:
             columns = table_columns(conn, "employees"); departments = department_lookup(conn)
             sql = "SELECT * FROM employees WHERE 1=1"; params: list[Any] = []
@@ -283,14 +283,16 @@ def build_app() -> FastAPI:
             if department_id is not None and "department_id" in columns: sql += " AND department_id=?"; params.append(department_id)
             sql += f" ORDER BY {'full_name' if 'full_name' in columns else 'id'}"
             rows = fetchall(conn, sql, params)
-            return [normalize_employee(row, departments.get(int(row["department_id"])) if row.get("department_id") is not None else None) for row in rows]
+            include_private = user.get("role_key") in {ROLE_OWNER, ROLE_PAYROLL}
+            return [normalize_employee(row, departments.get(int(row["department_id"])) if row.get("department_id") is not None else None, include_private=include_private) for row in rows]
 
     @app.get(f"{API_PREFIX}/staff/employees/{{employee_id}}", dependencies=[Depends(require_api_key)])
-    def get_employee(employee_id: int) -> dict[str, Any]:
+    def get_employee(employee_id: int, user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR))) -> dict[str, Any]:
         with db_conn(read_only=True) as conn:
             row = fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,)); departments = department_lookup(conn)
         if not row: raise HTTPException(status_code=404, detail="Employee not found.")
-        return normalize_employee(row, departments.get(int(row["department_id"])) if row.get("department_id") is not None else None)
+        include_private = user.get("role_key") in {ROLE_OWNER, ROLE_PAYROLL}
+        return normalize_employee(row, departments.get(int(row["department_id"])) if row.get("department_id") is not None else None, include_private=include_private)
 
     @app.get(f"{API_PREFIX}/schedules", dependencies=[Depends(require_api_key)])
     def list_schedules(start_date: date, end_date: date, department_id: int | None = Query(default=None), employee_id: int | None = Query(default=None)) -> list[dict[str, Any]]:
@@ -318,13 +320,13 @@ def build_app() -> FastAPI:
             return rows
 
     @app.get(f"{API_PREFIX}/payroll/preflight", dependencies=[Depends(require_api_key)])
-    def payroll_preflight(period_start: date, period_end: date) -> dict[str, Any]:
+    def payroll_preflight(period_start: date, period_end: date, user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict[str, Any]:
         start, end = parse_date_order(period_start, period_end)
         with db_conn(read_only=True) as conn: checks = build_payroll_preflight_checks(conn, start, end)
         return {"period_start": start, "period_end": end, "summary": summarize_checks(checks), "checks": checks}
 
     @app.post(f"{API_PREFIX}/payroll/preview", dependencies=[Depends(require_api_key)])
-    def payroll_preview(payload: PayrollPreviewRequest) -> dict[str, Any]:
+    def payroll_preview(payload: PayrollPreviewRequest, user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict[str, Any]:
         start, end = parse_date_order(payload.period_start, payload.period_end)
         with db_conn(read_only=True) as conn:
             checks = build_payroll_preflight_checks(conn, start, end)

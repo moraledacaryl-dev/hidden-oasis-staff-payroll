@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getPayrollRunReview, peso } from "@/lib/api";
+import { currentSession } from "@/lib/session";
 
 function add(a: number | null | undefined, b: number | null | undefined) { return Number(a || 0) + Number(b || 0); }
 function statusTone(status: string): "ok" | "warning" | "danger" { if (["Approved", "Paid", "Released"].includes(status)) return "ok"; if (["Draft", "For Owner Review"].includes(status)) return "warning"; return "danger"; }
@@ -9,6 +11,11 @@ function statusTone(status: string): "ok" | "warning" | "danger" { if (["Approve
 type Group = { employees: number; gross: number; net: number; deductions: number };
 
 export default async function PayrollRunReportPage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  if (session.role_key !== "owner" && session.role_key !== "payroll") {
+    return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
+  }
   const { id } = await params;
   const review = await getPayrollRunReview(Number(id));
   const run = review.run;

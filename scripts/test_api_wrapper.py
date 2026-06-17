@@ -2,7 +2,7 @@
 """Smoke-test the Staff Payroll FastAPI wrapper.
 
 Run the API first:
-    python3 -m uvicorn api.main:app --host 127.0.0.1 --port 8001
+    python3 -m uvicorn api.server_review:app --host 127.0.0.1 --port 8001
 
 Then run:
     python3 scripts/test_api_wrapper.py --start 2026-06-01 --end 2026-06-15

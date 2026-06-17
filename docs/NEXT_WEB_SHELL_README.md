@@ -48,7 +48,7 @@ From repo root:
 ```bash
 cd /root/repos/hidden-oasis-staff-payroll
 . .venv-api/bin/activate
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8001
+python -m uvicorn api.server_review:app --host 127.0.0.1 --port 8001
 ```
 
 Leave that terminal open.
@@ -79,13 +79,13 @@ http://89.167.28.163:3001
 ## Environment Variables
 
 ```bash
-NEXT_PUBLIC_STAFF_PAYROLL_API_URL=http://127.0.0.1:8001
+STAFF_PAYROLL_API_URL=http://127.0.0.1:8001
 ```
 
-If the API process uses `STAFF_PAYROLL_API_KEY`, also set:
+If the API process uses `STAFF_PAYROLL_API_KEY`, set it only server-side:
 
 ```bash
-NEXT_PUBLIC_STAFF_PAYROLL_API_KEY=change-this-before-production
+STAFF_PAYROLL_API_KEY=<same-private-key-as-api>
 ```
 
 ## Verification Checklist

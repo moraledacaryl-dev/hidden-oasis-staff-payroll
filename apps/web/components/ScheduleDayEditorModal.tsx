@@ -25,6 +25,7 @@ type Props = {
   open: boolean;
   day: string;
   shift: Shift | null;
+  initialEmployeeId?: number | null;
   employees: ScheduleEmployee[];
   canEdit: boolean;
   onClose: () => void;
@@ -34,28 +35,28 @@ function emptyBundle(): Bundle {
   return { ok: true, shift: null, actual: null, leave: null };
 }
 
-export function ScheduleDayEditorModal({ open, day, shift, employees, canEdit, onClose }: Props) {
+export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = null, employees, canEdit, onClose }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<"scheduled" | "actual" | "leave">("scheduled");
   const [bundle, setBundle] = useState<Bundle>(emptyBundle());
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const initialEmployeeId = shift?.employee_id ? String(shift.employee_id) : "";
-  const [employeeId, setEmployeeId] = useState(initialEmployeeId);
+  const initialEmployeeIdValue = shift?.employee_id ? String(shift.employee_id) : (initialEmployeeId ? String(initialEmployeeId) : "");
+  const [employeeId, setEmployeeId] = useState(initialEmployeeIdValue);
   const [shiftDate, setShiftDate] = useState(day);
 
   useEffect(() => {
     if (!open) return;
     setTab("scheduled");
     setMessage("");
-    setEmployeeId(shift?.employee_id ? String(shift.employee_id) : "");
+    setEmployeeId(shift?.employee_id ? String(shift.employee_id) : (initialEmployeeId ? String(initialEmployeeId) : ""));
     setShiftDate(shift?.shift_date || day);
     const params = new URLSearchParams();
     params.set("shift_date", shift?.shift_date || day);
     if (shift?.id) params.set("shift_id", String(shift.id));
-    else if (shift?.employee_id) params.set("employee_id", String(shift.employee_id));
-    if (!shift?.id && !shift?.employee_id) {
+    else if (shift?.employee_id || initialEmployeeId) params.set("employee_id", String(shift?.employee_id || initialEmployeeId));
+    if (!shift?.id && !shift?.employee_id && !initialEmployeeId) {
       setBundle(emptyBundle());
       return;
     }
@@ -63,11 +64,11 @@ export function ScheduleDayEditorModal({ open, day, shift, employees, canEdit, o
       .then((res) => res.json())
       .then((data) => setBundle(data))
       .catch(() => setMessage("Could not load employee-day details."));
-  }, [day, open, shift]);
+  }, [day, initialEmployeeId, open, shift]);
 
   const currentShift = bundle.shift || shift;
   const selectedEmployee = useMemo(() => employees.find((item) => String(item.id) === employeeId), [employeeId, employees]);
-  const readOnly = !canEdit || Boolean(bundle.legacy_read_only);
+  const readOnly = !canEdit || Boolean(bundle.legacy_read_only) || Boolean(bundle.payroll_locked);
 
   if (!open) return null;
 
@@ -178,8 +179,8 @@ export function ScheduleDayEditorModal({ open, day, shift, employees, canEdit, o
             <label>Dept<input name="department" defaultValue={currentShift?.employee_department || currentShift?.department || selectedEmployee?.department || ""} disabled={readOnly} /></label>
             <label>Break<input name="break_minutes" type="number" min="0" defaultValue={currentShift?.break_minutes ?? 60} disabled={readOnly} /></label>
             <label>Note<input name="notes" defaultValue={currentShift?.notes || ""} disabled={readOnly} /></label>
-            {canEdit && !bundle.legacy_read_only ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save scheduled shift"}</button> : null}
-            {canEdit && currentShift?.id && currentShift.id > 0 ? <button className="button ghost" type="button" disabled={busy} onClick={deleteShift}>Delete shift</button> : null}
+            {canEdit && !bundle.legacy_read_only && !bundle.payroll_locked ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save scheduled shift"}</button> : null}
+            {canEdit && !bundle.payroll_locked && currentShift?.id && currentShift.id > 0 ? <button className="button ghost" type="button" disabled={busy} onClick={deleteShift}>Delete shift</button> : null}
           </form>
         ) : null}
 

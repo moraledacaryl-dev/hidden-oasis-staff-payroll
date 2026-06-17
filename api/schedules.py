@@ -475,6 +475,7 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
+        assert_not_paid_locked(conn, payload.shift_date.isoformat())
         if payload.employee_id:
             employee = fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,))
             if not employee:
@@ -505,6 +506,7 @@ def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = H
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
+        assert_not_paid_locked(conn, payload.shift_date.isoformat())
         if employee_id and not employee_exists(conn, employee_id):
             raise HTTPException(status_code=404, detail="Employee not found.")
         timestamp = now_iso()
@@ -512,6 +514,8 @@ def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = H
             row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (payload.shift_id,))
             if not row:
                 raise HTTPException(status_code=404, detail="Shift not found.")
+            if str(row.get("shift_date")) != payload.shift_date.isoformat():
+                assert_not_paid_locked(conn, str(row.get("shift_date")))
             conn.execute(
                 """
                 UPDATE scheduled_shifts
@@ -699,6 +703,8 @@ def move_shift(shift_id: int, payload: MoveShiftPayload, authorization: str | No
         row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,))
         if not row:
             raise HTTPException(status_code=404, detail="Shift not found.")
+        assert_not_paid_locked(conn, str(row.get("shift_date")))
+        assert_not_paid_locked(conn, payload.shift_date.isoformat())
         conn.execute("UPDATE scheduled_shifts SET shift_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (payload.shift_date.isoformat(), shift_id))
         conn.commit()
         updated = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,)) or {}
@@ -716,6 +722,7 @@ def delete_shift(shift_id: int, authorization: str | None = Header(default=None,
         row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,))
         if not row:
             raise HTTPException(status_code=404, detail="Shift not found.")
+        assert_not_paid_locked(conn, str(row.get("shift_date")))
         conn.execute("DELETE FROM scheduled_shifts WHERE id=?", (shift_id,))
         conn.commit()
         return {"ok": True, "deleted_shift_id": shift_id, "mode": "planned_shift_deleted_not_payroll"}
@@ -733,6 +740,8 @@ def duplicate_shift(shift_id: int, payload: DuplicateShiftPayload, authorization
         if not row:
             raise HTTPException(status_code=404, detail="Shift not found.")
         target_date = payload.shift_date.isoformat() if payload.shift_date else str(row.get("shift_date"))
+        assert_not_paid_locked(conn, str(row.get("shift_date")))
+        assert_not_paid_locked(conn, target_date)
         new_id = insert_shift_from_row(conn, row, target_date)
         conn.commit()
         copied = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (new_id,)) or {}
@@ -759,6 +768,7 @@ def copy_week(payload: CopyWeekPayload, authorization: str | None = Header(defau
             source_date = datetime.fromisoformat(f"{row['shift_date']}T00:00:00").date()
             day_offset = (source_date - payload.from_week_start).days
             target_date = (target_start + timedelta(days=day_offset)).isoformat()
+            assert_not_paid_locked(conn, target_date)
             new_ids.append(insert_shift_from_row(conn, row, target_date))
         conn.commit()
         return {"ok": True, "copied": len(new_ids), "new_shift_ids": new_ids, "mode": "planned_week_copied_not_payroll"}

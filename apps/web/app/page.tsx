@@ -1,16 +1,36 @@
+import { redirect } from "next/navigation";
 import { MetricCard } from "@/components/MetricCard";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { getEmployees, getMeta, getPayrollPreview, peso } from "@/lib/api";
-
-const DEFAULT_START = "2026-06-01";
-const DEFAULT_END = "2026-06-15";
+import { getAttendanceExceptions, getAttendanceReviews, getEmployees, getMeta, getPayrollPreview, peso } from "@/lib/api";
+import { currentCutoff } from "@/lib/period";
+import { currentSession } from "@/lib/session";
+import type { AttendanceException, AttendanceReview } from "@/lib/api";
+import type { PayrollPreview } from "@/lib/types";
 
 export default async function CommandCenterPage() {
-  const [meta, employees, preview] = await Promise.all([getMeta(), getEmployees(), getPayrollPreview(DEFAULT_START, DEFAULT_END)]);
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  if (!["owner", "payroll", "supervisor"].includes(session.role_key)) {
+    return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div /></Shell>;
+  }
+  const { periodStart, periodEnd } = currentCutoff();
+  const canSeePayroll = session.role_key === "owner" || session.role_key === "payroll";
+  const [meta, employees] = await Promise.all([getMeta(), getEmployees()]);
+  let preview: PayrollPreview | null = null;
+  let exceptions: AttendanceException[] = [];
+  let reviews: AttendanceReview[] = [];
+  if (canSeePayroll) {
+    preview = await getPayrollPreview(periodStart, periodEnd);
+  } else {
+    [exceptions, reviews] = await Promise.all([
+      getAttendanceExceptions(periodStart, periodEnd),
+      getAttendanceReviews(periodStart, periodEnd),
+    ]);
+  }
   const activeEmployees = employees.filter((employee) => employee.status !== "Inactive" && employee.status !== "Terminated").length;
-  const blockers = preview.checks.filter((check) => check.severity === "Blocker").length;
-  const warnings = preview.checks.filter((check) => check.severity === "Warning").length;
+  const blockers = preview?.checks.filter((check) => check.severity === "Blocker").length || 0;
+  const warnings = preview?.checks.filter((check) => check.severity === "Warning").length || 0;
 
   return (
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
@@ -19,20 +39,20 @@ export default async function CommandCenterPage() {
           <div className="grid">
             <span className="eyebrow">Command Center</span>
             <h1>Staff Payroll</h1>
-            <p className="muted">Payroll status, staff count, and cutoff checks.</p>
+            <p className="muted">{periodStart} to {periodEnd}</p>
           </div>
-          <div className="badge-row"><StatusBadge label="API connected" /><StatusBadge label={preview.mode} tone="warning" /></div>
+          <div className="badge-row"><StatusBadge label="API connected" />{preview ? <StatusBadge label={preview.mode} tone="warning" /> : <StatusBadge label="attendance view" tone="warning" />}</div>
         </header>
         <section className="grid cols-4">
           <MetricCard label="Employees" value={activeEmployees} detail={`${meta.employee_count} total records`} />
-          <MetricCard label="Gross" value={peso(preview.totals.gross_pay)} detail={`${DEFAULT_START} to ${DEFAULT_END}`} />
-          <MetricCard label="Net" value={peso(preview.totals.net_pay)} detail="Current preview" />
-          <MetricCard label="Cash advances" value={peso(preview.totals.cash_advance_deduction)} detail="Deductions" />
+          {preview ? <MetricCard label="Gross" value={peso(preview.totals.gross_pay)} detail="Preview" /> : <MetricCard label="Exceptions" value={exceptions.length} detail="Open" />}
+          {preview ? <MetricCard label="Net" value={peso(preview.totals.net_pay)} detail="Preview" /> : <MetricCard label="Reviews" value={reviews.length} detail="Recorded" />}
+          {preview ? <MetricCard label="Cash advances" value={peso(preview.totals.cash_advance_deduction)} detail="Deductions" /> : <MetricCard label="Role" value="Supervisor" detail="No payroll totals" />}
         </section>
         <section className="grid cols-2">
           <div className="card">
             <div className="panel-title"><div><h2>Cutoff readiness</h2><p className="muted">Items to clear before approval.</p></div><div className="badge-row"><StatusBadge label={`${blockers} blockers`} tone={blockers ? "danger" : "ok"} /><StatusBadge label={`${warnings} warnings`} tone={warnings ? "warning" : "ok"} /></div></div>
-            <div className="action-list">{preview.checks.slice(0, 5).map((check, index) => (<div className="action-item" key={`${check.category}-${index}`}><strong>{check.category}</strong><p>{check.issue}</p><p className="muted">{check.recommended_action}</p></div>))}{preview.checks.length === 0 ? <p className="muted">No blockers or warnings detected.</p> : null}</div>
+            <div className="action-list">{preview ? preview.checks.slice(0, 5).map((check, index) => (<div className="action-item" key={`${check.category}-${index}`}><strong>{check.category}</strong><p>{check.issue}</p><p className="muted">{check.recommended_action}</p></div>)) : exceptions.slice(0, 5).map((item) => (<div className="action-item" key={item.id}><strong>{item.full_name}</strong><p>{item.work_date} · {item.attendance_status}</p></div>))}{preview?.checks.length === 0 || (!preview && exceptions.length === 0) ? <p className="muted">No open items.</p> : null}</div>
           </div>
           <div className="card">
             <div className="panel-title"><div><h2>Guardrails</h2><p className="muted">Production rules.</p></div><StatusBadge label="active" /></div>

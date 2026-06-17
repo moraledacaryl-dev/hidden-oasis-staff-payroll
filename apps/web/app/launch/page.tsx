@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getMeta, getPayrollRuns } from "@/lib/api";
+import { currentSession } from "@/lib/session";
 
 async function healthCheck() {
   try {
@@ -13,6 +15,11 @@ async function healthCheck() {
 }
 
 export default async function LaunchCenterPage() {
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  if (session.role_key !== "owner") {
+    return <Shell allowedRoles={["owner"]}><div /></Shell>;
+  }
   const health = await healthCheck();
   const runs = health.ok ? await getPayrollRuns().catch(() => []) : [];
   const latestRun = runs[0];
@@ -25,7 +32,7 @@ export default async function LaunchCenterPage() {
   ];
 
   return (
-    <Shell allowedRoles={["owner", "payroll"]}>
+    <Shell allowedRoles={["owner"]}>
       <div className="page">
         <header className="page-header">
           <div className="grid">

@@ -95,7 +95,7 @@ def build_annual_review_auto_summary(conn: sqlite3.Connection, employee_id: int,
         FROM payroll_items pi
         JOIN payroll_runs pr ON pr.id=pi.payroll_run_id
         WHERE pi.employee_id=? AND pr.period_start <= ? AND pr.period_end >= ?
-          AND pr.status IN ('Reviewed','Approved','Paid','Locked')
+          AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
         """,
         (employee_id, end_date, start_date),
     ) or {}

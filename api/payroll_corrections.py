@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from api.payroll_drafts import must_be_payroll_user
+from core.corrections import ensure_payroll_corrections_schema
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -20,25 +21,8 @@ class PayrollCorrectionRequest(BaseModel):
     apply_to_next_run: bool = True
 
 
-def ensure_schema(conn: Any) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS payroll_corrections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            payroll_run_id INTEGER NOT NULL,
-            employee_id INTEGER NOT NULL,
-            adjustment_type TEXT NOT NULL,
-            amount REAL NOT NULL DEFAULT 0,
-            reason TEXT NOT NULL,
-            apply_to_next_run INTEGER NOT NULL DEFAULT 1,
-            created_by TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_payroll_corrections_run ON payroll_corrections(payroll_run_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_payroll_corrections_employee ON payroll_corrections(employee_id)")
-    conn.commit()
+class PayrollCorrectionVoidRequest(BaseModel):
+    reason: str = Field(..., min_length=3)
 
 
 def clean_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -54,7 +38,8 @@ def list_payroll_corrections(
     must_be_payroll_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
+        ensure_payroll_corrections_schema(conn)
+        conn.commit()
         run = fetchone(conn, "SELECT id FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
@@ -85,12 +70,13 @@ def create_payroll_correction(
     adjustment_type = payload.adjustment_type.strip().title()
     if adjustment_type not in ADJUSTMENT_TYPES:
         raise HTTPException(status_code=422, detail="Correction type must be Earning, Deduction, or Note.")
-    if adjustment_type != "Note" and float(payload.amount or 0) == 0:
+    amount = 0.0 if adjustment_type == "Note" else abs(float(payload.amount or 0))
+    if adjustment_type != "Note" and amount == 0:
         raise HTTPException(status_code=422, detail="Amount is required for earning or deduction corrections.")
 
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
+        ensure_payroll_corrections_schema(conn)
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
@@ -118,7 +104,7 @@ def create_payroll_correction(
                 run_id,
                 payload.employee_id,
                 adjustment_type,
-                float(payload.amount or 0),
+                amount,
                 payload.reason.strip(),
                 1 if payload.apply_to_next_run else 0,
                 user.get("display_name"),
@@ -127,5 +113,43 @@ def create_payroll_correction(
         conn.commit()
         correction = fetchone(conn, "SELECT * FROM payroll_corrections WHERE id=?", (int(cur.lastrowid),)) or {}
         return {"ok": True, "correction": clean_row(correction), "mode": mode}
+    finally:
+        conn.close()
+
+
+@router.post("/payroll/runs/{run_id}/corrections/{correction_id}/void")
+def void_payroll_correction(
+    run_id: int,
+    correction_id: int,
+    payload: PayrollCorrectionVoidRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = must_be_payroll_user(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_payroll_corrections_schema(conn)
+        row = fetchone(conn, "SELECT * FROM payroll_corrections WHERE id=? AND payroll_run_id=?", (correction_id, run_id))
+        if not row:
+            raise HTTPException(status_code=404, detail="Correction not found.")
+        if row.get("status") == "Applied":
+            raise HTTPException(status_code=409, detail="Applied corrections cannot be voided here. Record a new correction.")
+        if row.get("status") == "Voided":
+            raise HTTPException(status_code=409, detail="Correction is already voided.")
+        conn.execute(
+            """
+            UPDATE payroll_corrections
+            SET status='Voided', voided_by=?, void_reason=?, voided_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (user.get("display_name"), payload.reason.strip(), correction_id),
+        )
+        conn.execute(
+            "INSERT INTO audit_logs(actor, action, table_name, record_id, details, created_at) VALUES(?, 'Payroll correction voided', 'payroll_corrections', ?, ?, CURRENT_TIMESTAMP)",
+            (user.get("display_name"), correction_id, payload.reason.strip()),
+        )
+        conn.commit()
+        updated = fetchone(conn, "SELECT * FROM payroll_corrections WHERE id=?", (correction_id,)) or {}
+        return {"ok": True, "correction": clean_row(updated)}
     finally:
         conn.close()

@@ -6,6 +6,65 @@
   padding-bottom: 4px;
 }
 
+.matrixGrid {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.9fr) repeat(7, minmax(150px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.matrixRow {
+  display: contents;
+}
+
+.matrixCorner,
+.matrixHeader,
+.employeeCell,
+.scheduleCell {
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.matrixCorner,
+.matrixHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.matrixCorner,
+.employeeCell {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+.employeeCell {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 108px;
+  border-radius: 10px;
+  padding: 9px;
+}
+
+.employeeCell span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.scheduleCell {
+  min-height: 108px;
+  border-radius: 10px;
+  padding: 7px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
 .boardHint {
   margin-bottom: 10px;
   color: var(--muted);
@@ -104,5 +163,6 @@
 
 @media (max-width: 1100px) {
   .scheduleGrid { grid-template-columns: repeat(7, 210px); }
+  .matrixGrid { grid-template-columns: 155px repeat(7, 155px); }
   .filterGrid { grid-template-columns: 1fr; }
 }

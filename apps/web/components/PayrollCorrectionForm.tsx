@@ -13,6 +13,7 @@ export function PayrollCorrectionForm({ runId, employees }: Props) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [adjustmentType, setAdjustmentType] = useState("Earning");
 
   async function submit(formData: FormData) {
     setBusy(true);
@@ -21,7 +22,7 @@ export function PayrollCorrectionForm({ runId, employees }: Props) {
       run_id: runId,
       employee_id: Number(formData.get("employee_id")),
       adjustment_type: String(formData.get("adjustment_type") || "Earning"),
-      amount: Number(formData.get("amount") || 0),
+      amount: adjustmentType === "Note" ? 0 : Number(formData.get("amount") || 0),
       reason: String(formData.get("reason") || "").trim(),
       apply_to_next_run: formData.get("apply_to_next_run") === "on",
     };
@@ -54,7 +55,7 @@ export function PayrollCorrectionForm({ runId, employees }: Props) {
       </label>
       <label>
         Type
-        <select name="adjustment_type" defaultValue="Earning">
+        <select name="adjustment_type" value={adjustmentType} onChange={(event) => setAdjustmentType(event.target.value)}>
           <option>Earning</option>
           <option>Deduction</option>
           <option>Note</option>
@@ -62,14 +63,14 @@ export function PayrollCorrectionForm({ runId, employees }: Props) {
       </label>
       <label>
         Amount
-        <input name="amount" type="number" step="0.01" defaultValue="0" />
+        <input name="amount" type="number" step="0.01" defaultValue="0" disabled={adjustmentType === "Note"} />
       </label>
       <label>
         Reason
         <input name="reason" required minLength={3} placeholder="Required audit note" />
       </label>
       <label className="check-field">
-        <input name="apply_to_next_run" type="checkbox" defaultChecked />
+        <input name="apply_to_next_run" type="checkbox" defaultChecked={adjustmentType !== "Note"} disabled={adjustmentType === "Note"} />
         Apply to next run when processed
       </label>
       <button className="primary-button" type="submit" disabled={busy}>{busy ? "Recording..." : "Record correction"}</button>

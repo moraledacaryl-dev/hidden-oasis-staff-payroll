@@ -22,6 +22,17 @@ class ToggleUserActiveRequest(BaseModel):
     active: bool
 
 
+class LinkUserEmployeeRequest(BaseModel):
+    employee_id: int | None = None
+
+
+def ensure_user_employee_column(conn) -> None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(app_users)").fetchall()}
+    if "employee_id" not in columns:
+        conn.execute("ALTER TABLE app_users ADD COLUMN employee_id INTEGER")
+        conn.commit()
+
+
 def require_user(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
     require_api_key(x_api_key)
     return current_user_from_token(authorization)
@@ -44,6 +55,8 @@ def public_app_user(row: dict[str, Any]) -> dict[str, Any]:
         "must_change_password": int(row.get("must_change_password") or 0),
         "last_login_at": row.get("last_login_at"),
         "created_at": row.get("created_at"),
+        "employee_id": row.get("employee_id"),
+        "employee_name": row.get("employee_name"),
     }
 
 
@@ -82,12 +95,16 @@ def list_users(
     require_owner(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
+        ensure_user_employee_column(conn)
         rows = fetchall(
             conn,
             """
-            SELECT id, display_name, role, active, must_change_password, last_login_at, created_at
-            FROM app_users
-            ORDER BY active DESC, role, display_name
+            SELECT au.id, au.display_name, au.role, au.active, au.must_change_password,
+                   au.last_login_at, au.created_at, au.employee_id,
+                   e.full_name AS employee_name
+            FROM app_users au
+            LEFT JOIN employees e ON e.id = au.employee_id
+            ORDER BY au.active DESC, au.role, au.display_name
             """,
         )
         return {"ok": True, "items": [public_app_user(row) for row in rows]}
@@ -105,6 +122,7 @@ def reset_user_password(
     temporary_password = f"HO-{secrets.token_urlsafe(9)}"
     conn = get_conn(DB_PATH)
     try:
+        ensure_user_employee_column(conn)
         row = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,))
         if not row:
             raise HTTPException(status_code=404, detail="User not found.")
@@ -131,12 +149,51 @@ def set_user_active(
         raise HTTPException(status_code=409, detail="You cannot deactivate your own signed-in owner account.")
     conn = get_conn(DB_PATH)
     try:
+        ensure_user_employee_column(conn)
         row = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,))
         if not row:
             raise HTTPException(status_code=404, detail="User not found.")
         conn.execute("UPDATE app_users SET active=? WHERE id=?", (1 if payload.active else 0, user_id))
         conn.commit()
         updated = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,)) or {}
+        return {"ok": True, "user": public_app_user(updated)}
+    finally:
+        conn.close()
+
+
+@router.post("/users/{user_id}/employee")
+def set_user_employee(
+    user_id: int,
+    payload: LinkUserEmployeeRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_owner(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_user_employee_column(conn)
+        row = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,))
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found.")
+        employee_id = payload.employee_id
+        if employee_id is not None:
+            employee = fetchone(conn, "SELECT id FROM employees WHERE id=?", (employee_id,))
+            if not employee:
+                raise HTTPException(status_code=404, detail="Employee not found.")
+        conn.execute("UPDATE app_users SET employee_id=? WHERE id=?", (employee_id, user_id))
+        conn.commit()
+        updated = fetchone(
+            conn,
+            """
+            SELECT au.id, au.display_name, au.role, au.active, au.must_change_password,
+                   au.last_login_at, au.created_at, au.employee_id,
+                   e.full_name AS employee_name
+            FROM app_users au
+            LEFT JOIN employees e ON e.id = au.employee_id
+            WHERE au.id=?
+            """,
+            (user_id,),
+        ) or {}
         return {"ok": True, "user": public_app_user(updated)}
     finally:
         conn.close()

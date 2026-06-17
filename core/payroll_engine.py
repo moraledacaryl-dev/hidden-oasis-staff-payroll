@@ -6,10 +6,14 @@ from typing import Any
 import sqlite3
 
 from .db import fetchall, fetchone, get_setting, now_iso
+from .corrections import eligible_corrections, mark_eligible_corrections_applied
 from .quality import build_payroll_preflight_checks, summarize_checks
+from .schedule_source import trusted_schedule_rows
 
 TIME_FMT = "%H:%M"
 DATE_FMT = "%Y-%m-%d"
+REVIEW_STATUS = "For Owner Review"
+PAYROLL_HISTORY_STATUSES = (REVIEW_STATUS, "Approved", "Paid", "Locked")
 
 
 @dataclass
@@ -214,7 +218,7 @@ def get_month_previous_contribs(conn: sqlite3.Connection, employee_id: int, peri
         WHERE pi.employee_id=?
           AND pr.period_start >= ?
           AND pr.period_end < ?
-          AND pr.status IN ('Reviewed','Approved','Paid','Locked')
+          AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
         """,
         (employee_id, mstart.isoformat(), period_start),
     )
@@ -277,15 +281,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             """,
             (emp["id"], period_start, period_end),
         )
-        scheds = fetchall(
-            conn,
-            """
-            SELECT * FROM schedules
-            WHERE employee_id=? AND work_date BETWEEN ? AND ?
-            ORDER BY work_date
-            """,
-            (emp["id"], period_start, period_end),
-        )
+        scheds = trusted_schedule_rows(conn, period_start, period_end, int(emp["id"]))
         sched_by_date = {s["work_date"]: s for s in scheds}
         holiday_rows = fetchall(
             conn,
@@ -491,6 +487,18 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         else:
             result.other_earnings += amount
 
+    for correction in eligible_corrections(conn, int(emp["id"]), period_start):
+        amount = abs(float(correction.get("amount") or 0))
+        if amount <= 0:
+            continue
+        if correction.get("adjustment_type") == "Deduction":
+            result.other_deductions += amount
+        else:
+            result.other_earnings += amount
+        warnings.append(
+            f"Correction #{correction['id']} from payroll run {correction['payroll_run_id']} is included in this run."
+        )
+
     result.gross_pay = round(
         result.regular_pay
         + result.ot_pay
@@ -636,6 +644,7 @@ def save_payroll_draft(
         placeholders = ",".join(["?"] * len(cols))
         cur2 = conn.execute(f"INSERT INTO payroll_items({','.join(cols)}) VALUES({placeholders})", values)
         add_payroll_lines(conn, cur2.lastrowid, r)
+    mark_eligible_corrections_applied(conn, int(run_id), period_start)
     conn.commit()
     return int(run_id)
 
@@ -794,15 +803,22 @@ def create_accounting_queue_for_13th_month(conn: sqlite3.Connection, run_id: int
     conn.commit()
 
 
+def normalize_payroll_status(status: str | None) -> str:
+    value = str(status or "").strip()
+    return REVIEW_STATUS if value == "Reviewed" else value
+
+
 def update_payroll_status(conn: sqlite3.Connection, run_id: int, status: str, actor: str, reason: str | None = None) -> None:
     now = now_iso()
     run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
     if not run:
         raise ValueError(f"Payroll run {run_id} not found")
-    old_status = run["status"]
+    old_status_raw = str(run["status"])
+    old_status = normalize_payroll_status(old_status_raw)
+    status = normalize_payroll_status(status)
     allowed = {
-        "Draft": {"Reviewed"},
-        "Reviewed": {"Approved", "Draft"},
+        "Draft": {REVIEW_STATUS},
+        REVIEW_STATUS: {"Approved", "Draft"},
         "Approved": {"Paid", "Locked", "Draft"},
         "Paid": {"Locked", "Draft"},
         "Locked": {"Draft"},
@@ -840,16 +856,21 @@ def update_payroll_status(conn: sqlite3.Connection, run_id: int, status: str, ac
             )
     elif status == "Locked":
         conn.execute("UPDATE payroll_runs SET status=?, locked_at=? WHERE id=?", (status, now, run_id))
+    elif status == REVIEW_STATUS:
+        conn.execute("UPDATE payroll_runs SET status=?, locked_at=?, prepared_by=COALESCE(prepared_by, ?) WHERE id=?", (status, now, actor, run_id))
     elif status == "Draft" and reason:
         if old_status in ("Paid", "Locked"):
             reverse_cash_advance_repayments(conn, run_id)
             conn.execute("UPDATE accounting_export_queue SET status='Reversed' WHERE source_type='Payroll Run' AND source_id=? AND status='For Review'", (run_id,))
-        conn.execute("UPDATE payroll_runs SET status=?, reopen_reason=? WHERE id=?", (status, reason, run_id))
+        conn.execute(
+            "UPDATE payroll_runs SET status=?, reopen_reason=?, approved_by=NULL, approved_at=NULL, locked_at=NULL WHERE id=?",
+            (status, reason, run_id),
+        )
     else:
         conn.execute("UPDATE payroll_runs SET status=? WHERE id=?", (status, run_id))
     conn.execute(
         "INSERT INTO audit_logs(actor, action, table_name, record_id, details, created_at) VALUES(?,?,?,?,?,?)",
-        (actor, f"Payroll status changed from {old_status} to {status}", "payroll_runs", run_id, reason or "", now),
+        (actor, f"Payroll status changed from {old_status_raw} to {status}", "payroll_runs", run_id, reason or "", now),
     )
     conn.commit()
 
@@ -869,7 +890,7 @@ def compute_13th_month_basis(conn: sqlite3.Connection, employee_id: int, year: i
         JOIN payroll_runs pr ON pr.id=pi.payroll_run_id
         WHERE pi.employee_id=?
           AND substr(pr.period_start,1,4)=?
-          AND pr.status IN ('Reviewed','Approved','Paid','Locked')
+          AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
         """,
         (employee_id, str(year)),
     )

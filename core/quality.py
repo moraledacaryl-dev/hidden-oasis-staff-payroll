@@ -5,6 +5,7 @@ from typing import Any
 import sqlite3
 
 from .db import fetchall, fetchone, get_setting
+from .schedule_source import trusted_scheduled_workdays
 
 
 def _date_str(v: Any) -> str:
@@ -38,22 +39,31 @@ def build_payroll_preflight_checks(conn: sqlite3.Connection, period_start: str, 
     if pending_leaves:
         add("Warning", "Leaves", "Pending leave requests overlap the cutoff.", pending_leaves, "Approve/reject or classify before payroll approval.")
 
-    missing_logs = fetchone(
-        conn,
-        """
-        SELECT COUNT(*) AS c
-        FROM schedules s
-        JOIN employees e ON e.id=s.employee_id
-        LEFT JOIN time_logs tl ON tl.employee_id=s.employee_id AND tl.work_date=s.work_date AND tl.attendance_status!='Rejected'
-        LEFT JOIN leave_requests lr ON lr.employee_id=s.employee_id AND lr.status='Approved' AND lr.start_date<=s.work_date AND lr.end_date>=s.work_date
-        WHERE s.work_date BETWEEN ? AND ?
-          AND COALESCE(s.is_rest_day,0)=0
-          AND e.status NOT IN ('Inactive','Terminated')
-          AND tl.id IS NULL
-          AND lr.id IS NULL
-        """,
-        (period_start, period_end),
-    )["c"]
+    missing_logs = 0
+    for sched in trusted_scheduled_workdays(conn, period_start, period_end):
+        employee_id = int(sched.get("employee_id") or 0)
+        work_date = str(sched.get("work_date"))
+        log = fetchone(
+            conn,
+            """
+            SELECT id FROM time_logs
+            WHERE employee_id=? AND work_date=? AND attendance_status!='Rejected'
+            LIMIT 1
+            """,
+            (employee_id, work_date),
+        )
+        leave = fetchone(
+            conn,
+            """
+            SELECT id FROM leave_requests
+            WHERE employee_id=? AND status='Approved'
+              AND start_date<=? AND end_date>=?
+            LIMIT 1
+            """,
+            (employee_id, work_date, work_date),
+        )
+        if not log and not leave:
+            missing_logs += 1
     if missing_logs:
         add("Warning", "Attendance", "Scheduled workdays have no time log and no approved leave.", missing_logs, "These become unpaid absences in payroll; verify if correct.")
 
@@ -73,7 +83,7 @@ def build_payroll_preflight_checks(conn: sqlite3.Connection, period_start: str, 
     if ca_not_released:
         add("Warning", "Cash Advances", "Approved cash advances are still not marked Released.", ca_not_released, "Only released advances should usually be deducted from payroll.")
 
-    duplicate_runs = fetchone(conn, "SELECT COUNT(*) AS c FROM payroll_runs WHERE period_start=? AND period_end=? AND status IN ('Reviewed','Approved','Paid','Locked')", (period_start, period_end))["c"]
+    duplicate_runs = fetchone(conn, "SELECT COUNT(*) AS c FROM payroll_runs WHERE period_start=? AND period_end=? AND status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')", (period_start, period_end))["c"]
     if duplicate_runs:
         add("Warning", "Payroll Runs", "There are already reviewed/approved/paid/locked payroll runs for this cutoff.", duplicate_runs, "Do not duplicate contributions; use reopen/replace intentionally.")
 

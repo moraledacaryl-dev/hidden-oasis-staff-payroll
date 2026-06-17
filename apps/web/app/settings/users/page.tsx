@@ -1,10 +1,17 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { UserManagementClient } from "@/components/UserManagementClient";
-import { getAppUsers } from "@/lib/api";
+import { getAppUsers, getEmployees } from "@/lib/api";
+import { currentSession } from "@/lib/session";
 
 export default async function UserSettingsPage() {
-  const users = await getAppUsers();
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  if (session.role_key !== "owner") {
+    return <Shell allowedRoles={["owner"]}><div /></Shell>;
+  }
+  const [users, employees] = await Promise.all([getAppUsers(), getEmployees()]);
 
   return (
     <Shell allowedRoles={["owner"]}>
@@ -18,7 +25,7 @@ export default async function UserSettingsPage() {
           </div>
         </header>
         <section className="card">
-          <UserManagementClient users={users.items} />
+          <UserManagementClient users={users.items} employees={employees} />
         </section>
       </div>
     </Shell>

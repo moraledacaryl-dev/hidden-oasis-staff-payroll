@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.payroll_drafts import must_be_payroll_user, totals
 from core.db import DB_PATH, fetchone, get_conn
+from core.payroll_engine import REVIEW_STATUS, update_payroll_status
 
 router = APIRouter(prefix="/api/v1")
 
@@ -31,13 +32,12 @@ def return_payroll_run_to_draft(
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
-        if run.get("status") not in {"For Owner Review", "Approved"}:
+        if run.get("status") not in {REVIEW_STATUS, "Reviewed", "Approved"}:
             raise HTTPException(status_code=409, detail="Only review or approved runs can be reopened.")
-        conn.execute(
-            "UPDATE payroll_runs SET status='Draft', reopen_reason=?, approved_by=NULL, approved_at=NULL, locked_at=NULL WHERE id=?",
-            (reason, run_id),
-        )
-        conn.commit()
+        try:
+            update_payroll_status(conn, run_id, "Draft", str(user.get("display_name") or "Owner"), reason)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
         updated["totals"] = totals(conn, run_id)
         return {"ok": True, "run": updated, "mode": "reopened_to_draft_not_released"}

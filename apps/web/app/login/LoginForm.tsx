@@ -8,7 +8,7 @@ import type { RoleKey } from "@/lib/types";
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [displayName, setDisplayName] = useState("Caryl");
+  const [displayName, setDisplayName] = useState("");
   const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
   const next = useMemo(() => searchParams.get("next"), [searchParams]);

@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getPayrollRuns, peso } from "@/lib/api";
+import { currentSession } from "@/lib/session";
 
 function statusTone(status: string): "ok" | "warning" | "danger" {
   if (status === "Approved" || status === "Paid" || status === "Released") return "ok";
@@ -10,6 +12,11 @@ function statusTone(status: string): "ok" | "warning" | "danger" {
 }
 
 export default async function PayrollRunsPage({ searchParams }: { searchParams: Promise<{ status?: string; start?: string; end?: string }> }) {
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  if (session.role_key !== "owner" && session.role_key !== "payroll") {
+    return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
+  }
   const filters = await searchParams;
   const runs = await getPayrollRuns();
   const filtered = runs.filter((run) => {

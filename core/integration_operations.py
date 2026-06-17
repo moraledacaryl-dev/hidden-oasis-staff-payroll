@@ -98,7 +98,7 @@ def build_operations_snapshot_payload(conn) -> dict[str, Any]:
         SELECT id, period_start, period_end, run_label, status, payout_date,
                validation_summary
         FROM payroll_runs
-        WHERE status IN ('Draft','Reviewed','Approved')
+        WHERE status IN ('Draft','For Owner Review','Reviewed','Approved')
         ORDER BY id DESC
         LIMIT 20
         """,
