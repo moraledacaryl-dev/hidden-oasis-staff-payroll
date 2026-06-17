@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
+import { currentSession } from "@/lib/session";
 import { numberText } from "@/lib/api";
 import { ScheduleShiftForm } from "@/components/ScheduleShiftForm";
 import { ScheduleCopyWeekForm } from "@/components/ScheduleCopyWeekForm";
@@ -41,6 +43,9 @@ async function loadEmployees(): Promise<ScheduleEmployee[]> {
 }
 
 export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ week_start?: string; department?: string; position?: string }> }) {
+  const session = await currentSession();
+  if (!session) redirect("/login");
+
   const params = await searchParams;
   const weekStart = params.week_start || "2026-06-15";
   const selectedDepartment = params.department || "all";
