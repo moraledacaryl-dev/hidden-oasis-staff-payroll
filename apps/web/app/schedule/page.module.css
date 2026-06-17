@@ -140,6 +140,52 @@
   white-space: nowrap;
 }
 
+.actualLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 6px 7px;
+  font-size: 0.78rem;
+}
+
+.actualLine strong {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+}
+
+.actualOk {
+  background: var(--ok-soft);
+  border-color: #b8ddc6;
+  color: var(--ok);
+}
+
+.actualLegacy {
+  background: var(--accent-soft);
+  border-color: rgba(49, 91, 70, 0.25);
+  color: var(--accent);
+}
+
+.actualMissing {
+  background: var(--warning-soft);
+  border-color: #edd19c;
+  color: var(--warning);
+}
+
+.actualDanger {
+  background: var(--danger-soft);
+  border-color: #e7b8b8;
+  color: var(--danger);
+}
+
+.actualStatus {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
 .emptyDay {
   width: 100%;
   background: transparent;
@@ -168,7 +214,7 @@
 .personRow { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 7px 0; text-decoration: none; color: inherit; }
 .personRow:hover strong { color: var(--accent); }
 .personRow span { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
-.employeeScheduleTable { min-width: 680px; }
+.employeeScheduleTable { min-width: 760px; }
 .quickShift { display: grid; gap: 2px; padding: 2px 0; }
 .quickShift span { color: var(--muted); font-size: 0.78rem; }
 
