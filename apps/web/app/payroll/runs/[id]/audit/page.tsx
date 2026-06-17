@@ -1,10 +1,44 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getPayrollCorrections, getPayrollRunReview, peso } from "@/lib/api";
+import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
 import { currentSession } from "@/lib/session";
 import styles from "./page.module.css";
+
+function apiBaseUrl(): string {
+  return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
+}
+
+async function apiHeaders(): Promise<HeadersInit> {
+  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
+  return {
+    Accept: "application/json",
+    ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+type AuditEvent = {
+  source: string;
+  title: string;
+  actor?: string | null;
+  details?: string | null;
+  created_at?: string | null;
+  record_id?: number | null;
+};
+
+async function getAuditEvents(runId: number): Promise<AuditEvent[]> {
+  const response = await fetch(`${apiBaseUrl()}/api/v1/payroll/runs/${runId}/audit-events`, {
+    headers: await apiHeaders(),
+    cache: "no-store",
+  });
+  if (!response.ok) return [];
+  const data = await response.json().catch(() => ({ items: [] }));
+  return data.items || [];
+}
 
 function fmt(value?: string | null) {
   if (!value) return "Not recorded";
@@ -26,7 +60,12 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
     return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
   }
   const { id } = await params;
-  const [review, corrections] = await Promise.all([getPayrollRunReview(Number(id)), getPayrollCorrections(Number(id))]);
+  const runId = Number(id);
+  const [review, corrections, auditEvents] = await Promise.all([
+    getPayrollRunReview(runId),
+    getPayrollCorrections(runId),
+    getAuditEvents(runId),
+  ]);
   const run = review.run;
   const totals = run.totals;
   const events = [
@@ -44,7 +83,7 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
           <div className="grid">
             <span className="eyebrow">Payroll Audit</span>
             <h1>Run #{run.id}</h1>
-            <p className="muted">Lifecycle timeline for {run.period_start} to {run.period_end}.</p>
+            <p className="muted">Lifecycle and event stream for {run.period_start} to {run.period_end}.</p>
           </div>
           <div className="action-row">
             <Link className="button ghost" href={`/payroll/runs/${run.id}`}>Review run</Link>
@@ -61,7 +100,7 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
         </section>
 
         <section className="card">
-          <div className="panel-title"><div><h2>Lifecycle Timeline</h2><p className="muted">Audit view only.</p></div></div>
+          <div className="panel-title"><div><h2>Lifecycle Timeline</h2><p className="muted">Major status checkpoints.</p></div></div>
           <div className={styles.timeline}>
             {events.map((event) => (
               <article className={`${styles.item} ${event.done ? styles.done : ""}`} key={event.title}>
@@ -72,6 +111,27 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
                 </div>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="panel-title"><div><h2>Event Stream</h2><p className="muted">Append-style audit records, corrections, and lifecycle events.</p></div></div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Source</th><th>Event</th><th>Actor</th><th>Details</th></tr></thead>
+              <tbody>
+                {auditEvents.map((event, index) => (
+                  <tr key={`${event.source}-${event.record_id || index}-${event.created_at || index}`}>
+                    <td>{fmt(event.created_at)}</td>
+                    <td>{event.source}</td>
+                    <td>{event.title}</td>
+                    <td>{event.actor || "—"}</td>
+                    <td>{event.details || "—"}</td>
+                  </tr>
+                ))}
+                {auditEvents.length === 0 ? <tr><td colSpan={5}>No audit events found.</td></tr> : null}
+              </tbody>
+            </table>
           </div>
         </section>
 
