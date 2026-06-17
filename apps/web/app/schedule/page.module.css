@@ -42,6 +42,8 @@
 
 .shiftCard {
   display: grid;
+  width: 100%;
+  text-align: left;
   gap: 5px;
   border: 1px solid rgba(49, 91, 70, 0.18);
   border-left: 3px solid var(--accent);
@@ -53,6 +55,7 @@
   cursor: grab;
 }
 
+.shiftCard:disabled { cursor: default; }
 .shiftCard:active { cursor: grabbing; }
 .dragging { opacity: 0.48; transform: scale(0.99); }
 
@@ -73,12 +76,20 @@
 }
 
 .emptyDay {
+  width: 100%;
+  background: transparent;
   border: 1px dashed var(--line-strong);
   border-radius: 12px;
   color: var(--muted);
   padding: 14px 8px;
   text-align: center;
   font-size: 0.84rem;
+}
+
+.legacyNote {
+  color: var(--warning);
+  font-size: 0.75rem;
+  font-weight: 800;
 }
 
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

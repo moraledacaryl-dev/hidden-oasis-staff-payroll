@@ -82,8 +82,6 @@ def create_payroll_correction(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
     user = must_be_payroll_user(authorization, x_api_key)
-    if user.get("role_key") != "owner":
-        raise HTTPException(status_code=403, detail="Only owner can record payroll corrections.")
     adjustment_type = payload.adjustment_type.strip().title()
     if adjustment_type not in ADJUSTMENT_TYPES:
         raise HTTPException(status_code=422, detail="Correction type must be Earning, Deduction, or Note.")

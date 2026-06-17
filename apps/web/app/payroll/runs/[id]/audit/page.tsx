@@ -41,6 +41,7 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
           </div>
           <div className="action-row">
             <Link className="button ghost" href={`/payroll/runs/${run.id}`}>Review run</Link>
+            <Link className="button ghost" href={`/payroll/runs/${run.id}/corrections`}>Corrections</Link>
             <Link className="button ghost" href={`/payroll/runs/${run.id}/payslips`}>Payslips</Link>
           </div>
         </header>

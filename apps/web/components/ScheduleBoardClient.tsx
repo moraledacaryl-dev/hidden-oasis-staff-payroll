@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { moveScheduledShift } from "@/app/schedule/actions";
+import { ScheduleDayEditorModal } from "@/components/ScheduleDayEditorModal";
 import styles from "@/app/schedule/page.module.css";
 
 type Shift = {
@@ -20,11 +21,17 @@ type Shift = {
   employee_name?: string | null;
   planned_paid_hours: number;
   is_overnight: boolean;
+  source?: string;
+  movable?: boolean;
 };
+
+type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
 
 type Props = {
   days: string[];
   shifts: Shift[];
+  employees: ScheduleEmployee[];
+  canEdit: boolean;
 };
 
 function numberText(value: number | null | undefined, digits = 2): string {
@@ -42,11 +49,12 @@ function dayLabel(iso: string) {
   });
 }
 
-export function ScheduleBoardClient({ days, shifts }: Props) {
+export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props) {
   const router = useRouter();
   const [dragId, setDragId] = useState<number | null>(null);
   const [overDay, setOverDay] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [editor, setEditor] = useState<{ day: string; shift: Shift | null } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const byDay = useMemo(() => {
@@ -57,7 +65,7 @@ export function ScheduleBoardClient({ days, shifts }: Props) {
   }, [days, shifts]);
 
   function onDrop(day: string) {
-    if (!dragId) return;
+    if (!canEdit || !dragId) return;
     const source = shifts.find((item) => item.id === dragId);
     setOverDay(null);
     setDragId(null);
@@ -76,7 +84,7 @@ export function ScheduleBoardClient({ days, shifts }: Props) {
 
   return (
     <>
-      <div className={styles.boardHint}>{isPending ? "Saving…" : message || "Drag a shift to another day."}</div>
+      <div className={styles.boardHint}>{isPending ? "Saving…" : message || (canEdit ? "Click a card or empty day to edit. Drag planned shifts to move days." : "Supervisor view is read-only.")}</div>
       <div className={styles.scheduleGrid}>
         {days.map((day) => {
           const dayShifts = byDay[day] || [];
@@ -88,6 +96,7 @@ export function ScheduleBoardClient({ days, shifts }: Props) {
               className={`${styles.scheduleDay} ${isOver ? styles.dropTarget : ""}`}
               key={day}
               onDragOver={(event) => {
+                if (!canEdit) return;
                 event.preventDefault();
                 setOverDay(day);
               }}
@@ -104,11 +113,16 @@ export function ScheduleBoardClient({ days, shifts }: Props) {
 
               <div className={styles.scheduleStack}>
                 {dayShifts.map((shift) => (
-                  <div
+                  <button
+                    type="button"
                     className={`${styles.shiftCard} ${dragId === shift.id ? styles.dragging : ""}`}
-                    draggable
+                    draggable={canEdit && shift.id > 0 && shift.movable !== false}
                     key={shift.id}
-                    onDragStart={() => setDragId(shift.id)}
+                    onClick={() => setEditor({ day, shift })}
+                    onDragStart={() => {
+                      if (!canEdit || shift.id < 0 || shift.movable === false) return;
+                      setDragId(shift.id);
+                    }}
                     onDragEnd={() => {
                       setDragId(null);
                       setOverDay(null);
@@ -121,15 +135,28 @@ export function ScheduleBoardClient({ days, shifts }: Props) {
                     <span>{shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</span>
                     <span>{numberText(shift.planned_paid_hours)} paid hrs · break {shift.break_minutes}m</span>
                     <span>{shift.employee_department || shift.department || "No department"}</span>
+                    {shift.source === "imported" ? <span className={styles.legacyNote}>Legacy imported row</span> : null}
                     {shift.notes ? <p className="muted">{shift.notes}</p> : null}
-                  </div>
+                  </button>
                 ))}
-                {dayShifts.length === 0 ? <div className={styles.emptyDay}>Drop shift here</div> : null}
+                {dayShifts.length === 0 ? (
+                  <button className={styles.emptyDay} type="button" onClick={() => canEdit && setEditor({ day, shift: null })}>
+                    {canEdit ? "Click to add or edit day" : "No shifts"}
+                  </button>
+                ) : null}
               </div>
             </div>
           );
         })}
       </div>
+      <ScheduleDayEditorModal
+        open={Boolean(editor)}
+        day={editor?.day || days[0]}
+        shift={editor?.shift || null}
+        employees={employees}
+        canEdit={canEdit}
+        onClose={() => setEditor(null)}
+      />
     </>
   );
 }

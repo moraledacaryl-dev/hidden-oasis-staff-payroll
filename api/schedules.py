@@ -34,6 +34,31 @@ class CopyWeekPayload(BaseModel):
     from_week_start: date
     to_week_start: date
 
+class DaySchedulePayload(BaseModel):
+    shift_id: int | None = None
+    employee_id: int | None = None
+    shift_date: date
+    start_time: str
+    end_time: str
+    position: str = "Other"
+    department: str | None = None
+    break_minutes: int = 60
+    notes: str | None = None
+
+class DayActualPayload(BaseModel):
+    employee_id: int
+    shift_date: date
+    actual_in: str | None = None
+    actual_out: str | None = None
+    attendance_status: str = "Pending"
+    approved_ot_hours: float = 0
+    notes: str | None = None
+
+class DayLeavePayload(BaseModel):
+    employee_id: int
+    shift_date: date
+    leave_kind: str = "None"
+    reason: str | None = None
 
 def table_columns(conn, table: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -42,6 +67,11 @@ def table_columns(conn, table: str) -> set[str]:
 def table_exists(conn, table: str) -> bool:
     row = conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
     return bool(row and int(row[0] or 0) > 0)
+
+
+def ensure_column(conn, table: str, column: str, definition: str) -> None:
+    if column not in table_columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def ensure_schema(conn) -> None:
@@ -61,8 +91,15 @@ def ensure_schema(conn) -> None:
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    ensure_column(conn, "scheduled_shifts", "legacy_schedule_id", "INTEGER")
+    ensure_column(conn, "scheduled_shifts", "source", "TEXT NOT NULL DEFAULT 'planned'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_date ON scheduled_shifts(shift_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_employee ON scheduled_shifts(employee_id)")
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_shifts_legacy_schedule_id
+        ON scheduled_shifts(legacy_schedule_id)
+        WHERE legacy_schedule_id IS NOT NULL
+    """)
     conn.commit()
 
 
@@ -88,6 +125,10 @@ def week_bounds(week_start: date) -> tuple[str, str]:
     return week_start.isoformat(), (week_start + timedelta(days=6)).isoformat()
 
 
+def now_iso() -> str:
+    return datetime.now().replace(microsecond=0).isoformat(sep=" ")
+
+
 def require_schedule_viewer(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
@@ -105,8 +146,8 @@ def require_schedule_editor(authorization: str | None, x_api_key: str | None) ->
 
 def insert_shift_from_row(conn, row: dict[str, Any], shift_date: str) -> int:
     cur = conn.execute("""
-        INSERT INTO scheduled_shifts (employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?)
+        INSERT INTO scheduled_shifts (employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?, 'planned')
     """, (row.get("employee_id"), shift_date, row.get("start_time"), row.get("end_time"), row.get("position") or "Other", row.get("department"), int(row.get("break_minutes") or 0), row.get("notes")))
     return int(cur.lastrowid)
 
@@ -136,6 +177,10 @@ def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any
         return []
 
     employee_expr = sql_value_expr(cols, ["employee_id"], "NULL", "employee_id")
+    employee_join = "LEFT JOIN employees e ON e.id = s.employee_id" if "employee_id" in cols else ""
+    employee_name_expr = "e.full_name AS employee_name" if "employee_id" in cols else "NULL AS employee_name"
+    employee_code_expr = "e.employee_code" if "employee_id" in cols else "NULL"
+    employee_department_expr = "e.department AS employee_department" if "employee_id" in cols else "NULL AS employee_department"
     position_expr = sql_value_expr(cols, ["position", "role"], "'Other'", "position")
     department_expr = sql_value_expr(cols, ["department", "department_name"], "NULL", "department")
     break_expr = sql_value_expr(cols, ["break_minutes", "break_mins", "unpaid_break_minutes"], "60", "break_minutes")
@@ -154,11 +199,11 @@ def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any
             {break_expr},
             {notes_expr},
             {status_expr},
-            e.full_name AS employee_name,
-            e.employee_code,
-            e.department AS employee_department
+            {employee_name_expr},
+            {employee_code_expr} AS employee_code,
+            {employee_department_expr}
         FROM schedules s
-        LEFT JOIN employees e ON e.id = s.employee_id
+        {employee_join}
         WHERE date(s.{date_col}) BETWEEN date(?) AND date(?)
         ORDER BY s.{date_col}, s.{start_col}, COALESCE(e.full_name, 'Unassigned')
     """, (start, end))
@@ -173,6 +218,191 @@ def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any
         data["break_minutes"] = int(data.get("break_minutes") or 0)
         imported.append(clean_shift(data))
     return imported
+
+
+def fetch_legacy_schedule_row(conn, legacy_id: int) -> dict[str, Any] | None:
+    if not table_exists(conn, "schedules"):
+        return None
+    cols = table_columns(conn, "schedules")
+    date_col = first_existing(cols, ["work_date", "shift_date", "date", "schedule_date"])
+    start_col = first_existing(cols, ["shift_start", "start_time", "time_in", "scheduled_in"])
+    end_col = first_existing(cols, ["shift_end", "end_time", "time_out", "scheduled_out"])
+    if not date_col or not start_col or not end_col:
+        return None
+    employee_expr = sql_value_expr(cols, ["employee_id"], "NULL", "employee_id")
+    employee_join = "LEFT JOIN employees e ON e.id = s.employee_id" if "employee_id" in cols else ""
+    employee_name_expr = "e.full_name AS employee_name" if "employee_id" in cols else "NULL AS employee_name"
+    employee_code_expr = "e.employee_code" if "employee_id" in cols else "NULL"
+    employee_department_expr = "e.department AS employee_department" if "employee_id" in cols else "NULL AS employee_department"
+    position_expr = sql_value_expr(cols, ["position", "role"], "'Other'", "position")
+    department_expr = sql_value_expr(cols, ["department", "department_name"], "NULL", "department")
+    break_expr = sql_value_expr(cols, ["break_minutes", "break_mins", "unpaid_break_minutes"], "60", "break_minutes")
+    notes_expr = sql_value_expr(cols, ["notes", "note"], "NULL", "notes")
+    row = fetchone(conn, f"""
+        SELECT
+            s.id AS legacy_id,
+            {employee_expr},
+            s.{date_col} AS shift_date,
+            s.{start_col} AS start_time,
+            s.{end_col} AS end_time,
+            {position_expr},
+            {department_expr},
+            {break_expr},
+            {notes_expr},
+            {employee_name_expr},
+            {employee_code_expr} AS employee_code,
+            {employee_department_expr}
+        FROM schedules s
+        {employee_join}
+        WHERE s.id=?
+    """, (legacy_id,))
+    if not row:
+        return None
+    data = dict(row)
+    data["id"] = -int(data.get("legacy_id") or 0)
+    data["source"] = "imported"
+    data["movable"] = False
+    data["position"] = data.get("position") or "Other"
+    data["break_minutes"] = int(data.get("break_minutes") or 0)
+    return clean_shift(data)
+
+
+def paid_run_for_day(conn, shift_date: str) -> dict[str, Any] | None:
+    return fetchone(
+        conn,
+        """
+        SELECT id, status, period_start, period_end, paid_at
+        FROM payroll_runs
+        WHERE date(?) BETWEEN date(period_start) AND date(period_end)
+          AND (status IN ('Paid', 'Released') OR paid_at IS NOT NULL)
+        ORDER BY paid_at DESC, id DESC
+        LIMIT 1
+        """,
+        (shift_date,),
+    )
+
+
+def employee_exists(conn, employee_id: int) -> bool:
+    row = fetchone(conn, "SELECT id FROM employees WHERE id=?", (employee_id,))
+    return bool(row)
+
+
+def fetch_shift(conn, shift_id: int | None, employee_id: int | None, shift_date: str) -> dict[str, Any] | None:
+    if shift_id and shift_id > 0:
+        return fetchone(
+            conn,
+            """
+            SELECT ss.*, e.full_name AS employee_name, e.employee_code, e.department AS employee_department
+            FROM scheduled_shifts ss
+            LEFT JOIN employees e ON e.id = ss.employee_id
+            WHERE ss.id=?
+            """,
+            (shift_id,),
+        )
+    if employee_id:
+        return fetchone(
+            conn,
+            """
+            SELECT ss.*, e.full_name AS employee_name, e.employee_code, e.department AS employee_department
+            FROM scheduled_shifts ss
+            LEFT JOIN employees e ON e.id = ss.employee_id
+            WHERE ss.employee_id=? AND date(ss.shift_date)=date(?)
+            ORDER BY ss.start_time, ss.id
+            LIMIT 1
+            """,
+            (employee_id, shift_date),
+        )
+    return None
+
+
+def fetch_time_log(conn, employee_id: int | None, shift_date: str) -> dict[str, Any] | None:
+    if not employee_id:
+        return None
+    return fetchone(
+        conn,
+        """
+        SELECT * FROM time_logs
+        WHERE employee_id=? AND date(work_date)=date(?)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (employee_id, shift_date),
+    )
+
+
+def fetch_leave(conn, employee_id: int | None, shift_date: str) -> dict[str, Any] | None:
+    if not employee_id or not table_exists(conn, "leave_requests"):
+        return None
+    return fetchone(
+        conn,
+        """
+        SELECT lr.*, lt.name AS leave_type_name
+        FROM leave_requests lr
+        LEFT JOIN leave_types lt ON lt.id = lr.leave_type_id
+        WHERE lr.employee_id=?
+          AND date(?) BETWEEN date(lr.start_date) AND date(lr.end_date)
+          AND lower(COALESCE(lr.status, '')) NOT IN ('rejected', 'declined', 'cancelled', 'canceled', 'void')
+        ORDER BY lr.id DESC
+        LIMIT 1
+        """,
+        (employee_id, shift_date),
+    )
+
+
+def day_bundle(conn, shift_date: str, employee_id: int | None = None, shift_id: int | None = None) -> dict[str, Any]:
+    ensure_schema(conn)
+    legacy_read_only = bool(shift_id and shift_id < 0)
+    shift = fetch_legacy_schedule_row(conn, abs(shift_id)) if shift_id and shift_id < 0 else fetch_shift(conn, shift_id, employee_id, shift_date)
+    resolved_employee_id = employee_id or (int(shift["employee_id"]) if shift and shift.get("employee_id") else None)
+    employee = fetchone(conn, "SELECT id, full_name, employee_code, department, position FROM employees WHERE id=?", (resolved_employee_id,)) if resolved_employee_id else None
+    actual = fetch_time_log(conn, resolved_employee_id, shift_date)
+    leave = fetch_leave(conn, resolved_employee_id, shift_date)
+    locked_run = paid_run_for_day(conn, shift_date)
+    return {
+        "ok": True,
+        "employee": employee,
+        "shift": clean_shift({**shift, "source": shift.get("source") or "planned", "movable": True}) if shift else None,
+        "actual": actual,
+        "leave": leave,
+        "payroll_locked": bool(locked_run),
+        "paid_run": locked_run,
+        "legacy_read_only": legacy_read_only,
+        "message": "This is a legacy imported row. Run schedule migration to make it fully editable." if legacy_read_only else None,
+    }
+
+
+def ensure_leave_type(conn, name: str, paid: int) -> int:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS leave_types (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            default_credits REAL NOT NULL DEFAULT 0,
+            paid INTEGER NOT NULL DEFAULT 1,
+            statutory INTEGER NOT NULL DEFAULT 0,
+            requires_approval INTEGER NOT NULL DEFAULT 1,
+            requires_attachment INTEGER NOT NULL DEFAULT 0,
+            annual_reset INTEGER NOT NULL DEFAULT 1,
+            active INTEGER NOT NULL DEFAULT 1,
+            notes TEXT
+        )
+    """)
+    row = fetchone(conn, "SELECT id FROM leave_types WHERE lower(name)=lower(?)", (name,))
+    if row:
+        return int(row["id"])
+    cur = conn.execute(
+        "INSERT INTO leave_types(name, paid, active, notes) VALUES(?, ?, 1, 'Created from schedule day editor')",
+        (name, paid),
+    )
+    return int(cur.lastrowid)
+
+
+def assert_not_paid_locked(conn, shift_date: str) -> None:
+    locked = paid_run_for_day(conn, shift_date)
+    if locked:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This date is inside paid payroll run #{locked.get('id')}. Record a payroll correction instead of editing paid history.",
+        )
 
 
 @router.get("/schedules/employees")
@@ -220,6 +450,22 @@ def schedule_week(week_start: date = Query(...), authorization: str | None = Hea
         conn.close()
 
 
+@router.get("/schedules/day")
+def schedule_day(
+    shift_date: date = Query(...),
+    employee_id: int | None = Query(default=None),
+    shift_id: int | None = Query(default=None),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_schedule_viewer(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        return day_bundle(conn, shift_date.isoformat(), employee_id, shift_id)
+    finally:
+        conn.close()
+
+
 @router.post("/schedules/shifts")
 def create_shift(payload: ShiftPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     require_schedule_editor(authorization, x_api_key)
@@ -240,6 +486,205 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
         shift_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,)) or {}
         return {"ok": True, "shift": clean_shift(row), "mode": "planned_schedule_only"}
+    finally:
+        conn.close()
+
+
+@router.post("/schedules/day/scheduled")
+def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    require_schedule_editor(authorization, x_api_key)
+    if payload.shift_id and payload.shift_id < 0:
+        raise HTTPException(status_code=409, detail="This is a legacy imported row. Run schedule migration to make it fully editable.")
+    if payload.position not in POSITIONS:
+        raise HTTPException(status_code=422, detail="Invalid position.")
+    if payload.employee_id and payload.employee_id > 0:
+        employee_id: int | None = payload.employee_id
+    else:
+        employee_id = None
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        if employee_id and not employee_exists(conn, employee_id):
+            raise HTTPException(status_code=404, detail="Employee not found.")
+        timestamp = now_iso()
+        if payload.shift_id:
+            row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (payload.shift_id,))
+            if not row:
+                raise HTTPException(status_code=404, detail="Shift not found.")
+            conn.execute(
+                """
+                UPDATE scheduled_shifts
+                SET employee_id=?, shift_date=?, start_time=?, end_time=?, position=?,
+                    department=?, break_minutes=?, notes=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    employee_id,
+                    payload.shift_date.isoformat(),
+                    payload.start_time,
+                    payload.end_time,
+                    payload.position,
+                    payload.department,
+                    int(payload.break_minutes or 0),
+                    payload.notes,
+                    timestamp,
+                    payload.shift_id,
+                ),
+            )
+            shift_id = payload.shift_id
+        else:
+            cur = conn.execute(
+                """
+                INSERT INTO scheduled_shifts
+                (employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes, source, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?, 'planned', ?, ?)
+                """,
+                (
+                    employee_id,
+                    payload.shift_date.isoformat(),
+                    payload.start_time,
+                    payload.end_time,
+                    payload.position,
+                    payload.department,
+                    int(payload.break_minutes or 0),
+                    payload.notes,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            shift_id = int(cur.lastrowid)
+        conn.commit()
+        return day_bundle(conn, payload.shift_date.isoformat(), employee_id, shift_id) | {"message": "Scheduled shift saved."}
+    finally:
+        conn.close()
+
+
+@router.post("/schedules/day/actual")
+def save_day_actual(payload: DayActualPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    user = require_schedule_editor(authorization, x_api_key)
+    shift_date = payload.shift_date.isoformat()
+    status_value = payload.attendance_status.strip() or "Pending"
+    if status_value not in {"Pending", "Approved", "Needs Review", "Needs Correction", "Rejected"}:
+        raise HTTPException(status_code=422, detail="Invalid attendance status.")
+    conn = get_conn(DB_PATH)
+    try:
+        if not employee_exists(conn, payload.employee_id):
+            raise HTTPException(status_code=404, detail="Employee not found.")
+        assert_not_paid_locked(conn, shift_date)
+        timestamp = now_iso()
+        existing = fetch_time_log(conn, payload.employee_id, shift_date)
+        if existing:
+            conn.execute(
+                """
+                UPDATE time_logs
+                SET actual_in=?, actual_out=?, attendance_status=?, approved_ot_hours=?,
+                    reviewed_by=?, reviewed_at=?, notes=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    payload.actual_in or None,
+                    payload.actual_out or None,
+                    status_value,
+                    float(payload.approved_ot_hours or 0),
+                    user.get("display_name"),
+                    timestamp,
+                    payload.notes,
+                    timestamp,
+                    existing["id"],
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO time_logs
+                (employee_id, work_date, actual_in, actual_out, source, verification_type,
+                 is_absent, detected_ot_hours, approved_ot_hours, ot_status,
+                 attendance_status, reviewed_by, reviewed_at, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'manual', 'Manual', 0, 0, ?, 'None', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.employee_id,
+                    shift_date,
+                    payload.actual_in or None,
+                    payload.actual_out or None,
+                    float(payload.approved_ot_hours or 0),
+                    status_value,
+                    user.get("display_name"),
+                    timestamp,
+                    payload.notes,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        conn.commit()
+        return day_bundle(conn, shift_date, payload.employee_id) | {"message": "Actual attendance saved."}
+    finally:
+        conn.close()
+
+
+@router.post("/schedules/day/leave")
+def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    user = require_schedule_editor(authorization, x_api_key)
+    shift_date = payload.shift_date.isoformat()
+    leave_kind = payload.leave_kind.strip() or "None"
+    allowed = {"None", "Rest Day", "Absent", "Paid Leave", "Unpaid Leave", "Sick Leave", "Emergency Leave", "Holiday"}
+    if leave_kind not in allowed:
+        raise HTTPException(status_code=422, detail="Invalid leave or absence type.")
+    conn = get_conn(DB_PATH)
+    try:
+        if not employee_exists(conn, payload.employee_id):
+            raise HTTPException(status_code=404, detail="Employee not found.")
+        assert_not_paid_locked(conn, shift_date)
+        timestamp = now_iso()
+        existing_leave = fetch_leave(conn, payload.employee_id, shift_date)
+        if leave_kind == "None":
+            if existing_leave:
+                conn.execute("UPDATE leave_requests SET status='Cancelled', reviewed_by=?, reviewed_at=? WHERE id=?", (user.get("display_name"), timestamp, existing_leave["id"]))
+            existing_log = fetch_time_log(conn, payload.employee_id, shift_date)
+            if existing_log:
+                conn.execute("UPDATE time_logs SET is_absent=0, absence_type=NULL, updated_at=? WHERE id=?", (timestamp, existing_log["id"]))
+        elif leave_kind in {"Rest Day", "Absent"}:
+            existing_log = fetch_time_log(conn, payload.employee_id, shift_date)
+            if existing_log:
+                conn.execute(
+                    "UPDATE time_logs SET is_absent=1, absence_type=?, attendance_status='Approved', reviewed_by=?, reviewed_at=?, notes=?, updated_at=? WHERE id=?",
+                    (leave_kind, user.get("display_name"), timestamp, payload.reason, timestamp, existing_log["id"]),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO time_logs
+                    (employee_id, work_date, source, verification_type, is_absent, absence_type,
+                     detected_ot_hours, approved_ot_hours, ot_status, attendance_status,
+                     reviewed_by, reviewed_at, notes, created_at, updated_at)
+                    VALUES (?, ?, 'manual', 'Manual', 1, ?, 0, 0, 'None', 'Approved', ?, ?, ?, ?, ?)
+                    """,
+                    (payload.employee_id, shift_date, leave_kind, user.get("display_name"), timestamp, payload.reason, timestamp, timestamp),
+                )
+        else:
+            paid = 0 if leave_kind == "Unpaid Leave" else 1
+            leave_type_id = ensure_leave_type(conn, leave_kind, paid)
+            if existing_leave:
+                conn.execute(
+                    """
+                    UPDATE leave_requests
+                    SET leave_type_id=?, start_date=?, end_date=?, days=1, paid=?,
+                        status='Approved', reason=?, reviewed_by=?, reviewed_at=?
+                    WHERE id=?
+                    """,
+                    (leave_type_id, shift_date, shift_date, paid, payload.reason, user.get("display_name"), timestamp, existing_leave["id"]),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO leave_requests
+                    (employee_id, leave_type_id, start_date, end_date, days, paid, status, reason, reviewed_by, reviewed_at, created_at)
+                    VALUES (?, ?, ?, ?, 1, ?, 'Approved', ?, ?, ?, ?)
+                    """,
+                    (payload.employee_id, leave_type_id, shift_date, shift_date, paid, payload.reason, user.get("display_name"), timestamp, timestamp),
+                )
+        conn.commit()
+        return day_bundle(conn, shift_date, payload.employee_id) | {"message": "Leave/absence saved."}
     finally:
         conn.close()
 

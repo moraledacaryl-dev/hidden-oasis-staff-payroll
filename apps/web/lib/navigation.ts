@@ -48,7 +48,7 @@ export const navItems: NavItem[] = [
     href: "/controls",
     label: "Controls",
     description: "Operational shortcuts and protected production controls.",
-    roles: ["owner", "payroll", "supervisor"],
+    roles: ["owner", "payroll"],
   },
   {
     href: "/me",
@@ -91,6 +91,12 @@ export const navItems: NavItem[] = [
     label: "Settings",
     description: "Migration status, API settings, permissions, and do-not-break rules.",
     roles: ["owner"],
+  },
+  {
+    href: "/settings/password",
+    label: "Password",
+    description: "Change your own sign-in password.",
+    roles: ["owner", "payroll", "supervisor", "staff"],
   },
 ];
 
