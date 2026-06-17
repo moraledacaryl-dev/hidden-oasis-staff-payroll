@@ -24,6 +24,9 @@ class ShiftPayload(BaseModel):
     break_minutes: int = 60
     notes: str | None = None
 
+class MoveShiftPayload(BaseModel):
+    shift_date: date
+
 class DuplicateShiftPayload(BaseModel):
     shift_date: date | None = None
 
@@ -37,8 +40,7 @@ def table_columns(conn, table: str) -> set[str]:
 
 
 def ensure_schema(conn) -> None:
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS scheduled_shifts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             employee_id INTEGER,
@@ -53,8 +55,7 @@ def ensure_schema(conn) -> None:
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
-        """
-    )
+    """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_date ON scheduled_shifts(shift_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_employee ON scheduled_shifts(employee_id)")
     conn.commit()
@@ -96,13 +97,10 @@ def require_schedule_editor(authorization: str | None, x_api_key: str | None) ->
 
 
 def insert_shift_from_row(conn, row: dict[str, Any], shift_date: str) -> int:
-    cur = conn.execute(
-        """
+    cur = conn.execute("""
         INSERT INTO scheduled_shifts (employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?)
-        """,
-        (row.get("employee_id"), shift_date, row.get("start_time"), row.get("end_time"), row.get("position") or "Other", row.get("department"), int(row.get("break_minutes") or 0), row.get("notes")),
-    )
+    """, (row.get("employee_id"), shift_date, row.get("start_time"), row.get("end_time"), row.get("position") or "Other", row.get("department"), int(row.get("break_minutes") or 0), row.get("notes")))
     return int(cur.lastrowid)
 
 
@@ -123,7 +121,7 @@ def schedule_employees(authorization: str | None = Header(default=None, alias="A
             FROM employees
             {where}
             ORDER BY COALESCE(department, ''), {name_col}
-            """)
+        """)
         return {"ok": True, "items": rows}
     finally:
         conn.close()
@@ -142,7 +140,7 @@ def schedule_week(week_start: date = Query(...), authorization: str | None = Hea
             LEFT JOIN employees e ON e.id = ss.employee_id
             WHERE date(ss.shift_date) BETWEEN date(?) AND date(?)
             ORDER BY ss.shift_date, ss.start_time, COALESCE(e.full_name, 'Unassigned')
-            """, (start, end))
+        """, (start, end))
         return {"ok": True, "week_start": start, "week_end": end, "items": [clean_shift(row) for row in rows], "mode": "schedule_planned_hours_only_not_payroll"}
     finally:
         conn.close()
@@ -163,11 +161,28 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
         conn.execute("""
             INSERT INTO scheduled_shifts (employee_id, shift_date, start_time, end_time, position, department, break_minutes, notes)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (payload.employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, payload.notes))
+        """, (payload.employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, payload.notes))
         conn.commit()
         shift_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,)) or {}
         return {"ok": True, "shift": clean_shift(row), "mode": "planned_schedule_only"}
+    finally:
+        conn.close()
+
+
+@router.post("/schedules/shifts/{shift_id}/move")
+def move_shift(shift_id: int, payload: MoveShiftPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    require_schedule_editor(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,))
+        if not row:
+            raise HTTPException(status_code=404, detail="Shift not found.")
+        conn.execute("UPDATE scheduled_shifts SET shift_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (payload.shift_date.isoformat(), shift_id))
+        conn.commit()
+        updated = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,)) or {}
+        return {"ok": True, "shift": clean_shift(updated), "mode": "planned_shift_moved_not_payroll"}
     finally:
         conn.close()
 
@@ -218,7 +233,7 @@ def copy_week(payload: CopyWeekPayload, authorization: str | None = Header(defau
             SELECT * FROM scheduled_shifts
             WHERE date(shift_date) BETWEEN date(?) AND date(?)
             ORDER BY shift_date, start_time, id
-            """, (source_start, source_end))
+        """, (source_start, source_end))
         new_ids: list[int] = []
         for row in rows:
             source_date = datetime.fromisoformat(f"{row['shift_date']}T00:00:00").date()
