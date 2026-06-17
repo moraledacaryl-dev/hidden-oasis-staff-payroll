@@ -177,9 +177,11 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
 
         {canEditSchedule ? <section className={`card ${styles.compactAddShift}`}><div className="panel-title"><h2>Add shift</h2><p className="muted">Use this only when adding a new scheduled shift.</p></div><ScheduleShiftForm weekStart={week.week_start} employees={employees} /></section> : null}
 
+        <section className="card"><div className="panel-title"><h2>Week</h2><p className="muted">Drag-and-drop board is filtered by the selected department, position, and employee.</p></div><div className={styles.boardScroll}><ScheduleBoardClient days={days} shifts={filteredItems} employees={employees} canEdit={canEditSchedule} /></div></section>
+
         {selectedEmployee ? (
           <section className="card">
-            <div className="panel-title"><div><h2>{selectedEmployee.full_name}</h2><p className="muted">Quick vertical schedule versus actual for this week.</p></div><Link className="primary-link" href={filterHref(selectedDepartment, selectedPosition, "all")}>Clear employee</Link></div>
+            <div className="panel-title"><div><h2>{selectedEmployee.full_name}</h2><p className="muted">Vertical schedule versus actual for this week.</p></div><Link className="primary-link" href={filterHref(selectedDepartment, selectedPosition, "all")}>Clear employee</Link></div>
             <div className="table-wrap">
               <table className={styles.employeeScheduleTable}>
                 <thead><tr><th>Day</th><th>Scheduled</th><th>Actual</th><th>Hours</th><th>Notes</th></tr></thead>
@@ -198,8 +200,6 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
             </div>
           </section>
         ) : null}
-
-        <section className="card"><div className="panel-title"><h2>Week</h2></div><div className={styles.boardScroll}><ScheduleBoardClient days={days} shifts={filteredItems} employees={employees} canEdit={canEditSchedule} /></div></section>
       </div>
     </Shell>
   );
