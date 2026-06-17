@@ -78,12 +78,14 @@ export default async function PayslipPreviewPage({ params }: { params: Promise<{
                 <div className="payslip-net"><span>Net Pay</span><strong>{peso(item.net_pay)}</strong></div>
               </div>
               <div className="payslip-employee"><div><h3>{item.employee_name}</h3><p className="muted">Department: {item.department}</p></div></div>
+              <div className="payslip-summary">
+                <div><span>Regular hours</span><strong>{numberText(item.regular_hours)} hrs</strong></div>
+                <div><span>Overtime hours</span><strong>{hasValue(item.approved_ot_hours) ? `${numberText(item.approved_ot_hours)} hrs` : "—"}</strong></div>
+                <div><span>Night diff hours</span><strong>{hasValue(item.night_diff_hours) ? `${numberText(item.night_diff_hours)} hrs` : "—"}</strong></div>
+              </div>
               <div className="payslip-columns">
                 <section>
                   <h3>Earnings</h3>
-                  <p><span>Regular hours</span><strong>{numberText(item.regular_hours)} hrs</strong></p>
-                  {hasValue(item.approved_ot_hours) ? <p><span>Overtime hours</span><strong>{numberText(item.approved_ot_hours)} hrs</strong></p> : null}
-                  {hasValue(item.night_diff_hours) ? <p><span>Night differential hours</span><strong>{numberText(item.night_diff_hours)} hrs</strong></p> : null}
                   <p><span>Regular pay</span><strong>{peso(item.regular_pay)}</strong></p>
                   {hasValue(item.ot_pay) ? <p><span>Overtime pay</span><strong>{peso(item.ot_pay)}</strong></p> : null}
                   {hasValue(item.night_diff_pay) ? <p><span>Night differential</span><strong>{peso(item.night_diff_pay)}</strong></p> : null}
