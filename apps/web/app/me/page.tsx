@@ -4,7 +4,7 @@ import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
 import { currentSession } from "@/lib/session";
-import { apiBaseUrl, peso } from "@/lib/api";
+import { apiBaseUrl, numberText, peso } from "@/lib/api";
 
 type MyPayrollItem = {
   id: number;
@@ -14,6 +14,9 @@ type MyPayrollItem = {
   payout_date: string;
   run_label: string;
   status: string;
+  regular_hours?: number | null;
+  approved_ot_hours?: number | null;
+  night_diff_hours?: number | null;
   gross_pay: number;
   total_deductions: number;
   net_pay: number;
@@ -25,6 +28,10 @@ type MyPayrollResponse = {
   items: MyPayrollItem[];
   message?: string;
 };
+
+function hasHours(value: number | null | undefined) {
+  return Number(value || 0) > 0;
+}
 
 async function loadMyPayroll(): Promise<MyPayrollResponse> {
   const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
@@ -71,19 +78,24 @@ export default async function MyPortalPage() {
           <div className="panel-title"><div><h2>My payslips</h2><p className="muted">Approved or paid payroll only.</p></div></div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Period</th><th>Payout</th><th>Status</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead>
+              <thead><tr><th>Period</th><th>Payout</th><th>Status</th><th>Hours</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead>
               <tbody>
                 {payroll.items.map((item) => (
                   <tr key={item.id}>
                     <td>{item.period_start} to {item.period_end}</td>
                     <td>{item.payout_date}</td>
                     <td>{item.status}</td>
+                    <td>
+                      <strong>{numberText(item.regular_hours)} regular hrs</strong>
+                      {hasHours(item.approved_ot_hours) ? <><br /><span className="muted">{numberText(item.approved_ot_hours)} OT hrs</span></> : null}
+                      {hasHours(item.night_diff_hours) ? <><br /><span className="muted">{numberText(item.night_diff_hours)} ND hrs</span></> : null}
+                    </td>
                     <td>{peso(item.gross_pay)}</td>
                     <td>{peso(item.total_deductions)}</td>
                     <td><strong>{peso(item.net_pay)}</strong></td>
                   </tr>
                 ))}
-                {!payroll.items.length ? <tr><td colSpan={6}>{payroll.message || "No payslips yet."}</td></tr> : null}
+                {!payroll.items.length ? <tr><td colSpan={7}>{payroll.message || "No payslips yet."}</td></tr> : null}
               </tbody>
             </table>
           </div>
