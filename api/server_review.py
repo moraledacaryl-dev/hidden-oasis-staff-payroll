@@ -9,6 +9,7 @@ from api.payroll_mark_paid import router as payroll_mark_paid_router
 from api.payroll_corrections import router as payroll_corrections_router
 from api.payroll_audit_events import router as payroll_audit_events_router
 from api.schedules import router as schedules_router
+from api.schedule_actuals import router as schedule_actuals_router
 from api.users import router as users_router
 
 app.include_router(payroll_drafts_router)
@@ -19,4 +20,5 @@ app.include_router(payroll_mark_paid_router)
 app.include_router(payroll_corrections_router)
 app.include_router(payroll_audit_events_router)
 app.include_router(schedules_router)
+app.include_router(schedule_actuals_router)
 app.include_router(users_router)
