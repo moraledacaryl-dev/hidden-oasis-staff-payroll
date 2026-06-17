@@ -210,10 +210,9 @@
 .chip, .activeChip { border-radius: 999px; border: 1px solid var(--line); padding: 6px 10px; text-decoration: none; font-size: 0.8rem; }
 .chip { color: var(--muted); background: white; }
 .activeChip { color: white; background: var(--accent); border-color: var(--accent); }
-.peopleList { display: grid; gap: 6px; }
-.personRow { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 7px 0; text-decoration: none; color: inherit; }
-.personRow:hover strong { color: var(--accent); }
-.personRow span { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+.compactAddShift { display: grid; gap: 10px; }
+.compactAddShift :global(.form-grid) { grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; align-items: end; }
+.compactAddShift :global(.field) { gap: 4px; }
 .employeeScheduleTable { min-width: 760px; }
 .quickShift { display: grid; gap: 2px; padding: 2px 0; }
 .quickShift span { color: var(--muted); font-size: 0.78rem; }
@@ -222,4 +221,5 @@
   .scheduleGrid { grid-template-columns: repeat(7, 210px); }
   .matrixGrid { grid-template-columns: 155px repeat(7, 155px); min-width: 1240px; }
   .filterGrid { grid-template-columns: 1fr; }
+  .compactAddShift :global(.form-grid) { grid-template-columns: 1fr; }
 }
