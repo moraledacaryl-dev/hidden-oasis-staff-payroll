@@ -23,6 +23,14 @@ type Shift = {
   is_overnight: boolean;
   source?: string;
   movable?: boolean;
+  actual_in?: string | null;
+  actual_out?: string | null;
+  actual_status?: string | null;
+  actual_source?: string | null;
+  actual_notes?: string | null;
+  is_absent?: number | null;
+  absence_type?: string | null;
+  approved_ot_hours?: number | null;
 };
 
 type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
@@ -47,6 +55,19 @@ function dayLabel(iso: string) {
     month: "short",
     day: "numeric",
   });
+}
+
+function actualText(shift: Shift) {
+  if (shift.is_absent) return shift.absence_type || "Absent";
+  if (shift.actual_in || shift.actual_out) return `${shift.actual_in || "—"}–${shift.actual_out || "—"}`;
+  return "Not recorded";
+}
+
+function actualTone(shift: Shift) {
+  if (shift.is_absent) return styles.actualDanger;
+  if (shift.actual_source === "legacy_schedule") return styles.actualLegacy;
+  if (shift.actual_in || shift.actual_out) return styles.actualOk;
+  return styles.actualMissing;
 }
 
 export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props) {
@@ -100,7 +121,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
 
   return (
     <>
-      <div className={styles.boardHint}>{isPending ? "Saving…" : message || (canEdit ? "Click a card or empty day to edit. Drag planned shifts to move days." : "Supervisor view is read-only.")}</div>
+      <div className={styles.boardHint}>{isPending ? "Saving…" : message || (canEdit ? "Each card shows scheduled time first, then actual attendance. Drag planned shifts to move days." : "Supervisor view is read-only.")}</div>
       <div className={styles.matrixGrid}>
         <div className={styles.matrixCorner}>Staff</div>
         {days.map((day) => <div className={styles.matrixHeader} key={day}>{dayLabel(day)}</div>)}
@@ -143,10 +164,15 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
                         }}
                       >
                         <div className={styles.shiftTop}>
-                          <strong>{shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</strong>
+                          <strong>Sched {shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</strong>
                           <span>{shift.position}</span>
                         </div>
-                        <span>{numberText(shift.planned_paid_hours)} hrs · break {shift.break_minutes}m</span>
+                        <span>{numberText(shift.planned_paid_hours)} hrs scheduled · break {shift.break_minutes}m</span>
+                        <div className={`${styles.actualLine} ${actualTone(shift)}`}>
+                          <strong>Actual</strong>
+                          <span>{actualText(shift)}</span>
+                        </div>
+                        {shift.actual_status ? <span className={styles.actualStatus}>{shift.actual_status}{shift.actual_source === "legacy_schedule" ? " · legacy" : ""}</span> : null}
                         {shift.source === "imported" ? <span className={styles.legacyNote}>Legacy imported row</span> : null}
                         {shift.notes ? <p className="muted">{shift.notes}</p> : null}
                       </button>
