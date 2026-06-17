@@ -11,9 +11,9 @@ export default async function ReportsPage() {
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
       <div className="page">
-        <header className="page-header"><div className="grid"><span className="eyebrow">Reports</span><h1>Payroll report foundation</h1><p className="muted">CSV/PDF exports remain in the existing app until API write/export endpoints are added.</p></div></header>
+        <header className="page-header"><div className="grid"><span className="eyebrow">Reports</span><h1>Payroll reports</h1><p className="muted">Current cutoff totals.</p></div></header>
         <section className="grid cols-4"><MetricCard label="Employees in preview" value={preview.totals.employees} /><MetricCard label="Gross" value={peso(preview.totals.gross_pay)} /><MetricCard label="Deductions" value={peso(preview.totals.total_deductions)} /><MetricCard label="Net" value={peso(preview.totals.net_pay)} /></section>
-        <section className="card"><div className="panel-title"><div><h2>Report roadmap</h2><p className="muted">These should be API-backed after write endpoints are verified.</p></div></div><div className="grid cols-3"><div className="action-item"><strong>Labor cost by department</strong><p className="muted">Needs department grouping endpoint.</p></div><div className="action-item"><strong>Cash advance exposure</strong><p className="muted">Needs receivable aging endpoint.</p></div><div className="action-item"><strong>Contribution review</strong><p className="muted">Needs validated SSS/PhilHealth/Pag-IBIG basis report.</p></div></div></section>
+        <section className="card"><div className="panel-title"><div><h2>Next reports</h2><p className="muted">Planned summaries.</p></div></div><div className="grid cols-3"><div className="action-item"><strong>Labor by department</strong><p className="muted">Department totals.</p></div><div className="action-item"><strong>Cash advances</strong><p className="muted">Open balances.</p></div><div className="action-item"><strong>Contributions</strong><p className="muted">SSS, PhilHealth, Pag-IBIG.</p></div></div></section>
       </div>
     </Shell>
   );

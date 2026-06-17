@@ -51,7 +51,7 @@ export function UserManagementClient({ users }: { users: AppUser[] }) {
           <span className="eyebrow">Show once</span>
           <h2>Temporary password</h2>
           <p className="copy-box">{temporaryPassword}</p>
-          <p className="muted">Ask the user to change it on next sign-in. This value is not stored in plaintext.</p>
+          <p className="muted">Shown once. Not stored in plaintext.</p>
         </section>
       ) : null}
       {message ? <p className="muted">{message}</p> : null}

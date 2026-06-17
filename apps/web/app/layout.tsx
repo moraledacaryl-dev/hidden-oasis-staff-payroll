@@ -4,7 +4,7 @@ import "./auth.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",
-  description: "Production web shell for the Hidden Oasis staff and payroll system.",
+  description: "Hidden Oasis staff and payroll system.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

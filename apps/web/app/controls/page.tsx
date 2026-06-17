@@ -1,47 +1,42 @@
 import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
+import { getPayrollRuns } from "@/lib/api";
 
 const groups = [
   {
-    title: "Launch readiness",
+    title: "Readiness",
     items: [
-      { href: "/launch", label: "Launch Center", desc: "System health and launch checklist." },
-      { href: "/backup", label: "Backup Center", desc: "Backup locations and recovery reminders." },
-      { href: "/settings", label: "Settings", desc: "Migration and configuration reference." },
+      { href: "/launch", label: "Launch", desc: "Health checks." },
+      { href: "/backup", label: "Backups", desc: "Data safety." },
+      { href: "/settings", label: "Settings", desc: "System info." },
     ],
   },
   {
-    title: "Payroll review",
+    title: "Payroll",
     items: [
-      { href: "/cutoff", label: "Cutoff Control", desc: "Draft and review cutoff readiness." },
-      { href: "/payroll/runs", label: "Run History", desc: "Open saved payroll runs." },
-      { href: "/payroll", label: "Payroll Preview", desc: "Preview through the engine." },
-    ],
-  },
-  {
-    title: "Current run shortcuts",
-    items: [
-      { href: "/payroll/runs/1", label: "Review Run #1", desc: "Employee-level stored run detail." },
-      { href: "/payroll/runs/1/reports", label: "Report Run #1", desc: "Earnings, deductions, and department totals." },
-      { href: "/payroll/runs/1/audit", label: "Audit Run #1", desc: "Lifecycle timeline." },
-      { href: "/payroll/runs/1/payslips", label: "Payslips Run #1", desc: "Printable employee copies." },
+      { href: "/cutoff", label: "Cutoff", desc: "Save draft." },
+      { href: "/payroll/runs", label: "Runs", desc: "Review history." },
+      { href: "/payroll", label: "Preview", desc: "Check totals." },
     ],
   },
 ];
 
 export default async function OperationsControlsPage() {
+  const runs = await getPayrollRuns();
+  const recentRuns = runs.slice(0, 3);
+
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
       <div className="page">
         <header className="page-header">
-          <div className="grid"><span className="eyebrow">Operations Controls</span><h1>Payroll Control Map</h1><p className="muted">One page for the migrated payroll routes while the sidebar remains conservative.</p></div>
-          <StatusBadge label="read only" tone="ok" />
+          <div className="grid"><span className="eyebrow">Controls</span><h1>Payroll controls</h1><p className="muted">Key routes and recent runs.</p></div>
+          <StatusBadge label="ready" tone="ok" />
         </header>
         <section className="grid cols-3">
           {groups.map((group) => (
             <div className="card" key={group.title}>
-              <div className="panel-title"><div><h2>{group.title}</h2><p className="muted">Quick access links.</p></div></div>
+              <div className="panel-title"><h2>{group.title}</h2></div>
               <div className="action-list">
                 {group.items.map((item) => (
                   <Link className="action-item" href={item.href} key={item.href}><strong>{item.label}</strong><p className="muted">{item.desc}</p></Link>
@@ -49,6 +44,18 @@ export default async function OperationsControlsPage() {
               </div>
             </div>
           ))}
+          <div className="card">
+            <div className="panel-title"><h2>Recent runs</h2></div>
+            <div className="action-list">
+              {recentRuns.map((run) => (
+                <Link className="action-item" href={`/payroll/runs/${run.id}`} key={run.id}>
+                  <strong>Run #{run.id}</strong>
+                  <p className="muted">{run.status} · {run.period_start} to {run.period_end}</p>
+                </Link>
+              ))}
+              {!recentRuns.length ? <p className="muted">No saved runs.</p> : null}
+            </div>
+          </div>
         </section>
       </div>
     </Shell>

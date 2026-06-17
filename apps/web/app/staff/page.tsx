@@ -15,8 +15,8 @@ export default async function StaffPage() {
         <header className="page-header">
           <div className="grid">
             <span className="eyebrow">Staff</span>
-            <h1>Clean staff directory</h1>
-            <p className="muted">Read-only first view from the current SQLite database through the FastAPI wrapper.</p>
+            <h1>Staff directory</h1>
+            <p className="muted">Current employee records.</p>
           </div>
           <StatusBadge label="read only" tone="warning" />
         </header>
@@ -26,7 +26,7 @@ export default async function StaffPage() {
           <MetricCard label="Freelance records" value={freelance.length} detail="Manual output pay supported" />
         </section>
         <section className="card">
-          <div className="panel-title"><div><h2>Employees</h2><p className="muted">Editable controls come later with audit logs and permissions.</p></div></div>
+          <div className="panel-title"><div><h2>Employees</h2><p className="muted">{employees.length} records</p></div></div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Position</th><th>Type</th><th>Status</th><th>Default shift</th><th>Benefits</th></tr></thead>

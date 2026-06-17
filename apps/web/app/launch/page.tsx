@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { getMeta } from "@/lib/api";
+import { getMeta, getPayrollRuns } from "@/lib/api";
 
 async function healthCheck() {
   try {
@@ -14,12 +14,14 @@ async function healthCheck() {
 
 export default async function LaunchCenterPage() {
   const health = await healthCheck();
+  const runs = health.ok ? await getPayrollRuns().catch(() => []) : [];
+  const latestRun = runs[0];
   const checks = [
-    { title: "API reachable", ok: health.ok, detail: health.ok ? "Backend responded through the web app." : "Backend did not respond from the web app." },
-    { title: "Payroll review pages", ok: true, detail: "Review, reports, audit, and payslip pages are linked from run history." },
-    { title: "Release safety", ok: true, detail: "Mark-paid backend is record-only and does not move money." },
-    { title: "Backups", ok: false, detail: "Create a fresh database backup before live payroll use." },
-    { title: "Service deployment", ok: false, detail: "API and web still need service/process setup before production use." },
+    { title: "API", ok: health.ok, detail: health.ok ? "Online" : "Check backend" },
+    { title: "Payroll pages", ok: true, detail: "Runs, audit, reports, payslips" },
+    { title: "Paid marker", ok: true, detail: "Owner-only record" },
+    { title: "Backups", ok: false, detail: "Run before payroll changes" },
+    { title: "Services", ok: false, detail: "Use systemd in production" },
   ];
 
   return (
@@ -27,21 +29,21 @@ export default async function LaunchCenterPage() {
       <div className="page">
         <header className="page-header">
           <div className="grid">
-            <span className="eyebrow">Launch Center</span>
-            <h1>System Health</h1>
-            <p className="muted">Read-only launch checklist for the migrated payroll system.</p>
+            <span className="eyebrow">Launch</span>
+            <h1>System health</h1>
+            <p className="muted">Deployment checks.</p>
           </div>
           <StatusBadge label={health.ok ? "API online" : "API issue"} tone={health.ok ? "ok" : "danger"} />
         </header>
 
         <section className="grid cols-3">
           <div className="card metric"><span className="eyebrow">API</span><strong className="metric-value">{health.ok ? "OK" : "Check"}</strong></div>
-          <div className="card metric"><span className="eyebrow">Mode</span><strong className="metric-value">Read-only</strong></div>
-          <div className="card metric"><span className="eyebrow">Launch</span><strong className="metric-value">Not final</strong></div>
+          <div className="card metric"><span className="eyebrow">Runs</span><strong className="metric-value">{runs.length}</strong></div>
+          <div className="card metric"><span className="eyebrow">Launch</span><strong className="metric-value">Check</strong></div>
         </section>
 
         <section className="card">
-          <div className="panel-title"><div><h2>Checks</h2><p className="muted">Green means ready enough for review. Yellow items should be completed before production.</p></div></div>
+          <div className="panel-title"><div><h2>Checks</h2><p className="muted">Finish yellow items before live payroll.</p></div></div>
           <div className="action-list">
             {checks.map((check) => (
               <div className="action-item" key={check.title}>
@@ -53,8 +55,8 @@ export default async function LaunchCenterPage() {
         </section>
 
         <section className="grid cols-2">
-          <div className="card"><h2>Payroll quick links</h2><div className="action-list"><Link className="action-item" href="/payroll/runs">Run history</Link><Link className="action-item" href="/cutoff">Cutoff draft</Link><Link className="action-item" href="/payroll/runs/1/reports">Latest report sample</Link><Link className="action-item" href="/payroll/runs/1/payslips">Latest payslip sample</Link></div></div>
-          <div className="card"><h2>Before live use</h2><div className="action-list"><div className="action-item"><strong>Backup database</strong><p className="muted">Download a fresh backup before marking payroll as paid.</p></div><div className="action-item"><strong>Restart as service</strong><p className="muted">Manual terminal sessions are not production-safe.</p></div><div className="action-item"><strong>Compare with old app</strong><p className="muted">Confirm totals, deductions, and payslips against the previous working system.</p></div></div></div>
+          <div className="card"><h2>Payroll links</h2><div className="action-list"><Link className="action-item" href="/payroll/runs">Run history</Link><Link className="action-item" href="/cutoff">Cutoff</Link>{latestRun ? <Link className="action-item" href={`/payroll/runs/${latestRun.id}/reports`}>Latest report</Link> : null}{latestRun ? <Link className="action-item" href={`/payroll/runs/${latestRun.id}/payslips`}>Latest payslips</Link> : null}</div></div>
+          <div className="card"><h2>Before live use</h2><div className="action-list"><div className="action-item"><strong>Backup</strong><p className="muted">Fresh database copy.</p></div><div className="action-item"><strong>Services</strong><p className="muted">API and web under systemd.</p></div><div className="action-item"><strong>Compare</strong><p className="muted">Confirm totals and payslips.</p></div></div></div>
         </section>
       </div>
     </Shell>

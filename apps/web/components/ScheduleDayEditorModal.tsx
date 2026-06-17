@@ -156,7 +156,7 @@ export function ScheduleDayEditorModal({ open, day, shift, employees, canEdit, o
           <div>
             <span className="eyebrow">Employee day</span>
             <h2>{selectedEmployee?.full_name || currentShift?.employee_name || "Schedule day"} · {shiftDate}</h2>
-            {bundle.payroll_locked ? <p className="muted">Inside paid payroll run #{bundle.paid_run?.id}. Actual and leave edits should be handled through corrections.</p> : null}
+            {bundle.payroll_locked ? <p className="muted">Paid run #{bundle.paid_run?.id}. Use corrections for later changes.</p> : null}
             {bundle.message ? <p className="muted">{bundle.message}</p> : null}
           </div>
           <button className="button small ghost" type="button" onClick={onClose}>Close</button>

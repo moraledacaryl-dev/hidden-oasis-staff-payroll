@@ -22,14 +22,14 @@ export function PayrollDraftButton({ periodStart, periodEnd, payoutDate }: { per
       setMessage(typeof data.detail === "string" ? data.detail : "Draft was not created. Check blockers or duplicate run.");
       return;
     }
-    setMessage("Draft saved. Payroll is not released.");
+    setMessage("Draft saved.");
     router.refresh();
   }
 
   return (
     <div className="decision-stack wide-action">
       <button className="mini-button" disabled={busy} onClick={createDraft} type="button">{busy ? "Saving draft..." : "Create payroll draft"}</button>
-      <span className="muted">Release remains disabled.</span>
+      <span className="muted">Saved runs go to review.</span>
       {message ? <span className="inline-error">{message}</span> : null}
     </div>
   );

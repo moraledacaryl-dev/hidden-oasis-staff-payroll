@@ -44,7 +44,7 @@ export function MarkPaidButton({ runId }: { runId: number }) {
               </div>
               <button className="button small ghost" type="button" onClick={() => setOpen(false)}>Close</button>
             </div>
-            <p className="muted">Paid runs should not be silently edited. Later changes should be handled through payroll corrections so the audit trail stays intact.</p>
+            <p className="muted">Paid runs stay locked. Use corrections for later changes.</p>
             <div className="form-grid" style={{ marginTop: 12 }}>
               <label>Payment reference<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Optional" /></label>
               <label>Type MARK PAID<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="MARK PAID" /></label>

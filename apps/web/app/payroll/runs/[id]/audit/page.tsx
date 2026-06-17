@@ -24,10 +24,10 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
   const totals = run.totals;
   const events = [
     { title: "Draft created", done: Boolean(run.created_at), detail: `Prepared by ${run.prepared_by || "Unknown"}`, time: fmt(run.created_at) },
-    { title: "Locked for owner review", done: Boolean(run.locked_at), detail: "Payroll was locked for owner checking. Release/pay was not triggered.", time: fmt(run.locked_at) },
+    { title: "Locked for owner review", done: Boolean(run.locked_at), detail: "Locked for owner checking.", time: fmt(run.locked_at) },
     { title: "Owner approved", done: Boolean(run.approved_at), detail: `Approved by ${run.approved_by || "Not approved yet"}`, time: fmt(run.approved_at) },
     { title: "Returned to draft", done: Boolean(run.reopen_reason), detail: run.reopen_reason || "No return reason recorded.", time: run.reopen_reason ? "Reason recorded" : "Not returned" },
-    { title: "Marked paid / released", done: Boolean(run.paid_at), detail: "Final release is not active unless paid_at is recorded.", time: fmt(run.paid_at) },
+    { title: "Marked paid", done: Boolean(run.paid_at), detail: run.paid_at ? "Paid marker recorded." : "No paid marker yet.", time: fmt(run.paid_at) },
   ];
 
   return (
@@ -37,7 +37,7 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
           <div className="grid">
             <span className="eyebrow">Payroll Audit</span>
             <h1>Run #{run.id}</h1>
-            <p className="muted">Read-only lifecycle timeline for {run.period_start} to {run.period_end}.</p>
+            <p className="muted">Lifecycle timeline for {run.period_start} to {run.period_end}.</p>
           </div>
           <div className="action-row">
             <Link className="button ghost" href={`/payroll/runs/${run.id}`}>Review run</Link>
@@ -54,7 +54,7 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
         </section>
 
         <section className="card">
-          <div className="panel-title"><div><h2>Lifecycle Timeline</h2><p className="muted">This page does not approve, release, or mark payroll as paid.</p></div></div>
+          <div className="panel-title"><div><h2>Lifecycle Timeline</h2><p className="muted">Audit view only.</p></div></div>
           <div className={styles.timeline}>
             {events.map((event) => (
               <article className={`${styles.item} ${event.done ? styles.done : ""}`} key={event.title}>
@@ -70,7 +70,7 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
 
         <section className="grid cols-2">
           <div className="card"><h2>Run Details</h2><div className={styles.facts}><p><span>Period</span><strong>{run.period_start} to {run.period_end}</strong></p><p><span>Payout date</span><strong>{run.payout_date}</strong></p><p><span>Run label</span><strong>{run.run_label}</strong></p><p><span>Validation</span><strong>{run.validation_summary || "No summary"}</strong></p></div></div>
-          <div className="card"><h2>Safety Status</h2><div className={styles.facts}><p><span>Approved</span><strong>{run.approved_at ? "Yes" : "No"}</strong></p><p><span>Paid / released</span><strong>{run.paid_at ? "Yes" : "No"}</strong></p><p><span>Release mode</span><strong>Not triggered from audit page</strong></p></div></div>
+          <div className="card"><h2>Status</h2><div className={styles.facts}><p><span>Approved</span><strong>{run.approved_at ? "Yes" : "No"}</strong></p><p><span>Paid</span><strong>{run.paid_at ? "Yes" : "No"}</strong></p><p><span>Paid marker</span><strong>{run.paid_at ? fmt(run.paid_at) : "Not recorded"}</strong></p></div></div>
         </section>
       </div>
     </Shell>
