@@ -39,6 +39,11 @@ def table_columns(conn, table: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
+def table_exists(conn, table: str) -> bool:
+    row = conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+    return bool(row and int(row[0] or 0) > 0)
+
+
 def ensure_schema(conn) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS scheduled_shifts (
@@ -74,6 +79,8 @@ def clean_shift(row: dict[str, Any]) -> dict[str, Any]:
     data = dict(row)
     data["planned_paid_hours"] = hours_for_shift(str(row.get("shift_date")), str(row.get("start_time")), str(row.get("end_time")), int(row.get("break_minutes") or 0))
     data["is_overnight"] = str(row.get("end_time")) <= str(row.get("start_time"))
+    data.setdefault("source", "planned")
+    data.setdefault("movable", True)
     return data
 
 
@@ -102,6 +109,70 @@ def insert_shift_from_row(conn, row: dict[str, Any], shift_date: str) -> int:
         VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?)
     """, (row.get("employee_id"), shift_date, row.get("start_time"), row.get("end_time"), row.get("position") or "Other", row.get("department"), int(row.get("break_minutes") or 0), row.get("notes")))
     return int(cur.lastrowid)
+
+
+def first_existing(cols: set[str], names: list[str]) -> str | None:
+    for name in names:
+        if name in cols:
+            return name
+    return None
+
+
+def sql_value_expr(cols: set[str], names: list[str], fallback: str, alias: str) -> str:
+    col = first_existing(cols, names)
+    if col:
+        return f"s.{col} AS {alias}"
+    return f"{fallback} AS {alias}"
+
+
+def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any]]:
+    if not table_exists(conn, "schedules"):
+        return []
+    cols = table_columns(conn, "schedules")
+    date_col = first_existing(cols, ["work_date", "shift_date", "date", "schedule_date"])
+    start_col = first_existing(cols, ["shift_start", "start_time", "time_in", "scheduled_in"])
+    end_col = first_existing(cols, ["shift_end", "end_time", "time_out", "scheduled_out"])
+    if not date_col or not start_col or not end_col:
+        return []
+
+    employee_expr = sql_value_expr(cols, ["employee_id"], "NULL", "employee_id")
+    position_expr = sql_value_expr(cols, ["position", "role"], "'Other'", "position")
+    department_expr = sql_value_expr(cols, ["department", "department_name"], "NULL", "department")
+    break_expr = sql_value_expr(cols, ["break_minutes", "break_mins", "unpaid_break_minutes"], "60", "break_minutes")
+    notes_expr = sql_value_expr(cols, ["notes", "note"], "NULL", "notes")
+    status_expr = sql_value_expr(cols, ["status"], "'Imported'", "status")
+
+    rows = fetchall(conn, f"""
+        SELECT
+            s.id AS legacy_id,
+            {employee_expr},
+            s.{date_col} AS shift_date,
+            s.{start_col} AS start_time,
+            s.{end_col} AS end_time,
+            {position_expr},
+            {department_expr},
+            {break_expr},
+            {notes_expr},
+            {status_expr},
+            e.full_name AS employee_name,
+            e.employee_code,
+            e.department AS employee_department
+        FROM schedules s
+        LEFT JOIN employees e ON e.id = s.employee_id
+        WHERE date(s.{date_col}) BETWEEN date(?) AND date(?)
+        ORDER BY s.{date_col}, s.{start_col}, COALESCE(e.full_name, 'Unassigned')
+    """, (start, end))
+
+    imported: list[dict[str, Any]] = []
+    for row in rows:
+        data = dict(row)
+        data["id"] = -int(data.get("legacy_id") or 0)
+        data["source"] = "imported"
+        data["movable"] = False
+        data["position"] = data.get("position") or "Other"
+        data["break_minutes"] = int(data.get("break_minutes") or 0)
+        imported.append(clean_shift(data))
+    return imported
 
 
 @router.get("/schedules/employees")
@@ -141,7 +212,10 @@ def schedule_week(week_start: date = Query(...), authorization: str | None = Hea
             WHERE date(ss.shift_date) BETWEEN date(?) AND date(?)
             ORDER BY ss.shift_date, ss.start_time, COALESCE(e.full_name, 'Unassigned')
         """, (start, end))
-        return {"ok": True, "week_start": start, "week_end": end, "items": [clean_shift(row) for row in rows], "mode": "schedule_planned_hours_only_not_payroll"}
+        planned = [clean_shift({**row, "source": "planned", "movable": True}) for row in rows]
+        imported = fetch_legacy_schedule_rows(conn, start, end)
+        items = sorted(planned + imported, key=lambda row: (str(row.get("shift_date")), str(row.get("start_time")), str(row.get("employee_name") or "")))
+        return {"ok": True, "week_start": start, "week_end": end, "items": items, "mode": "schedule_planned_and_imported_legacy_not_payroll"}
     finally:
         conn.close()
 
