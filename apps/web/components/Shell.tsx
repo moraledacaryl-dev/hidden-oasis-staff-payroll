@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
+import { SidebarToggle } from "@/components/SidebarToggle";
 import { navItems, roleLabels } from "@/lib/navigation";
 import { currentSession } from "@/lib/session";
 import type { RoleKey } from "@/lib/types";
@@ -29,8 +30,8 @@ export async function Shell({ children, allowedRoles = ["owner"] }: { children: 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">HO</div><div><div className="brand-title">Hidden Oasis Staff Payroll</div><div className="brand-subtitle">{session.display_name} · {roleLabels[role]}</div></div></div>
-        <nav className="nav-list" aria-label="Main navigation">{visibleItems.map((item) => (<Link className="nav-card" href={item.href} key={item.href}><strong>{item.label}</strong><span>{item.description}</span></Link>))}</nav>
+        <div className="brand"><div className="brand-mark">HO</div><div className="brand-text"><div className="brand-title">Hidden Oasis</div><div className="brand-subtitle">{session.display_name} · {roleLabels[role]}</div></div><SidebarToggle /></div>
+        <nav className="nav-list" aria-label="Main navigation">{visibleItems.map((item) => (<Link className="nav-card" href={item.href} key={item.href} title={item.label}><strong>{item.label}</strong><span>{item.description}</span></Link>))}</nav>
         <div className="sidebar-footer"><LogoutButton /></div>
       </aside>
       <main className="main">{allowed ? children : <AccessRestricted role={role} allowedRoles={allowedRoles} />}</main>
