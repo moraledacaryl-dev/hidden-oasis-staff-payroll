@@ -14,7 +14,7 @@ type Bundle = {
   employee?: ScheduleEmployee | null;
   shift?: Shift | null;
   actual?: { id: number; actual_in?: string | null; actual_out?: string | null; attendance_status?: string | null; approved_ot_hours?: number | null; notes?: string | null; is_absent?: number | null; absence_type?: string | null } | null;
-  leave?: { id: number; leave_type_name?: string | null; reason?: string | null; paid?: number | null; status?: string | null } | null;
+  leave?: { id: number; leave_type_name?: string | null; reason?: string | null; paid?: number | null; status?: string | null; days?: number | null; paid_hours?: number | null } | null;
   payroll_locked?: boolean;
   paid_run?: { id: number; period_start: string; period_end: string } | null;
   legacy_read_only?: boolean;
@@ -146,6 +146,8 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       employee_id: Number(employeeId),
       shift_date: shiftDate,
       leave_kind: String(formData.get("leave_kind") || "None"),
+      leave_days: Number(formData.get("leave_days") || 0),
+      leave_hours: Number(formData.get("leave_hours") || 0) || null,
       reason: String(formData.get("reason") || "") || null,
     });
   }
@@ -200,6 +202,8 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
           <form action={saveLeave} className="form-grid modal-form">
             <label>Employee<select value={employeeId} disabled={readOnly} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
             <label>Type<select name="leave_kind" defaultValue={bundle.leave?.leave_type_name || bundle.actual?.absence_type || "None"} disabled={readOnly || bundle.payroll_locked}>{leaveKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
+            <label>Days<input name="leave_days" type="number" min="0" step="0.25" defaultValue={bundle.leave?.days ?? 1} disabled={readOnly || bundle.payroll_locked} /></label>
+            <label>Hours optional<input name="leave_hours" type="number" min="0" step="0.25" defaultValue={bundle.leave?.paid_hours ?? ""} disabled={readOnly || bundle.payroll_locked} /></label>
             <label>Reason / notes<input name="reason" defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || bundle.payroll_locked} /></label>
             {canEdit ? <button className="primary-button" type="submit" disabled={busy || Boolean(bundle.payroll_locked)}>{busy ? "Saving..." : "Save leave / absence"}</button> : null}
           </form>
