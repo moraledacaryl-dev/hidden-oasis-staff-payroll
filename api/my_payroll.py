@@ -41,10 +41,12 @@ def my_payroll(
         rows = fetchall(
             conn,
             """
-            SELECT pi.id, pi.payroll_run_id, pi.employee_id, pi.regular_pay, pi.ot_pay,
-                   pi.night_diff_pay, pi.holiday_pay, pi.paid_leave_pay, pi.freelance_pay,
-                   pi.other_earnings, pi.gross_pay, pi.sss_ee, pi.philhealth_ee, pi.pagibig_ee,
-                   pi.tax, pi.cash_advance_deduction, pi.other_deductions, pi.total_deductions,
+            SELECT pi.id, pi.payroll_run_id, pi.employee_id,
+                   pi.regular_hours, pi.approved_ot_hours, pi.night_diff_hours,
+                   pi.regular_pay, pi.ot_pay, pi.night_diff_pay, pi.holiday_pay,
+                   pi.paid_leave_pay, pi.freelance_pay, pi.other_earnings, pi.gross_pay,
+                   pi.sss_ee, pi.philhealth_ee, pi.pagibig_ee, pi.tax,
+                   pi.cash_advance_deduction, pi.other_deductions, pi.total_deductions,
                    pi.net_pay, pr.period_start, pr.period_end, pr.payout_date, pr.run_label, pr.status
             FROM payroll_items pi
             JOIN payroll_runs pr ON pr.id = pi.payroll_run_id
