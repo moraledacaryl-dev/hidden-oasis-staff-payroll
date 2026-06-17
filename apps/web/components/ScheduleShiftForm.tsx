@@ -10,7 +10,7 @@ type ScheduleEmployee = { id: number; full_name: string; employee_code?: string;
 export function ScheduleShiftForm({ weekStart, employees }: { weekStart: string; employees: ScheduleEmployee[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [message, setMessage] = useState<string>("");
+  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit(formData: FormData) {
@@ -31,10 +31,10 @@ export function ScheduleShiftForm({ weekStart, employees }: { weekStart: string;
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok || !data.ok) {
-      setMessage(data.detail || data.message || "Shift was not saved.");
+      setMessage(data.detail || data.message || "Not saved.");
       return;
     }
-    setMessage("Shift saved. Refreshing calendar…");
+    setMessage("Saved.");
     const params = new URLSearchParams(searchParams.toString());
     params.set("week_start", weekStart);
     router.replace(`/schedule?${params.toString()}`);
@@ -44,14 +44,14 @@ export function ScheduleShiftForm({ weekStart, employees }: { weekStart: string;
   return (
     <form action={submit} className="form-grid">
       <label>Date<input name="shift_date" type="date" defaultValue={weekStart} required /></label>
-      <label>Employee<select name="employee_id" defaultValue=""><option value="">Unassigned shift</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name} · {employee.department || "No dept"} · {employee.position || "No position"}</option>)}</select></label>
+      <label>Person<select name="employee_id" defaultValue=""><option value="">Unassigned</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
       <label>Start<input name="start_time" type="time" defaultValue="08:00" required /></label>
       <label>End<input name="end_time" type="time" defaultValue="17:00" required /></label>
-      <label>Position<select name="position" defaultValue="Receptionist">{positions.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
-      <label>Department<input name="department" placeholder="Front Desk, Kitchen, Security…" /></label>
-      <label>Break minutes<input name="break_minutes" type="number" min="0" defaultValue="60" /></label>
-      <label>Notes<input name="notes" placeholder="Optional" /></label>
-      <button className="primary-link" type="submit" disabled={busy}>{busy ? "Saving…" : "Add planned shift"}</button>
+      <label>Role<select name="position" defaultValue="Receptionist">{positions.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
+      <label>Dept<input name="department" placeholder="Optional" /></label>
+      <label>Break<input name="break_minutes" type="number" min="0" defaultValue="60" /></label>
+      <label>Note<input name="notes" placeholder="Optional" /></label>
+      <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Add"}</button>
       {message ? <p className="muted">{message}</p> : null}
     </form>
   );
