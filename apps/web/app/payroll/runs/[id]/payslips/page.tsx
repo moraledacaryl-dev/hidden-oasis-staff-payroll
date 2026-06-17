@@ -13,8 +13,8 @@ function taxAdvanceOther(item: { tax: number; cash_advance_deduction: number; ot
   return Number(item.tax || 0) + Number(item.cash_advance_deduction || 0) + Number(item.other_deductions || 0);
 }
 
-function lineAmount(...values: Array<number | null | undefined>) {
-  return values.reduce((sum, value) => sum + Number(value || 0), 0);
+function lineAmount(...values: Array<number | null | undefined>): number {
+  return values.reduce<number>((sum, value) => sum + Number(value || 0), 0);
 }
 
 export default async function PayslipPreviewPage({ params }: { params: Promise<{ id: string }> }) {
