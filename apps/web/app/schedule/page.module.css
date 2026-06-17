@@ -6,12 +6,24 @@
   padding-bottom: 4px;
 }
 
+.boardHint {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .scheduleDay {
   min-height: 390px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--surface-soft);
   padding: 10px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropTarget {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .scheduleDayHead {
@@ -24,20 +36,9 @@
   margin-bottom: 8px;
 }
 
-.scheduleDayHead div {
-  display: grid;
-  gap: 2px;
-}
-
-.scheduleDayHead span {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.scheduleStack {
-  display: grid;
-  gap: 8px;
-}
+.scheduleDayHead div { display: grid; gap: 2px; }
+.scheduleDayHead span { color: var(--muted); font-size: 0.78rem; }
+.scheduleStack { display: grid; gap: 8px; }
 
 .shiftCard {
   display: grid;
@@ -49,7 +50,11 @@
   padding: 9px;
   box-shadow: 0 8px 16px rgba(31, 35, 32, 0.04);
   font-size: 0.84rem;
+  cursor: grab;
 }
+
+.shiftCard:active { cursor: grabbing; }
+.dragging { opacity: 0.48; transform: scale(0.99); }
 
 .shiftTop {
   display: flex;
@@ -76,64 +81,15 @@
   font-size: 0.84rem;
 }
 
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.filterGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.chip,
-.activeChip {
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  padding: 6px 10px;
-  text-decoration: none;
-  font-size: 0.8rem;
-}
-
-.chip {
-  color: var(--muted);
-  background: white;
-}
-
-.activeChip {
-  color: white;
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.peopleList {
-  display: grid;
-  gap: 6px;
-}
-
-.personRow {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  border-bottom: 1px solid var(--line);
-  padding: 7px 0;
-}
-
-.personRow span {
-  color: var(--muted);
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filterGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip, .activeChip { border-radius: 999px; border: 1px solid var(--line); padding: 6px 10px; text-decoration: none; font-size: 0.8rem; }
+.chip { color: var(--muted); background: white; }
+.activeChip { color: white; background: var(--accent); border-color: var(--accent); }
+.peopleList { display: grid; gap: 6px; }
+.personRow { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 7px 0; }
+.personRow span { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
 
 @media (max-width: 1100px) {
   .scheduleGrid { grid-template-columns: repeat(7, 210px); }
