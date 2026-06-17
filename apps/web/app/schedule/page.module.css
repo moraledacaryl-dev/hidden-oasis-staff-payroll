@@ -1,16 +1,22 @@
+.boardScroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
 .scheduleGrid {
   display: grid;
   grid-template-columns: repeat(7, minmax(190px, 1fr));
   gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  min-width: 0;
 }
 
 .matrixGrid {
   display: grid;
   grid-template-columns: minmax(170px, 0.9fr) repeat(7, minmax(150px, 1fr));
   gap: 8px;
-  overflow-x: auto;
+  min-width: 1220px;
   padding-bottom: 4px;
 }
 
@@ -152,17 +158,22 @@
 }
 
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.filterGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.filterGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
+.employeeFilter { grid-column: 1 / -1; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-height: 164px; overflow-y: auto; }
 .chip, .activeChip { border-radius: 999px; border: 1px solid var(--line); padding: 6px 10px; text-decoration: none; font-size: 0.8rem; }
 .chip { color: var(--muted); background: white; }
 .activeChip { color: white; background: var(--accent); border-color: var(--accent); }
 .peopleList { display: grid; gap: 6px; }
-.personRow { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 7px 0; }
+.personRow { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 7px 0; text-decoration: none; color: inherit; }
+.personRow:hover strong { color: var(--accent); }
 .personRow span { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+.employeeScheduleTable { min-width: 680px; }
+.quickShift { display: grid; gap: 2px; padding: 2px 0; }
+.quickShift span { color: var(--muted); font-size: 0.78rem; }
 
 @media (max-width: 1100px) {
   .scheduleGrid { grid-template-columns: repeat(7, 210px); }
-  .matrixGrid { grid-template-columns: 155px repeat(7, 155px); }
+  .matrixGrid { grid-template-columns: 155px repeat(7, 155px); min-width: 1240px; }
   .filterGrid { grid-template-columns: 1fr; }
 }
