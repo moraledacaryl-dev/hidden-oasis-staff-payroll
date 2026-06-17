@@ -6,9 +6,13 @@ import sqlite3
 from .db import fetchall, fetchone, now_iso
 
 
-def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+def table_exists(conn: sqlite3.Connection, table: str) -> bool:
     row = fetchone(conn, "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name=?", (table,))
-    if not row or not int(row.get("c") or 0):
+    return bool(row and int(row.get("c") or 0))
+
+
+def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    if not table_exists(conn, table):
         return set()
     return {str(info[1]) for info in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
@@ -51,8 +55,27 @@ def ensure_payroll_corrections_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_payroll_corrections_status ON payroll_corrections(status, apply_to_next_run)")
 
 
+def corrections_schema_ready(conn: sqlite3.Connection) -> bool:
+    required = {
+        "id",
+        "payroll_run_id",
+        "employee_id",
+        "adjustment_type",
+        "amount",
+        "reason",
+        "apply_to_next_run",
+        "status",
+        "applied_to_run_id",
+        "applied_at",
+    }
+    return required.issubset(table_columns(conn, "payroll_corrections"))
+
+
 def eligible_corrections(conn: sqlite3.Connection, employee_id: int, period_start: str) -> list[dict[str, Any]]:
-    ensure_payroll_corrections_schema(conn)
+    # This function is called by payroll preview through a read-only database connection.
+    # Do not run schema migrations here; writable paths call ensure_payroll_corrections_schema().
+    if not corrections_schema_ready(conn):
+        return []
     return fetchall(
         conn,
         """
