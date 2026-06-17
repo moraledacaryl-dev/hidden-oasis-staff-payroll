@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
+from api.main import current_user_from_token, require_api_key
 from api.payroll_drafts import must_be_payroll_user
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
@@ -79,6 +80,14 @@ def week_bounds(week_start: date) -> tuple[str, str]:
     return week_start.isoformat(), (week_start + timedelta(days=6)).isoformat()
 
 
+def require_schedule_viewer(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    require_api_key(x_api_key)
+    user = current_user_from_token(authorization)
+    if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
+        raise HTTPException(status_code=403, detail="Schedule view requires owner, payroll, or supervisor role.")
+    return user
+
+
 def require_schedule_editor(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
     user = must_be_payroll_user(authorization, x_api_key)
     if user.get("role_key") not in {"owner", "payroll"}:
@@ -92,26 +101,14 @@ def insert_shift_from_row(conn, row: dict[str, Any], shift_date: str) -> int:
         INSERT INTO scheduled_shifts (employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?)
         """,
-        (
-            row.get("employee_id"),
-            shift_date,
-            row.get("start_time"),
-            row.get("end_time"),
-            row.get("position") or "Other",
-            row.get("department"),
-            int(row.get("break_minutes") or 0),
-            row.get("notes"),
-        ),
+        (row.get("employee_id"), shift_date, row.get("start_time"), row.get("end_time"), row.get("position") or "Other", row.get("department"), int(row.get("break_minutes") or 0), row.get("notes")),
     )
     return int(cur.lastrowid)
 
 
 @router.get("/schedules/employees")
-def schedule_employees(
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
-    must_be_payroll_user(authorization, x_api_key)
+def schedule_employees(authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    require_schedule_viewer(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
         cols = table_columns(conn, "employees")
@@ -121,53 +118,38 @@ def schedule_employees(
         position_expr = "position" if "position" in cols else "'' AS position"
         status_expr = "employment_status" if "employment_status" in cols else "'active' AS employment_status"
         where = "WHERE COALESCE(employment_status, 'active') NOT IN ('inactive', 'terminated', 'resigned')" if "employment_status" in cols else ""
-        rows = fetchall(
-            conn,
-            f"""
+        rows = fetchall(conn, f"""
             SELECT id, {name_col} AS full_name, {code_expr}, {dept_expr}, {position_expr}, {status_expr}
             FROM employees
             {where}
             ORDER BY COALESCE(department, ''), {name_col}
-            """,
-        )
+            """)
         return {"ok": True, "items": rows}
     finally:
         conn.close()
 
 
 @router.get("/schedules/week")
-def schedule_week(
-    week_start: date = Query(...),
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
-    must_be_payroll_user(authorization, x_api_key)
+def schedule_week(week_start: date = Query(...), authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    require_schedule_viewer(authorization, x_api_key)
     start, end = week_bounds(week_start)
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        rows = fetchall(
-            conn,
-            """
+        rows = fetchall(conn, """
             SELECT ss.*, e.full_name AS employee_name, e.employee_code, e.department AS employee_department
             FROM scheduled_shifts ss
             LEFT JOIN employees e ON e.id = ss.employee_id
             WHERE date(ss.shift_date) BETWEEN date(?) AND date(?)
             ORDER BY ss.shift_date, ss.start_time, COALESCE(e.full_name, 'Unassigned')
-            """,
-            (start, end),
-        )
+            """, (start, end))
         return {"ok": True, "week_start": start, "week_end": end, "items": [clean_shift(row) for row in rows], "mode": "schedule_planned_hours_only_not_payroll"}
     finally:
         conn.close()
 
 
 @router.post("/schedules/shifts")
-def create_shift(
-    payload: ShiftPayload,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
+def create_shift(payload: ShiftPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     require_schedule_editor(authorization, x_api_key)
     if payload.position not in POSITIONS:
         raise HTTPException(status_code=422, detail="Invalid position.")
@@ -178,13 +160,10 @@ def create_shift(
             employee = fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,))
             if not employee:
                 raise HTTPException(status_code=404, detail="Employee not found.")
-        conn.execute(
-            """
+        conn.execute("""
             INSERT INTO scheduled_shifts (employee_id, shift_date, start_time, end_time, position, department, break_minutes, notes)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (payload.employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, payload.notes),
-        )
+            """, (payload.employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, payload.notes))
         conn.commit()
         shift_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,)) or {}
@@ -194,11 +173,7 @@ def create_shift(
 
 
 @router.post("/schedules/shifts/{shift_id}/delete")
-def delete_shift(
-    shift_id: int,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
+def delete_shift(shift_id: int, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     require_schedule_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
@@ -214,12 +189,7 @@ def delete_shift(
 
 
 @router.post("/schedules/shifts/{shift_id}/duplicate")
-def duplicate_shift(
-    shift_id: int,
-    payload: DuplicateShiftPayload,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
+def duplicate_shift(shift_id: int, payload: DuplicateShiftPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     require_schedule_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
@@ -227,7 +197,7 @@ def duplicate_shift(
         row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,))
         if not row:
             raise HTTPException(status_code=404, detail="Shift not found.")
-        target_date = (payload.shift_date.isoformat() if payload.shift_date else str(row.get("shift_date")))
+        target_date = payload.shift_date.isoformat() if payload.shift_date else str(row.get("shift_date"))
         new_id = insert_shift_from_row(conn, row, target_date)
         conn.commit()
         copied = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (new_id,)) or {}
@@ -237,26 +207,18 @@ def duplicate_shift(
 
 
 @router.post("/schedules/copy-week")
-def copy_week(
-    payload: CopyWeekPayload,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
+def copy_week(payload: CopyWeekPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     require_schedule_editor(authorization, x_api_key)
     source_start, source_end = week_bounds(payload.from_week_start)
     target_start = payload.to_week_start
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        rows = fetchall(
-            conn,
-            """
+        rows = fetchall(conn, """
             SELECT * FROM scheduled_shifts
             WHERE date(shift_date) BETWEEN date(?) AND date(?)
             ORDER BY shift_date, start_time, id
-            """,
-            (source_start, source_end),
-        )
+            """, (source_start, source_end))
         new_ids: list[int] = []
         for row in rows:
             source_date = datetime.fromisoformat(f"{row['shift_date']}T00:00:00").date()
