@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { numberText } from "@/lib/api";
 import { moveScheduledShift } from "@/app/schedule/actions";
 import styles from "@/app/schedule/page.module.css";
 
@@ -27,6 +26,13 @@ type Props = {
   days: string[];
   shifts: Shift[];
 };
+
+function numberText(value: number | null | undefined, digits = 2): string {
+  return Number(value || 0).toLocaleString("en-PH", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
 
 function dayLabel(iso: string) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-PH", {
