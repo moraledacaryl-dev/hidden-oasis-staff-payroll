@@ -23,6 +23,13 @@ class ShiftPayload(BaseModel):
     break_minutes: int = 60
     notes: str | None = None
 
+class DuplicateShiftPayload(BaseModel):
+    shift_date: date | None = None
+
+class CopyWeekPayload(BaseModel):
+    from_week_start: date
+    to_week_start: date
+
 
 def table_columns(conn, table: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -70,6 +77,33 @@ def clean_shift(row: dict[str, Any]) -> dict[str, Any]:
 
 def week_bounds(week_start: date) -> tuple[str, str]:
     return week_start.isoformat(), (week_start + timedelta(days=6)).isoformat()
+
+
+def require_schedule_editor(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    user = must_be_payroll_user(authorization, x_api_key)
+    if user.get("role_key") not in {"owner", "payroll"}:
+        raise HTTPException(status_code=403, detail="Only owner or payroll can edit schedules.")
+    return user
+
+
+def insert_shift_from_row(conn, row: dict[str, Any], shift_date: str) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO scheduled_shifts (employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?)
+        """,
+        (
+            row.get("employee_id"),
+            shift_date,
+            row.get("start_time"),
+            row.get("end_time"),
+            row.get("position") or "Other",
+            row.get("department"),
+            int(row.get("break_minutes") or 0),
+            row.get("notes"),
+        ),
+    )
+    return int(cur.lastrowid)
 
 
 @router.get("/schedules/employees")
@@ -134,9 +168,7 @@ def create_shift(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
-    if user.get("role_key") not in {"owner", "payroll"}:
-        raise HTTPException(status_code=403, detail="Only owner or payroll can edit schedules.")
+    require_schedule_editor(authorization, x_api_key)
     if payload.position not in POSITIONS:
         raise HTTPException(status_code=422, detail="Invalid position.")
     conn = get_conn(DB_PATH)
@@ -157,5 +189,81 @@ def create_shift(
         shift_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,)) or {}
         return {"ok": True, "shift": clean_shift(row), "mode": "planned_schedule_only"}
+    finally:
+        conn.close()
+
+
+@router.post("/schedules/shifts/{shift_id}/delete")
+def delete_shift(
+    shift_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_schedule_editor(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,))
+        if not row:
+            raise HTTPException(status_code=404, detail="Shift not found.")
+        conn.execute("DELETE FROM scheduled_shifts WHERE id=?", (shift_id,))
+        conn.commit()
+        return {"ok": True, "deleted_shift_id": shift_id, "mode": "planned_shift_deleted_not_payroll"}
+    finally:
+        conn.close()
+
+
+@router.post("/schedules/shifts/{shift_id}/duplicate")
+def duplicate_shift(
+    shift_id: int,
+    payload: DuplicateShiftPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_schedule_editor(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,))
+        if not row:
+            raise HTTPException(status_code=404, detail="Shift not found.")
+        target_date = (payload.shift_date.isoformat() if payload.shift_date else str(row.get("shift_date")))
+        new_id = insert_shift_from_row(conn, row, target_date)
+        conn.commit()
+        copied = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (new_id,)) or {}
+        return {"ok": True, "shift": clean_shift(copied), "mode": "planned_shift_duplicated_not_payroll"}
+    finally:
+        conn.close()
+
+
+@router.post("/schedules/copy-week")
+def copy_week(
+    payload: CopyWeekPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_schedule_editor(authorization, x_api_key)
+    source_start, source_end = week_bounds(payload.from_week_start)
+    target_start = payload.to_week_start
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        rows = fetchall(
+            conn,
+            """
+            SELECT * FROM scheduled_shifts
+            WHERE date(shift_date) BETWEEN date(?) AND date(?)
+            ORDER BY shift_date, start_time, id
+            """,
+            (source_start, source_end),
+        )
+        new_ids: list[int] = []
+        for row in rows:
+            source_date = datetime.fromisoformat(f"{row['shift_date']}T00:00:00").date()
+            day_offset = (source_date - payload.from_week_start).days
+            target_date = (target_start + timedelta(days=day_offset)).isoformat()
+            new_ids.append(insert_shift_from_row(conn, row, target_date))
+        conn.commit()
+        return {"ok": True, "copied": len(new_ids), "new_shift_ids": new_ids, "mode": "planned_week_copied_not_payroll"}
     finally:
         conn.close()
