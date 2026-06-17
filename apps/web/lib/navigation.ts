@@ -17,7 +17,37 @@ export const navItems: NavItem[] = [
   {
     href: "/cutoff",
     label: "Cutoff Control",
-    description: "One readiness cockpit for payroll QA, attendance exceptions, and review history.",
+    description: "Payroll QA, attendance exceptions, and review history.",
+    roles: ["owner", "payroll", "supervisor"],
+  },
+  {
+    href: "/schedule",
+    label: "Schedule",
+    description: "Weekly planned schedule board, filters, copy week, and shift creation.",
+    roles: ["owner", "payroll", "supervisor"],
+  },
+  {
+    href: "/payroll/runs",
+    label: "Payroll Runs",
+    description: "Saved payroll runs, audit timeline, reports, and payslips.",
+    roles: ["owner", "payroll"],
+  },
+  {
+    href: "/backup",
+    label: "Backups",
+    description: "Backup checklist and production data safety checks.",
+    roles: ["owner"],
+  },
+  {
+    href: "/launch",
+    label: "Launch Check",
+    description: "Production health, service readiness, and deployment checklist.",
+    roles: ["owner"],
+  },
+  {
+    href: "/controls",
+    label: "Controls",
+    description: "Operational shortcuts and protected production controls.",
     roles: ["owner", "payroll", "supervisor"],
   },
   {
@@ -40,7 +70,7 @@ export const navItems: NavItem[] = [
   },
   {
     href: "/payroll",
-    label: "Payroll",
+    label: "Payroll Preview",
     description: "Cutoff QA and preview through the existing Python payroll engine.",
     roles: ["owner", "payroll"],
   },
