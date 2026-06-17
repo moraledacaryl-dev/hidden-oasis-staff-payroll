@@ -57,10 +57,36 @@ function actualKey(employeeId: number | null | undefined, date: string) {
   return `${employeeId || "unassigned"}:${date}`;
 }
 
+function shiftIdentity(shift: Shift) {
+  return [shift.employee_id || "unassigned", shift.shift_date, shift.start_time, shift.end_time].join(":");
+}
+
+function dedupeScheduleItems(items: Shift[]) {
+  const byIdentity = new Map<string, Shift>();
+  for (const item of items) {
+    const key = shiftIdentity(item);
+    const existing = byIdentity.get(key);
+    if (!existing) {
+      byIdentity.set(key, item);
+      continue;
+    }
+    const existingIsImported = existing.source === "imported";
+    const itemIsImported = item.source === "imported";
+    if (existingIsImported && !itemIsImported) {
+      byIdentity.set(key, item);
+    }
+  }
+  return Array.from(byIdentity.values());
+}
+
 function actualText(shift: Shift) {
   if (shift.is_absent) return shift.absence_type || "Absent";
   if (shift.actual_in || shift.actual_out) return `${shift.actual_in || "—"}–${shift.actual_out || "—"}`;
   return "Not recorded";
+}
+
+function uniqueText(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.map((value) => (value || "").trim()).filter(Boolean))).join("; ");
 }
 
 export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ week_start?: string; department?: string; position?: string; employee_id?: string }> }) {
@@ -87,7 +113,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
   const days = Array.from({ length: 7 }, (_, i) => addDays(week.week_start, i));
   const previousWeekStart = addWeek(week.week_start, -1);
 
-  const enrichedItems: Shift[] = week.items.map((item) => {
+  const enrichedItems: Shift[] = dedupeScheduleItems(week.items).map((item) => {
     const actual = actualsByKey[actualKey(item.employee_id, item.shift_date)];
     if (actual) {
       return { ...item, actual_in: actual.actual_in || null, actual_out: actual.actual_out || null, actual_status: actual.attendance_status || null, actual_source: actual.source || null, actual_notes: actual.notes || null, is_absent: actual.is_absent || 0, absence_type: actual.absence_type || null, approved_ot_hours: actual.approved_ot_hours || 0 };
@@ -172,7 +198,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
                       <td>{shifts.length ? shifts.map((shift) => (<div className={styles.quickShift} key={shift.id}><strong>{shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</strong><span>{shift.position}</span></div>)) : <span className="muted">No scheduled shift</span>}</td>
                       <td>{shifts.length ? shifts.map((shift) => (<div className={styles.quickShift} key={shift.id}><strong>{actualText(shift)}</strong><span>{shift.actual_status || (shift.actual_source === "legacy_schedule" ? "Approved · legacy" : "No actual yet")}</span></div>)) : <span className="muted">—</span>}</td>
                       <td>{shifts.length ? `${numberText(shifts.reduce((sum, shift) => sum + Number(shift.planned_paid_hours || 0), 0))} hrs scheduled` : "—"}</td>
-                      <td>{shifts.map((shift) => shift.actual_notes || shift.notes).filter(Boolean).join("; ") || "—"}</td>
+                      <td>{uniqueText(shifts.map((shift) => shift.actual_notes || shift.notes)) || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
