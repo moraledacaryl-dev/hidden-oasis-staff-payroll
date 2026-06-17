@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PrintButton } from "@/components/PrintButton";
 import { Shell } from "@/components/Shell";
-import { getPayrollRunReview, peso } from "@/lib/api";
+import { getPayrollRunReview, numberText, peso } from "@/lib/api";
 import { currentSession } from "@/lib/session";
 
 function mandatoryDeductions(item: { sss_ee: number; philhealth_ee: number; pagibig_ee: number }) {
@@ -15,6 +15,10 @@ function taxAdvanceOther(item: { tax: number; cash_advance_deduction: number; ot
 
 function lineAmount(...values: Array<number | null | undefined>): number {
   return values.reduce<number>((sum, value) => sum + Number(value || 0), 0);
+}
+
+function hasValue(value: number | null | undefined) {
+  return Number(value || 0) > 0;
 }
 
 export default async function PayslipPreviewPage({ params }: { params: Promise<{ id: string }> }) {
@@ -77,11 +81,14 @@ export default async function PayslipPreviewPage({ params }: { params: Promise<{
               <div className="payslip-columns">
                 <section>
                   <h3>Earnings</h3>
+                  <p><span>Regular hours</span><strong>{numberText(item.regular_hours)} hrs</strong></p>
+                  {hasValue(item.approved_ot_hours) ? <p><span>Overtime hours</span><strong>{numberText(item.approved_ot_hours)} hrs</strong></p> : null}
+                  {hasValue(item.night_diff_hours) ? <p><span>Night differential hours</span><strong>{numberText(item.night_diff_hours)} hrs</strong></p> : null}
                   <p><span>Regular pay</span><strong>{peso(item.regular_pay)}</strong></p>
-                  <p><span>Overtime pay</span><strong>{peso(item.ot_pay)}</strong></p>
-                  <p><span>Night differential</span><strong>{peso(item.night_diff_pay)}</strong></p>
-                  <p><span>Holiday pay</span><strong>{peso(item.holiday_pay)}</strong></p>
-                  <p><span>Leave / other earnings</span><strong>{peso(lineAmount(item.paid_leave_pay, item.freelance_pay, item.other_earnings))}</strong></p>
+                  {hasValue(item.ot_pay) ? <p><span>Overtime pay</span><strong>{peso(item.ot_pay)}</strong></p> : null}
+                  {hasValue(item.night_diff_pay) ? <p><span>Night differential</span><strong>{peso(item.night_diff_pay)}</strong></p> : null}
+                  {hasValue(item.holiday_pay) ? <p><span>Holiday pay</span><strong>{peso(item.holiday_pay)}</strong></p> : null}
+                  {hasValue(lineAmount(item.paid_leave_pay, item.freelance_pay, item.other_earnings)) ? <p><span>Leave / other earnings</span><strong>{peso(lineAmount(item.paid_leave_pay, item.freelance_pay, item.other_earnings))}</strong></p> : null}
                   {item.leave_summary?.length ? <div className="leave-lines"><strong>Paid leave details</strong>{item.leave_summary.map((line) => (<span key={line}>{line}</span>))}</div> : null}
                   <p className="total-line"><span>Gross pay</span><strong>{peso(item.gross_pay)}</strong></p>
                 </section>
