@@ -17,22 +17,25 @@ export default async function OldSchedulesPage() {
         <header className="page-header">
           <div className="grid">
             <span className="eyebrow">Old schedules</span>
-            <h1>Old schedule backfill</h1>
-            <p className="muted">Use this for old payroll periods where scheduled time should count as actual worked time.</p>
+            <h1>Old schedule tools</h1>
+            <p className="muted">Use this for old schedule records that still come from the legacy schedules table.</p>
           </div>
           <StatusBadge label="admin" tone="warning" />
         </header>
 
         <section className="card">
-          <div className="panel-title"><h2>What this does</h2></div>
-          <p className="muted">This reads the old schedules table and creates approved time logs only for employee/date rows that do not already have a non-rejected time log. It skips rest days and invalid rows.</p>
+          <div className="panel-title"><h2>Make old schedules editable</h2></div>
+          <p className="muted">This copies legacy schedule rows into scheduled_shifts, which is the editable table used by the drag-and-drop calendar and day editor. It skips rows that were already migrated or already exist with the same employee, date, start time, and end time.</p>
+          <div className="copy-box">python3 scripts/migrate_legacy_schedules_to_scheduled_shifts.py --all</div>
+          <div className="copy-box">python3 scripts/migrate_legacy_schedules_to_scheduled_shifts.py --all --apply</div>
+          <p className="muted">Run the first command to preview. Run the second command only after checking the would_insert count.</p>
         </section>
 
         <section className="card">
-          <div className="panel-title"><h2>Run from server</h2></div>
+          <div className="panel-title"><h2>Treat old schedules as actual attendance</h2></div>
+          <p className="muted">This is separate. It creates approved time logs from old schedules for payroll calculations where scheduled time should count as actual worked time.</p>
           <div className="copy-box">python3 scripts/backfill_legacy_schedule_time_logs.py --all --dry-run</div>
           <div className="copy-box">python3 scripts/backfill_legacy_schedule_time_logs.py --all</div>
-          <p className="muted">Dry run first, then run the actual command after checking the insert count.</p>
         </section>
 
         <section className="card">
