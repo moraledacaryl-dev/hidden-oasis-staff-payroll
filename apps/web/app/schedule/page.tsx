@@ -140,6 +140,16 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
     return byDepartment && byPosition && byEmployee;
   });
 
+  const boardEmployeeIds = new Set(filteredItems.map((item) => item.employee_id).filter((id): id is number => typeof id === "number"));
+  const boardEmployees = employees
+    .filter((employee) => {
+      const byDepartment = selectedDepartment === "all" || employee.department === selectedDepartment;
+      const byPosition = selectedPosition === "all" || employee.position === selectedPosition;
+      const byEmployee = selectedEmployeeNumber == null || employee.id === selectedEmployeeNumber;
+      return byDepartment && byPosition && byEmployee && (boardEmployeeIds.has(employee.id) || selectedEmployeeNumber === employee.id);
+    })
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+
   const totalHours = filteredItems.reduce((sum, item) => sum + Number(item.planned_paid_hours || 0), 0);
   const actualRecorded = filteredItems.filter((item) => item.actual_in || item.actual_out || item.is_absent || item.actual_source === "legacy_schedule").length;
 
@@ -177,7 +187,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
 
         {canEditSchedule ? <section className={`card ${styles.compactAddShift}`}><div className="panel-title"><h2>Add shift</h2><p className="muted">Use this only when adding a new scheduled shift.</p></div><ScheduleShiftForm weekStart={week.week_start} employees={employees} /></section> : null}
 
-        <section className="card"><div className="panel-title"><h2>Week</h2><p className="muted">Drag-and-drop board is filtered by the selected department, position, and employee.</p></div><div className={styles.boardScroll}><ScheduleBoardClient days={days} shifts={filteredItems} employees={employees} canEdit={canEditSchedule} /></div></section>
+        <section className="card"><div className="panel-title"><h2>Week</h2><p className="muted">Drag-and-drop board is filtered by the selected department, position, and employee.</p></div><div className={styles.boardScroll}><ScheduleBoardClient days={days} shifts={filteredItems} employees={boardEmployees} canEdit={canEditSchedule} /></div></section>
 
         {selectedEmployee ? (
           <section className="card">
