@@ -1,17 +1,17 @@
 .scheduleGrid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(210px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(7, minmax(190px, 1fr));
+  gap: 10px;
   overflow-x: auto;
   padding-bottom: 4px;
 }
 
 .scheduleDay {
-  min-height: 420px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.72);
-  padding: 12px;
+  min-height: 390px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-soft);
+  padding: 10px;
 }
 
 .scheduleDayHead {
@@ -19,36 +19,36 @@
   justify-content: space-between;
   gap: 8px;
   align-items: flex-start;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  padding-bottom: 10px;
-  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
 }
 
 .scheduleDayHead div {
   display: grid;
-  gap: 3px;
+  gap: 2px;
 }
 
 .scheduleDayHead span {
-  color: rgb(100, 116, 139);
-  font-size: 0.82rem;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .scheduleStack {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .shiftCard {
   display: grid;
   gap: 5px;
-  border: 1px solid rgba(37, 99, 235, 0.18);
-  border-left: 4px solid rgba(37, 99, 235, 0.72);
-  border-radius: 14px;
+  border: 1px solid rgba(49, 91, 70, 0.18);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
   background: white;
-  padding: 10px;
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
-  font-size: 0.9rem;
+  padding: 9px;
+  box-shadow: 0 8px 16px rgba(31, 35, 32, 0.04);
+  font-size: 0.84rem;
 }
 
 .shiftTop {
@@ -60,85 +60,82 @@
 
 .shiftTop span {
   border-radius: 999px;
-  background: rgba(37, 99, 235, 0.08);
-  color: rgb(30, 64, 175);
-  padding: 3px 8px;
-  font-size: 0.74rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 3px 7px;
+  font-size: 0.7rem;
   white-space: nowrap;
 }
 
 .emptyDay {
-  border: 1px dashed rgba(15, 23, 42, 0.16);
-  border-radius: 14px;
-  color: rgb(100, 116, 139);
-  padding: 16px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  color: var(--muted);
+  padding: 14px 8px;
   text-align: center;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
 .filterGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .chip,
 .activeChip {
   border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  padding: 7px 11px;
+  border: 1px solid var(--line);
+  padding: 6px 10px;
   text-decoration: none;
-  font-size: 0.86rem;
+  font-size: 0.8rem;
 }
 
 .chip {
-  color: rgb(51, 65, 85);
+  color: var(--muted);
   background: white;
 }
 
 .activeChip {
   color: white;
-  background: rgb(15, 23, 42);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .peopleList {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .personRow {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  padding: 7px 0;
 }
 
 .personRow span {
-  color: rgb(100, 116, 139);
-  font-size: 0.86rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 @media (max-width: 1100px) {
-  .scheduleGrid {
-    grid-template-columns: repeat(7, 220px);
-  }
-
-  .filterGrid {
-    grid-template-columns: 1fr;
-  }
+  .scheduleGrid { grid-template-columns: repeat(7, 210px); }
+  .filterGrid { grid-template-columns: 1fr; }
 }
