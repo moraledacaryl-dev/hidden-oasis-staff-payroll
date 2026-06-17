@@ -10,6 +10,7 @@ const groups = [
       { href: "/launch", label: "Launch", desc: "Health checks." },
       { href: "/backup", label: "Backups", desc: "Data safety." },
       { href: "/settings", label: "Settings", desc: "System info." },
+      { href: "/controls/old-schedules", label: "Old schedules", desc: "Old schedule data notes." },
     ],
   },
   {
