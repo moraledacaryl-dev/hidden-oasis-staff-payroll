@@ -8,10 +8,12 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from api.payroll_drafts import must_be_payroll_user, totals
+from api.schedule_history_controls import router as schedule_history_router
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import compute_payroll
 
 router = APIRouter(prefix="/api/v1")
+router.include_router(schedule_history_router, prefix="")
 
 PAYROLL_ITEM_COLS = [
     "employee_id", "regular_hours", "regular_pay", "approved_ot_hours", "ot_pay",
