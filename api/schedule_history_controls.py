@@ -182,3 +182,76 @@ def move_shift_history(shift_id: int, payload: MoveShiftPayload, authorization: 
         raise
     finally:
         conn.close()
+
+@router.post("/schedules/shifts/{shift_id}/delete")
+def delete_shift_history(
+    shift_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = must_be_payroll_user(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_history_schema(conn)
+
+        if shift_id < 0:
+            legacy_id = abs(shift_id)
+            legacy = fetch_legacy_schedule_row(conn, legacy_id)
+            if not legacy:
+                raise HTTPException(status_code=404, detail="Legacy schedule row not found.")
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO legacy_schedule_ignores(
+                    legacy_schedule_id, ignored_by, ignored_at, reason
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (legacy_id, user.get("display_name"), local_now(conn), "Deleted from schedule page"),
+            )
+
+            log_schedule_change(
+                conn,
+                change_type="delete_legacy_schedule",
+                entity_type="legacy_schedule",
+                entity_id=legacy_id,
+                employee_id=int(legacy.get("employee_id") or 0),
+                work_date=str(legacy.get("shift_date"))[:10],
+                before=legacy,
+                after=None,
+                changed_by=user.get("display_name"),
+            )
+            conn.commit()
+            return {
+                "ok": True,
+                "deleted_shift_id": shift_id,
+                "mode": "legacy_shift_hidden_payroll_snapshot_unchanged",
+            }
+
+        before = schedule_row(conn, shift_id)
+        if not before:
+            raise HTTPException(status_code=404, detail="Shift not found.")
+
+        conn.execute("DELETE FROM scheduled_shifts WHERE id=?", (shift_id,))
+
+        log_schedule_change(
+            conn,
+            change_type="delete_schedule",
+            entity_type="scheduled_shift",
+            entity_id=shift_id,
+            employee_id=int(before.get("employee_id") or 0),
+            work_date=str(before.get("shift_date"))[:10],
+            before=before,
+            after=None,
+            changed_by=user.get("display_name"),
+        )
+        conn.commit()
+        return {
+            "ok": True,
+            "deleted_shift_id": shift_id,
+            "mode": "historical_shift_deleted_payroll_snapshot_unchanged",
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
