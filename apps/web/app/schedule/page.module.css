@@ -244,10 +244,29 @@
     display: none !important;
   }
   .printSchedule { display: block !important; margin: 0 !important; padding: 0 !important; }
-  .printHeader { display: flex !important; margin: 0 0 6px 0 !important; }
-  .printHeader h2 { margin: 0; font-size: 14px; }
-  .printHeader p, .printHeader strong, .printHeader span { font-size: 8px; }
-  .printTable { min-width: 0 !important; margin: 0 !important; }
-  .printTable th, .printTable td { padding: 5px; font-size: 8.5px; }
+  .printHeader {
+    display: grid !important;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 8px 0 !important;
+    padding: 0 0 6px 0;
+    border-bottom: 1px solid #777;
+  }
+  .printHeader > div:first-child { display: grid; gap: 1px; }
+  .printHeader > div:last-child {
+    min-width: 130px;
+    padding: 5px 7px;
+    border: 1px solid #999;
+    background: #f6f6f6;
+    text-align: right;
+  }
+  .printHeader h2 { margin: 0; font-size: 14px; line-height: 1.05; }
+  .printHeader p { margin: 0; font-size: 8px; color: #444; }
+  .printHeader strong { display: block; font-size: 8px; line-height: 1.1; }
+  .printHeader span { display: block; font-size: 7px; color: #333; text-transform: uppercase; letter-spacing: 0.08em; }
+  .printTable { min-width: 0 !important; margin: 0 !important; border: 1px solid #999; }
+  .printTable th, .printTable td { padding: 5px; font-size: 8.5px; border: 1px solid #999 !important; }
   .printTable th { font-size: 7.5px; }
+  .printTable tr:last-child td { border-bottom: 1px solid #999 !important; }
 }
