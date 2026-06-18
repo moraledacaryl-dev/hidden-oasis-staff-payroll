@@ -40,7 +40,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
   const session = await currentSession();
   if (!session) redirect("/login");
   if (!["owner", "payroll", "supervisor"].includes(session.role_key)) return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div /></Shell>;
-  const canEditSchedule = session.role_key === "owner" || session.role_key === "payroll";
+  const canEditSchedule = session.role_key === "owner" || session.role_key === "payroll" || session.role_key === "supervisor";
   const params = await searchParams;
   const weekStart = params.week_start || mondayOfWeek();
   const selectedDepartment = params.department || "all";

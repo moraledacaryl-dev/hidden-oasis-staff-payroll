@@ -7,7 +7,6 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
 from api.main import current_user_from_token, require_api_key
-from api.payroll_drafts import must_be_payroll_user
 from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
@@ -162,9 +161,10 @@ def require_schedule_viewer(authorization: str | None, x_api_key: str | None) ->
 
 
 def require_schedule_editor(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
-    if user.get("role_key") not in {"owner", "payroll"}:
-        raise HTTPException(status_code=403, detail="Only owner or payroll can edit schedules.")
+    require_api_key(x_api_key)
+    user = current_user_from_token(authorization)
+    if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
+        raise HTTPException(status_code=403, detail="Only owner, payroll, or supervisor can edit schedules.")
     return user
 
 
