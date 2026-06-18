@@ -68,7 +68,8 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
 
   const currentShift = bundle.shift || shift;
   const selectedEmployee = useMemo(() => employees.find((item) => String(item.id) === employeeId), [employeeId, employees]);
-  const readOnly = !canEdit || Boolean(bundle.legacy_read_only) || Boolean(bundle.payroll_locked);
+  const readOnly = !canEdit;
+  const lockedSnapshot = Boolean(bundle.payroll_locked);
 
   if (!open) return null;
 
@@ -92,8 +93,8 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
   }
 
   async function deleteShift() {
-    if (!currentShift?.id || currentShift.id < 0) return;
-    if (!window.confirm("Delete this planned shift? Actual attendance and leave records are not deleted.")) return;
+    if (!currentShift?.id) return;
+    if (!window.confirm("Delete this scheduled shift? Existing saved payroll runs will not change unless you save a revision.")) return;
     setBusy(true);
     const response = await fetch(`/api/schedule/shifts/${currentShift.id}/delete`, { method: "POST" });
     const data = await response.json().catch(() => ({}));
@@ -109,7 +110,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
 
   function saveScheduled(formData: FormData) {
     void save("scheduled", {
-      shift_id: currentShift?.id && currentShift.id > 0 ? currentShift.id : null,
+      shift_id: currentShift?.id || null,
       employee_id: Number(formData.get("employee_id") || 0) || null,
       shift_date: String(formData.get("shift_date") || shiftDate),
       start_time: String(formData.get("start_time") || "08:00"),
@@ -159,7 +160,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
           <div>
             <span className="eyebrow">Employee day</span>
             <h2>{selectedEmployee?.full_name || currentShift?.employee_name || "Schedule day"} · {shiftDate}</h2>
-            {bundle.payroll_locked ? <p className="muted">Paid run #{bundle.paid_run?.id}. Use corrections for later changes.</p> : null}
+            {lockedSnapshot ? <p className="muted">This date belongs to saved payroll run #{bundle.paid_run?.id}. You can edit it here; the saved payroll run will stay unchanged until you save a revised run.</p> : null}
             {bundle.message ? <p className="muted">{bundle.message}</p> : null}
           </div>
           <button className="button small ghost" type="button" onClick={onClose}>Close</button>
@@ -181,31 +182,31 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
             <label>Dept<input name="department" defaultValue={currentShift?.employee_department || currentShift?.department || selectedEmployee?.department || ""} disabled={readOnly} /></label>
             <label>Break<input name="break_minutes" type="number" min="0" defaultValue={currentShift?.break_minutes ?? 60} disabled={readOnly} /></label>
             <label>Note<input name="notes" defaultValue={currentShift?.notes || ""} disabled={readOnly} /></label>
-            {canEdit && !bundle.legacy_read_only && !bundle.payroll_locked ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save scheduled shift"}</button> : null}
-            {canEdit && !bundle.payroll_locked && currentShift?.id && currentShift.id > 0 ? <button className="button ghost" type="button" disabled={busy} onClick={deleteShift}>Delete shift</button> : null}
+            {canEdit ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save scheduled shift"}</button> : null}
+            {canEdit && currentShift?.id ? <button className="button ghost" type="button" disabled={busy} onClick={deleteShift}>Delete shift</button> : null}
           </form>
         ) : null}
 
         {tab === "actual" ? (
           <form action={saveActual} className="form-grid modal-form">
             <label>Employee<select value={employeeId} disabled={readOnly} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
-            <label>Actual in<input name="actual_in" type="time" defaultValue={bundle.actual?.actual_in || ""} disabled={readOnly || bundle.payroll_locked} /></label>
-            <label>Actual out<input name="actual_out" type="time" defaultValue={bundle.actual?.actual_out || ""} disabled={readOnly || bundle.payroll_locked} /></label>
-            <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Pending"} disabled={readOnly || bundle.payroll_locked}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
-            <label>Approved OT<input name="approved_ot_hours" type="number" min="0" step="0.25" defaultValue={bundle.actual?.approved_ot_hours ?? 0} disabled={readOnly || bundle.payroll_locked} /></label>
-            <label>Admin note<input name="notes" defaultValue={bundle.actual?.notes || ""} disabled={readOnly || bundle.payroll_locked} /></label>
-            {canEdit ? <button className="primary-button" type="submit" disabled={busy || Boolean(bundle.payroll_locked)}>{busy ? "Saving..." : "Save actual"}</button> : null}
+            <label>Actual in<input name="actual_in" type="time" defaultValue={bundle.actual?.actual_in || ""} disabled={readOnly} /></label>
+            <label>Actual out<input name="actual_out" type="time" defaultValue={bundle.actual?.actual_out || ""} disabled={readOnly} /></label>
+            <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Pending"} disabled={readOnly}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+            <label>Approved OT<input name="approved_ot_hours" type="number" min="0" step="0.25" defaultValue={bundle.actual?.approved_ot_hours ?? 0} disabled={readOnly} /></label>
+            <label>Admin note<input name="notes" defaultValue={bundle.actual?.notes || ""} disabled={readOnly} /></label>
+            {canEdit ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save actual"}</button> : null}
           </form>
         ) : null}
 
         {tab === "leave" ? (
           <form action={saveLeave} className="form-grid modal-form">
-            <label>Employee<select value={employeeId} disabled={readOnly} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
-            <label>Type<select name="leave_kind" defaultValue={bundle.leave?.leave_type_name || bundle.actual?.absence_type || "None"} disabled={readOnly || bundle.payroll_locked}>{leaveKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
-            <label>Days<input name="leave_days" type="number" min="0" step="0.25" defaultValue={bundle.leave?.days ?? 1} disabled={readOnly || bundle.payroll_locked} /></label>
-            <label>Hours optional<input name="leave_hours" type="number" min="0" step="0.25" defaultValue={bundle.leave?.paid_hours ?? ""} disabled={readOnly || bundle.payroll_locked} /></label>
-            <label>Reason / notes<input name="reason" defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || bundle.payroll_locked} /></label>
-            {canEdit ? <button className="primary-button" type="submit" disabled={busy || Boolean(bundle.payroll_locked)}>{busy ? "Saving..." : "Save leave / absence"}</button> : null}
+            <label>Employee<select value={employeeId} disabled={readOnly || lockedSnapshot} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
+            <label>Type<select name="leave_kind" defaultValue={bundle.leave?.leave_type_name || bundle.actual?.absence_type || "None"} disabled={readOnly || lockedSnapshot}>{leaveKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
+            <label>Days<input name="leave_days" type="number" min="0" step="0.25" defaultValue={bundle.leave?.days ?? 1} disabled={readOnly || lockedSnapshot} /></label>
+            <label>Hours optional<input name="leave_hours" type="number" min="0" step="0.25" defaultValue={bundle.leave?.paid_hours ?? ""} disabled={readOnly || lockedSnapshot} /></label>
+            <label>Reason / notes<input name="reason" defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || lockedSnapshot} /></label>
+            {canEdit && !lockedSnapshot ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save leave / absence"}</button> : null}
           </form>
         ) : null}
 
