@@ -28,6 +28,17 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const body = await request.json();
   const section = String(body.section || "");
+  if (section === "remove") {
+    const shiftId = Number(body.shift_id || 0);
+    if (!shiftId) return NextResponse.json({ ok: false, message: "Missing schedule shift." }, { status: 422 });
+    const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/shifts/${shiftId}/delete`, {
+      method: "POST",
+      headers: await apiHeaders(),
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    return NextResponse.json(data, { status: response.status });
+  }
   const route = section === "scheduled" || section === "actual" || section === "leave" ? section : "";
   if (!route) return NextResponse.json({ ok: false, message: "Invalid schedule day section." }, { status: 422 });
   const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day/${route}`, {
