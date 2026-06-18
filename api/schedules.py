@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from api.main import current_user_from_token, require_api_key
 from api.payroll_drafts import must_be_payroll_user
+from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -95,6 +96,15 @@ def ensure_schema(conn) -> None:
     ensure_column(conn, "scheduled_shifts", "source", "TEXT NOT NULL DEFAULT 'planned'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_date ON scheduled_shifts(shift_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_employee ON scheduled_shifts(employee_id)")
+    ensure_schedule_change_log_schema(conn)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS legacy_schedule_ignores (
+            legacy_schedule_id INTEGER PRIMARY KEY,
+            ignored_by TEXT,
+            ignored_at TEXT NOT NULL,
+            reason TEXT
+        )
+    """)
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_shifts_legacy_schedule_id
         ON scheduled_shifts(legacy_schedule_id)
@@ -188,6 +198,8 @@ def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any
     notes_expr = sql_value_expr(cols, ["notes", "note"], "NULL", "notes")
     status_expr = sql_value_expr(cols, ["status"], "'Imported'", "status")
 
+    ignore_join = "LEFT JOIN legacy_schedule_ignores lsi ON lsi.legacy_schedule_id = s.id" if table_exists(conn, "legacy_schedule_ignores") else ""
+    ignore_filter = "AND lsi.legacy_schedule_id IS NULL" if table_exists(conn, "legacy_schedule_ignores") else ""
     rows = fetchall(conn, f"""
         SELECT
             s.id AS legacy_id,
@@ -205,7 +217,11 @@ def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any
             {employee_department_expr}
         FROM schedules s
         {employee_join}
+        {ignore_join}
+        LEFT JOIN scheduled_shifts ss ON ss.legacy_schedule_id = s.id
         WHERE date(s.{date_col}) BETWEEN date(?) AND date(?)
+          AND ss.id IS NULL
+          {ignore_filter}
         ORDER BY s.{date_col}, s.{start_col}, {employee_order_expr}
     """, (start, end))
 
@@ -398,12 +414,72 @@ def ensure_leave_type(conn, name: str, paid: int) -> int:
 
 
 def assert_not_paid_locked(conn, shift_date: str) -> None:
-    locked = paid_run_for_day(conn, shift_date)
-    if locked:
-        raise HTTPException(
-            status_code=409,
-            detail=f"This date is inside paid payroll run #{locked.get('id')}. Record a payroll correction instead of editing paid history.",
-        )
+    # Historical schedule/actual records are editable.
+    # Saved payroll runs remain immutable snapshots; changes are logged and shown by revision controls.
+    return None
+
+def row_dict(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    return dict(row) if row else None
+
+
+def schedule_row(conn, shift_id: int) -> dict[str, Any] | None:
+    return row_dict(fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,)))
+
+
+def time_log_row(conn, log_id: int) -> dict[str, Any] | None:
+    return row_dict(fetchone(conn, "SELECT * FROM time_logs WHERE id=?", (log_id,)))
+
+
+def migrate_legacy_schedule_row(conn, legacy_id: int, actor: str | None) -> int:
+    existing = fetchone(conn, "SELECT id FROM scheduled_shifts WHERE legacy_schedule_id=?", (legacy_id,))
+    if existing:
+        return int(existing["id"])
+
+    legacy = fetch_legacy_schedule_row(conn, legacy_id)
+    if not legacy:
+        raise HTTPException(status_code=404, detail="Legacy schedule row not found.")
+
+    employee_id = int(legacy.get("employee_id") or 0) or None
+    position = str(legacy.get("position") or "Other")
+    if position not in POSITIONS:
+        position = "Other"
+
+    timestamp = now_iso()
+    cur = conn.execute(
+        """
+        INSERT INTO scheduled_shifts(
+            employee_id, shift_date, start_time, end_time, position,
+            department, break_minutes, status, notes, legacy_schedule_id,
+            source, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?, ?, 'planned', ?, ?)
+        """,
+        (
+            employee_id,
+            str(legacy.get("shift_date"))[:10],
+            str(legacy.get("start_time"))[:5],
+            str(legacy.get("end_time"))[:5],
+            position,
+            legacy.get("department") or legacy.get("employee_department"),
+            int(legacy.get("break_minutes") or 0),
+            legacy.get("notes"),
+            legacy_id,
+            timestamp,
+            timestamp,
+        ),
+    )
+    shift_id = int(cur.lastrowid)
+    log_schedule_change(
+        conn,
+        change_type="migrate_legacy_schedule",
+        entity_type="scheduled_shift",
+        entity_id=shift_id,
+        employee_id=employee_id,
+        work_date=str(legacy.get("shift_date"))[:10],
+        before=legacy,
+        after=schedule_row(conn, shift_id),
+        changed_by=actor,
+    )
+    return shift_id
 
 
 @router.get("/schedules/employees")
@@ -475,7 +551,8 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        assert_not_paid_locked(conn, payload.shift_date.isoformat())
+        if payload.shift_id and payload.shift_id < 0:
+            payload.shift_id = migrate_legacy_schedule_row(conn, abs(payload.shift_id), user.get("display_name"))
         if payload.employee_id:
             employee = fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,))
             if not employee:
@@ -494,9 +571,7 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
 
 @router.post("/schedules/day/scheduled")
 def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    require_schedule_editor(authorization, x_api_key)
-    if payload.shift_id and payload.shift_id < 0:
-        raise HTTPException(status_code=409, detail="This is a legacy imported row. Run schedule migration to make it fully editable.")
+    user = require_schedule_editor(authorization, x_api_key)
     if payload.position not in POSITIONS:
         raise HTTPException(status_code=422, detail="Invalid position.")
     if payload.employee_id and payload.employee_id > 0:
@@ -510,6 +585,7 @@ def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = H
         if employee_id and not employee_exists(conn, employee_id):
             raise HTTPException(status_code=404, detail="Employee not found.")
         timestamp = now_iso()
+        before = schedule_row(conn, payload.shift_id) if payload.shift_id else None
         if payload.shift_id:
             row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (payload.shift_id,))
             if not row:
@@ -558,8 +634,20 @@ def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = H
                 ),
             )
             shift_id = int(cur.lastrowid)
+        after = schedule_row(conn, int(shift_id))
+        log_schedule_change(
+            conn,
+            change_type="update_schedule" if before else "create_schedule",
+            entity_type="scheduled_shift",
+            entity_id=int(shift_id),
+            employee_id=employee_id,
+            work_date=payload.shift_date.isoformat(),
+            before=before,
+            after=after,
+            changed_by=user.get("display_name"),
+        )
         conn.commit()
-        return day_bundle(conn, payload.shift_date.isoformat(), employee_id, shift_id) | {"message": "Scheduled shift saved."}
+        return day_bundle(conn, payload.shift_date.isoformat(), employee_id, shift_id) | {"message": "Scheduled shift saved. Existing payroll runs were not changed."}
     finally:
         conn.close()
 
@@ -715,17 +803,50 @@ def move_shift(shift_id: int, payload: MoveShiftPayload, authorization: str | No
 
 @router.post("/schedules/shifts/{shift_id}/delete")
 def delete_shift(shift_id: int, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    require_schedule_editor(authorization, x_api_key)
+    user = require_schedule_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        row = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (shift_id,))
-        if not row:
+        if shift_id < 0:
+            legacy_id = abs(shift_id)
+            legacy = fetch_legacy_schedule_row(conn, legacy_id)
+            if not legacy:
+                raise HTTPException(status_code=404, detail="Legacy schedule row not found.")
+            conn.execute(
+                "INSERT OR REPLACE INTO legacy_schedule_ignores(legacy_schedule_id, ignored_by, ignored_at, reason) VALUES (?, ?, ?, ?)",
+                (legacy_id, user.get("display_name"), now_iso(), "Deleted from schedule page"),
+            )
+            log_schedule_change(
+                conn,
+                change_type="delete_legacy_schedule",
+                entity_type="legacy_schedule",
+                entity_id=legacy_id,
+                employee_id=int(legacy.get("employee_id") or 0),
+                work_date=str(legacy.get("shift_date"))[:10],
+                before=legacy,
+                after=None,
+                changed_by=user.get("display_name"),
+            )
+            conn.commit()
+            return {"ok": True, "deleted_shift_id": shift_id, "mode": "legacy_shift_hidden_payroll_snapshot_unchanged"}
+
+        before = schedule_row(conn, shift_id)
+        if not before:
             raise HTTPException(status_code=404, detail="Shift not found.")
-        assert_not_paid_locked(conn, str(row.get("shift_date")))
         conn.execute("DELETE FROM scheduled_shifts WHERE id=?", (shift_id,))
+        log_schedule_change(
+            conn,
+            change_type="delete_schedule",
+            entity_type="scheduled_shift",
+            entity_id=shift_id,
+            employee_id=int(before.get("employee_id") or 0),
+            work_date=str(before.get("shift_date"))[:10],
+            before=before,
+            after=None,
+            changed_by=user.get("display_name"),
+        )
         conn.commit()
-        return {"ok": True, "deleted_shift_id": shift_id, "mode": "planned_shift_deleted_not_payroll"}
+        return {"ok": True, "deleted_shift_id": shift_id, "mode": "historical_shift_deleted_payroll_snapshot_unchanged"}
     finally:
         conn.close()
 
