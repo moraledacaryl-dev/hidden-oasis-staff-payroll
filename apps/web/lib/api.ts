@@ -13,6 +13,8 @@ export type PayrollCorrection = { id: number; payroll_run_id: number; employee_i
 export type PayrollCorrectionsResponse = { ok: boolean; items: PayrollCorrection[]; mode: string };
 export type AppUser = { id: number; display_name: string; role: string; role_key: string; active: number; must_change_password: number; last_login_at?: string | null; created_at?: string | null; employee_id?: number | null; employee_name?: string | null };
 export type AppUsersResponse = { ok: boolean; items: AppUser[] };
+export type PayrollRunChange = { id: number; change_type: string; entity_type: string; entity_id?: number | null; employee_id?: number | null; work_date?: string | null; payroll_run_id?: number | null; changed_by?: string | null; changed_at: string; undone_at?: string | null };
+export type PayrollRunChangeDelta = { ok: boolean; run_id: number; changed: boolean; change_count: number; changes: PayrollRunChange[] };
 
 export function apiBaseUrl(): string { return (process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || DEFAULT_API_BASE_URL).replace(/\/$/, ""); }
 
@@ -42,6 +44,7 @@ export function getAttendanceExceptions(periodStart: string, periodEnd: string):
 export function getAttendanceReviews(periodStart: string, periodEnd: string): Promise<AttendanceReview[]> { return apiGet<AttendanceReview[]>(`/api/v1/attendance/reviews?start_date=${periodStart}&end_date=${periodEnd}`, true); }
 export function getPayrollRuns(): Promise<PayrollRun[]> { return apiGet<PayrollRun[]>("/api/v1/payroll/runs", true); }
 export function getPayrollRunReview(runId: number): Promise<PayrollRunReview> { return apiGet<PayrollRunReview>(`/api/v1/payroll/runs/${runId}/review`, true); }
+export function getPayrollRunChangeDelta(runId: number): Promise<PayrollRunChangeDelta> { return apiGet<PayrollRunChangeDelta>(`/api/v1/payroll/runs/${runId}/change-delta`, true); }
 export function getPayrollCorrections(runId: number): Promise<PayrollCorrectionsResponse> { return apiGet<PayrollCorrectionsResponse>(`/api/v1/payroll/runs/${runId}/corrections`, true); }
 export function getAppUsers(): Promise<AppUsersResponse> { return apiGet<AppUsersResponse>("/api/v1/users", true); }
 export function getPayrollPreview(periodStart: string, periodEnd: string): Promise<PayrollPreview> { return apiPost<PayrollPreview>("/api/v1/payroll/preview", { period_start: periodStart, period_end: periodEnd }, true); }
