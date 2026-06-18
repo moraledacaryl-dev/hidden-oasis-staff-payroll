@@ -216,6 +216,7 @@
 .employeeScheduleTable { min-width: 760px; }
 .quickShift { display: grid; gap: 2px; padding: 2px 0; }
 .quickShift span { color: var(--muted); font-size: 0.78rem; }
+.screenOnly { display: grid; }
 .printSchedule { display: none; }
 .printHeader { display: none; }
 .printTable { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -236,12 +237,16 @@
   .toolbar,
   .filterGrid,
   .compactAddShift,
+  .screenOnly,
   .screenSchedule,
   .employeeScheduleTable,
   .boardScroll {
     display: none !important;
   }
   .printSchedule { display: block !important; margin: 0 !important; padding: 0 !important; }
+  .printHeader { display: flex !important; margin: 0 0 6px 0 !important; }
+  .printHeader h2 { margin: 0; font-size: 14px; }
+  .printHeader p, .printHeader strong, .printHeader span { font-size: 8px; }
   .printTable { min-width: 0 !important; margin: 0 !important; }
   .printTable th, .printTable td { padding: 5px; font-size: 8.5px; }
   .printTable th { font-size: 7.5px; }
