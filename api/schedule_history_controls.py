@@ -12,7 +12,7 @@ from api.schedules import ensure_schema, fetch_legacy_schedule_row, fetch_shift,
 from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
 from core.db import DB_PATH, fetchone, get_conn
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter()
 
 
 def row_dict(row: dict[str, Any] | None) -> dict[str, Any] | None:
