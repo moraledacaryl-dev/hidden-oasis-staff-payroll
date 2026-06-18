@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { PayrollRunChangeDelta } from "@/lib/api";
@@ -86,6 +87,7 @@ export function PayrollRevisionBanner({ runId, delta }: { runId: number; delta: 
       <div className="action-row" style={{ marginTop: 12 }}>
         <button className="primary-button" type="button" disabled={busy !== null} onClick={saveRevision}>{busy === "revision" ? "Saving..." : "Save revised payroll run"}</button>
         <button className="button ghost" type="button" disabled={busy !== null || confirmUndo !== "UNDO"} onClick={undoChanges}>{busy === "undo" ? "Restoring..." : "Undo schedule/actual changes"}</button>
+        <Link className="button ghost" href={`/payroll/runs/${runId}/schedule-changes`}>View schedule changes</Link>
         {message ? <span className="muted">{message}</span> : null}
       </div>
     </section>
