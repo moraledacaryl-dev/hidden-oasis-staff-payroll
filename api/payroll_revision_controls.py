@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -45,6 +46,35 @@ def table_exists(conn, table: str) -> bool:
     return bool(row and int(row[0] or 0) > 0)
 
 
+def previous_payroll_run(conn, run: dict[str, Any]) -> dict[str, Any] | None:
+    summary = str(run.get("validation_summary") or "")
+    match = re.search(r"Revision of payroll run #(\d+)", summary)
+    if match:
+        prior = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (int(match.group(1)),))
+        if prior:
+            return prior
+    return fetchone(
+        conn,
+        """
+        SELECT *
+        FROM payroll_runs
+        WHERE period_start=?
+          AND period_end=?
+          AND datetime(created_at) < datetime(?)
+          AND id != ?
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT 1
+        """,
+        (run["period_start"], run["period_end"], run["created_at"], run["id"]),
+    )
+
+
+def revision_window(conn, run: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    previous = previous_payroll_run(conn, run)
+    baseline = previous["created_at"] if previous else run["created_at"]
+    return baseline, previous
+
+
 @router.get("/payroll/runs/{run_id}/change-delta")
 def payroll_run_change_delta(run_id: int, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     must_be_payroll_user(authorization, x_api_key)
@@ -55,6 +85,7 @@ def payroll_run_change_delta(run_id: int, authorization: str | None = Header(def
             raise HTTPException(status_code=404, detail="Payroll run not found.")
         if not table_exists(conn, "schedule_change_logs"):
             return {"ok": True, "run_id": run_id, "changed": False, "change_count": 0, "changes": []}
+        baseline_created_at, previous = revision_window(conn, run)
         changes = fetchall(conn, """
             SELECT *
             FROM schedule_change_logs
@@ -62,8 +93,17 @@ def payroll_run_change_delta(run_id: int, authorization: str | None = Header(def
               AND datetime(changed_at) > datetime(?)
               AND undone_at IS NULL
             ORDER BY changed_at DESC, id DESC
-        """, (run["period_start"], run["period_end"], run["created_at"]))
-        return {"ok": True, "run_id": run_id, "changed": bool(changes), "change_count": len(changes), "changes": changes}
+        """, (run["period_start"], run["period_end"], baseline_created_at))
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "changed": bool(changes),
+            "change_count": len(changes),
+            "changes": changes,
+            "baseline_run_id": previous["id"] if previous else run_id,
+            "baseline_created_at": baseline_created_at,
+            "mode": "changes_since_previous_run" if previous else "changes_since_this_run",
+        }
     finally:
         conn.close()
 
@@ -107,6 +147,7 @@ def save_payroll_revision(run_id: int, payload: RevisionPayload, authorization: 
     finally:
         conn.close()
 
+
 def _load_change_json(value: str | None) -> dict[str, Any] | None:
     if not value:
         return None
@@ -133,6 +174,7 @@ def undo_payroll_period_changes(
         if not table_exists(conn, "schedule_change_logs"):
             return {"ok": True, "run_id": run_id, "restored_changes": 0}
 
+        baseline_created_at, previous = revision_window(conn, run)
         changes = fetchall(
             conn,
             """
@@ -143,7 +185,7 @@ def undo_payroll_period_changes(
               AND undone_at IS NULL
             ORDER BY id DESC
             """,
-            (run["period_start"], run["period_end"], run["created_at"]),
+            (run["period_start"], run["period_end"], baseline_created_at),
         )
 
         restored = 0
@@ -312,8 +354,9 @@ def undo_payroll_period_changes(
         return {
             "ok": True,
             "run_id": run_id,
+            "baseline_run_id": previous["id"] if previous else run_id,
             "restored_changes": restored,
-            "mode": "schedule_actual_changes_undone_to_saved_run_state",
+            "mode": "schedule_actual_changes_undone_to_previous_run_state" if previous else "schedule_actual_changes_undone_to_saved_run_state",
         }
     except HTTPException:
         conn.rollback()
