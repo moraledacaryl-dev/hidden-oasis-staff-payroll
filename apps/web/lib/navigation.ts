@@ -51,10 +51,16 @@ export const navItems: NavItem[] = [
     roles: ["owner", "payroll", "supervisor"],
   },
   {
+    href: "/reports/operations",
+    label: "Reports",
+    description: "Summaries.",
+    roles: ["supervisor"],
+  },
+  {
     href: "/reports",
     label: "Reports",
     description: "Summaries.",
-    roles: ["owner", "payroll", "supervisor"],
+    roles: ["owner", "payroll"],
   },
   {
     href: "/payroll/runs",
