@@ -66,14 +66,14 @@ export function ScheduleRiskPanel({ days, shifts, employees }: { days: string[];
   return (
     <section className="card">
       <div className="panel-title">
-        <div><h2>Schedule checks</h2><p className="muted">Coverage and conflict review.</p></div>
+        <div><h2>Coverage Review</h2><p className="muted">Coverage gaps and schedule conflicts.</p></div>
         <div className="badge-row">
           <span className={conflicts.length ? "badge danger" : "badge ok"}>{conflicts.length ? `${conflicts.length} conflict(s)` : "No conflicts"}</span>
           <span className={notes.length ? "badge warning" : "badge ok"}>{notes.length ? `${notes.length} item(s)` : "Clear"}</span>
         </div>
       </div>
       <div className="action-list">
-        {notes.length ? notes.map((note) => <div className="action-item" key={note}><strong>{note}</strong></div>) : <p className="muted">No coverage warnings for the current filters.</p>}
+        {notes.length ? notes.map((note) => <div className="action-item" key={note}><strong>{note}</strong></div>) : <p className="muted">No coverage issues for the current filters.</p>}
       </div>
     </section>
   );
