@@ -29,6 +29,7 @@ PAYROLL_ITEM_COLS = [
 
 class RevisionPayload(BaseModel):
     run_label: str | None = None
+    revision_reason: str | None = None
 
 
 def now_iso(conn) -> str:
@@ -46,7 +47,39 @@ def table_exists(conn, table: str) -> bool:
     return bool(row and int(row[0] or 0) > 0)
 
 
+def table_columns(conn, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def ensure_column(conn, table: str, column: str, definition: str) -> None:
+    if column not in table_columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def ensure_revision_schema(conn) -> None:
+    ensure_column(conn, "payroll_runs", "revision_of_run_id", "INTEGER")
+    ensure_column(conn, "payroll_runs", "revision_reason", "TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS payroll_revision_change_links (
+            payroll_run_id INTEGER NOT NULL,
+            change_log_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (payroll_run_id, change_log_id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_payroll_revision_links_run ON payroll_revision_change_links(payroll_run_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_payroll_revision_links_change ON payroll_revision_change_links(change_log_id)")
+
+
 def previous_payroll_run(conn, run: dict[str, Any]) -> dict[str, Any] | None:
+    ensure_revision_schema(conn)
+    parent_id = run.get("revision_of_run_id")
+    if parent_id:
+        prior = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (int(parent_id),))
+        if prior:
+            return prior
     summary = str(run.get("validation_summary") or "")
     match = re.search(r"Revision of payroll run #(\d+)", summary)
     if match:
@@ -75,25 +108,59 @@ def revision_window(conn, run: dict[str, Any]) -> tuple[str, dict[str, Any] | No
     return baseline, previous
 
 
+def schedule_changes_since(conn, run: dict[str, Any], baseline_created_at: str) -> list[dict[str, Any]]:
+    if not table_exists(conn, "schedule_change_logs"):
+        return []
+    return fetchall(
+        conn,
+        """
+        SELECT *
+        FROM schedule_change_logs
+        WHERE date(work_date) BETWEEN date(?) AND date(?)
+          AND datetime(changed_at) > datetime(?)
+          AND undone_at IS NULL
+        ORDER BY changed_at DESC, id DESC
+        """,
+        (run["period_start"], run["period_end"], baseline_created_at),
+    )
+
+
+def linked_schedule_changes(conn, run_id: int) -> list[dict[str, Any]]:
+    if not table_exists(conn, "payroll_revision_change_links") or not table_exists(conn, "schedule_change_logs"):
+        return []
+    return fetchall(
+        conn,
+        """
+        SELECT scl.*
+        FROM payroll_revision_change_links prcl
+        JOIN schedule_change_logs scl ON scl.id = prcl.change_log_id
+        WHERE prcl.payroll_run_id=?
+          AND scl.undone_at IS NULL
+        ORDER BY scl.id DESC
+        """,
+        (run_id,),
+    )
+
+
+def changes_for_run(conn, run: dict[str, Any]) -> tuple[list[dict[str, Any]], str, dict[str, Any] | None, str]:
+    ensure_revision_schema(conn)
+    linked = linked_schedule_changes(conn, int(run["id"]))
+    baseline_created_at, previous = revision_window(conn, run)
+    if linked:
+        return linked, baseline_created_at, previous, "linked_revision_changes"
+    return schedule_changes_since(conn, run, baseline_created_at), baseline_created_at, previous, ("changes_since_previous_run" if previous else "changes_since_this_run")
+
+
 @router.get("/payroll/runs/{run_id}/change-delta")
 def payroll_run_change_delta(run_id: int, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     must_be_payroll_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
+        ensure_revision_schema(conn)
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
-        if not table_exists(conn, "schedule_change_logs"):
-            return {"ok": True, "run_id": run_id, "changed": False, "change_count": 0, "changes": []}
-        baseline_created_at, previous = revision_window(conn, run)
-        changes = fetchall(conn, """
-            SELECT *
-            FROM schedule_change_logs
-            WHERE date(work_date) BETWEEN date(?) AND date(?)
-              AND datetime(changed_at) > datetime(?)
-              AND undone_at IS NULL
-            ORDER BY changed_at DESC, id DESC
-        """, (run["period_start"], run["period_end"], baseline_created_at))
+        changes, baseline_created_at, previous, mode = changes_for_run(conn, run)
         return {
             "ok": True,
             "run_id": run_id,
@@ -102,7 +169,7 @@ def payroll_run_change_delta(run_id: int, authorization: str | None = Header(def
             "changes": changes,
             "baseline_run_id": previous["id"] if previous else run_id,
             "baseline_created_at": baseline_created_at,
-            "mode": "changes_since_previous_run" if previous else "changes_since_this_run",
+            "mode": mode,
         }
     finally:
         conn.close()
@@ -113,9 +180,11 @@ def save_payroll_revision(run_id: int, payload: RevisionPayload, authorization: 
     user = must_be_payroll_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
+        ensure_revision_schema(conn)
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
+        change_rows, baseline_created_at, previous, _mode = changes_for_run(conn, run)
         base_label = payload.run_label or f"{run['run_label']} Revision"
         rows = fetchall(conn, "SELECT run_label FROM payroll_runs WHERE period_start=? AND period_end=?", (run["period_start"], run["period_end"]))
         used = {row["run_label"] for row in rows}
@@ -125,10 +194,25 @@ def save_payroll_revision(run_id: int, payload: RevisionPayload, authorization: 
             label = f"{base_label} {n}"
             n += 1
         ts = now_iso(conn)
-        cur = conn.execute("""
-            INSERT INTO payroll_runs(period_start, period_end, payout_date, run_label, status, prepared_by, validation_summary, created_at)
-            VALUES (?, ?, ?, ?, 'Draft', ?, ?, ?)
-        """, (run["period_start"], run["period_end"], run["payout_date"], label, user.get("display_name"), f"Revision of payroll run #{run_id}.", ts))
+        cur = conn.execute(
+            """
+            INSERT INTO payroll_runs(
+                period_start, period_end, payout_date, run_label, status, prepared_by,
+                validation_summary, created_at, revision_of_run_id, revision_reason
+            ) VALUES (?, ?, ?, ?, 'Draft', ?, ?, ?, ?, ?)
+            """,
+            (
+                run["period_start"],
+                run["period_end"],
+                run["payout_date"],
+                label,
+                user.get("display_name"),
+                f"Revision of payroll run #{run_id}. Baseline created_at: {baseline_created_at}.",
+                ts,
+                run_id,
+                payload.revision_reason,
+            ),
+        )
         new_run_id = int(cur.lastrowid)
         for result in compute_payroll(conn, run["period_start"], run["period_end"]):
             data = item_dict(result)
@@ -137,10 +221,15 @@ def save_payroll_revision(run_id: int, payload: RevisionPayload, authorization: 
                 f"INSERT INTO payroll_items (payroll_run_id,{','.join(PAYROLL_ITEM_COLS)},created_at) VALUES ({','.join('?' for _ in values)})",
                 values,
             )
+        for change in change_rows:
+            conn.execute(
+                "INSERT OR IGNORE INTO payroll_revision_change_links(payroll_run_id, change_log_id, created_at) VALUES (?, ?, ?)",
+                (new_run_id, int(change["id"]), ts),
+            )
         conn.commit()
         new_run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (new_run_id,)) or {}
         new_run["totals"] = totals(conn, new_run_id)
-        return {"ok": True, "run": new_run, "mode": "revision_saved_from_current_schedule_actuals"}
+        return {"ok": True, "run": new_run, "linked_change_count": len(change_rows), "mode": "revision_saved_from_current_schedule_actuals"}
     except HTTPException:
         conn.rollback()
         raise
@@ -166,28 +255,13 @@ def undo_payroll_period_changes(
         from api.schedule_history_controls import ensure_history_schema
 
         ensure_history_schema(conn)
+        ensure_revision_schema(conn)
 
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
 
-        if not table_exists(conn, "schedule_change_logs"):
-            return {"ok": True, "run_id": run_id, "restored_changes": 0}
-
-        baseline_created_at, previous = revision_window(conn, run)
-        changes = fetchall(
-            conn,
-            """
-            SELECT *
-            FROM schedule_change_logs
-            WHERE date(work_date) BETWEEN date(?) AND date(?)
-              AND datetime(changed_at) > datetime(?)
-              AND undone_at IS NULL
-            ORDER BY id DESC
-            """,
-            (run["period_start"], run["period_end"], baseline_created_at),
-        )
-
+        changes, baseline_created_at, previous, mode = changes_for_run(conn, run)
         restored = 0
         for change in changes:
             entity_type = change["entity_type"]
@@ -205,57 +279,31 @@ def undo_payroll_period_changes(
                         conn.execute(
                             """
                             UPDATE scheduled_shifts
-                            SET employee_id=?,
-                                shift_date=?,
-                                start_time=?,
-                                end_time=?,
-                                position=?,
-                                department=?,
-                                break_minutes=?,
-                                status=?,
-                                notes=?,
-                                legacy_schedule_id=?,
-                                source=?,
-                                updated_at=CURRENT_TIMESTAMP
+                            SET employee_id=?, shift_date=?, start_time=?, end_time=?, position=?,
+                                department=?, break_minutes=?, status=?, notes=?, legacy_schedule_id=?,
+                                source=?, updated_at=CURRENT_TIMESTAMP
                             WHERE id=?
                             """,
                             (
-                                before.get("employee_id"),
-                                before.get("shift_date"),
-                                before.get("start_time"),
-                                before.get("end_time"),
-                                before.get("position") or "Other",
-                                before.get("department"),
-                                int(before.get("break_minutes") or 0),
-                                before.get("status") or "Draft",
-                                before.get("notes"),
-                                before.get("legacy_schedule_id"),
-                                before.get("source") or "planned",
-                                entity_id,
+                                before.get("employee_id"), before.get("shift_date"), before.get("start_time"),
+                                before.get("end_time"), before.get("position") or "Other", before.get("department"),
+                                int(before.get("break_minutes") or 0), before.get("status") or "Draft", before.get("notes"),
+                                before.get("legacy_schedule_id"), before.get("source") or "planned", entity_id,
                             ),
                         )
                     else:
                         conn.execute(
                             """
                             INSERT INTO scheduled_shifts(
-                                id, employee_id, shift_date, start_time, end_time,
-                                position, department, break_minutes, status, notes,
-                                legacy_schedule_id, source
+                                id, employee_id, shift_date, start_time, end_time, position,
+                                department, break_minutes, status, notes, legacy_schedule_id, source
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
-                                entity_id,
-                                before.get("employee_id"),
-                                before.get("shift_date"),
-                                before.get("start_time"),
-                                before.get("end_time"),
-                                before.get("position") or "Other",
-                                before.get("department"),
-                                int(before.get("break_minutes") or 0),
-                                before.get("status") or "Draft",
-                                before.get("notes"),
-                                before.get("legacy_schedule_id"),
-                                before.get("source") or "planned",
+                                entity_id, before.get("employee_id"), before.get("shift_date"), before.get("start_time"),
+                                before.get("end_time"), before.get("position") or "Other", before.get("department"),
+                                int(before.get("break_minutes") or 0), before.get("status") or "Draft", before.get("notes"),
+                                before.get("legacy_schedule_id"), before.get("source") or "planned",
                             ),
                         )
                     restored += 1
@@ -270,73 +318,35 @@ def undo_payroll_period_changes(
                         conn.execute(
                             """
                             UPDATE time_logs
-                            SET employee_id=?,
-                                work_date=?,
-                                actual_in=?,
-                                actual_out=?,
-                                source=?,
-                                verification_type=?,
-                                is_absent=?,
-                                absence_type=?,
-                                detected_ot_hours=?,
-                                approved_ot_hours=?,
-                                ot_status=?,
-                                attendance_status=?,
-                                reviewed_by=?,
-                                reviewed_at=?,
-                                notes=?,
-                                updated_at=CURRENT_TIMESTAMP
+                            SET employee_id=?, work_date=?, actual_in=?, actual_out=?, source=?,
+                                verification_type=?, is_absent=?, absence_type=?, detected_ot_hours=?,
+                                approved_ot_hours=?, ot_status=?, attendance_status=?, reviewed_by=?,
+                                reviewed_at=?, notes=?, updated_at=CURRENT_TIMESTAMP
                             WHERE id=?
                             """,
                             (
-                                before.get("employee_id"),
-                                before.get("work_date"),
-                                before.get("actual_in"),
-                                before.get("actual_out"),
-                                before.get("source") or "manual",
-                                before.get("verification_type") or "Manual",
-                                int(before.get("is_absent") or 0),
-                                before.get("absence_type"),
-                                float(before.get("detected_ot_hours") or 0),
-                                float(before.get("approved_ot_hours") or 0),
-                                before.get("ot_status") or "None",
-                                before.get("attendance_status") or "Pending",
-                                before.get("reviewed_by"),
-                                before.get("reviewed_at"),
-                                before.get("notes"),
-                                entity_id,
+                                before.get("employee_id"), before.get("work_date"), before.get("actual_in"), before.get("actual_out"),
+                                before.get("source") or "manual", before.get("verification_type") or "Manual", int(before.get("is_absent") or 0),
+                                before.get("absence_type"), float(before.get("detected_ot_hours") or 0), float(before.get("approved_ot_hours") or 0),
+                                before.get("ot_status") or "None", before.get("attendance_status") or "Pending", before.get("reviewed_by"),
+                                before.get("reviewed_at"), before.get("notes"), entity_id,
                             ),
                         )
                     else:
                         conn.execute(
                             """
                             INSERT INTO time_logs(
-                                id, employee_id, work_date, actual_in, actual_out,
-                                source, verification_type, is_absent, absence_type,
-                                detected_ot_hours, approved_ot_hours, ot_status,
-                                attendance_status, reviewed_by, reviewed_at, notes,
-                                created_at, updated_at
+                                id, employee_id, work_date, actual_in, actual_out, source, verification_type,
+                                is_absent, absence_type, detected_ot_hours, approved_ot_hours, ot_status,
+                                attendance_status, reviewed_by, reviewed_at, notes, created_at, updated_at
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
-                                entity_id,
-                                before.get("employee_id"),
-                                before.get("work_date"),
-                                before.get("actual_in"),
-                                before.get("actual_out"),
-                                before.get("source") or "manual",
-                                before.get("verification_type") or "Manual",
-                                int(before.get("is_absent") or 0),
-                                before.get("absence_type"),
-                                float(before.get("detected_ot_hours") or 0),
-                                float(before.get("approved_ot_hours") or 0),
-                                before.get("ot_status") or "None",
-                                before.get("attendance_status") or "Pending",
-                                before.get("reviewed_by"),
-                                before.get("reviewed_at"),
-                                before.get("notes"),
-                                before.get("created_at") or now_iso(conn),
-                                now_iso(conn),
+                                entity_id, before.get("employee_id"), before.get("work_date"), before.get("actual_in"), before.get("actual_out"),
+                                before.get("source") or "manual", before.get("verification_type") or "Manual", int(before.get("is_absent") or 0),
+                                before.get("absence_type"), float(before.get("detected_ot_hours") or 0), float(before.get("approved_ot_hours") or 0),
+                                before.get("ot_status") or "None", before.get("attendance_status") or "Pending", before.get("reviewed_by"),
+                                before.get("reviewed_at"), before.get("notes"), before.get("created_at") or now_iso(conn), now_iso(conn),
                             ),
                         )
                     restored += 1
@@ -355,8 +365,10 @@ def undo_payroll_period_changes(
             "ok": True,
             "run_id": run_id,
             "baseline_run_id": previous["id"] if previous else run_id,
+            "baseline_created_at": baseline_created_at,
             "restored_changes": restored,
             "mode": "schedule_actual_changes_undone_to_previous_run_state" if previous else "schedule_actual_changes_undone_to_saved_run_state",
+            "change_selection_mode": mode,
         }
     except HTTPException:
         conn.rollback()
