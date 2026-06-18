@@ -70,6 +70,10 @@ function actualTone(shift: Shift) {
   return styles.actualMissing;
 }
 
+function shiftIdentity(shift: Shift) {
+  return [shift.employee_id || "unassigned", shift.shift_date, shift.start_time, shift.end_time, shift.position || "Other"].join("|");
+}
+
 export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props) {
   const router = useRouter();
   const [dragId, setDragId] = useState<number | null>(null);
@@ -78,6 +82,11 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   const [editor, setEditor] = useState<{ day: string; shift: Shift | null; employeeId?: number | null } | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const visibleShifts = useMemo(() => {
+    const plannedKeys = new Set(shifts.filter((shift) => shift.id > 0).map(shiftIdentity));
+    return shifts.filter((shift) => shift.id > 0 || !plannedKeys.has(shiftIdentity(shift)));
+  }, [shifts]);
+
   const rows = useMemo(() => {
     const employeeRows = employees.map((employee) => ({
       id: employee.id,
@@ -85,20 +94,20 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
       department: employee.department || "",
       position: employee.position || "",
     }));
-    const hasUnassigned = shifts.some((shift) => !shift.employee_id);
+    const hasUnassigned = visibleShifts.some((shift) => !shift.employee_id);
     return hasUnassigned
       ? [...employeeRows, { id: null, name: "Unassigned", department: "", position: "" }]
       : employeeRows;
-  }, [employees, shifts]);
+  }, [employees, visibleShifts]);
 
   const shiftsByCell = useMemo(() => {
-    return shifts.reduce<Record<string, Shift[]>>((acc, shift) => {
+    return visibleShifts.reduce<Record<string, Shift[]>>((acc, shift) => {
       const key = `${shift.employee_id || "unassigned"}:${shift.shift_date}`;
       acc[key] ||= [];
       acc[key].push(shift);
       return acc;
     }, {});
-  }, [shifts]);
+  }, [visibleShifts]);
 
   function cellKey(employeeId: number | null, day: string) {
     return `${employeeId || "unassigned"}:${day}`;
@@ -106,7 +115,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
 
   function onDrop(day: string) {
     if (!canEdit || !dragId) return;
-    const source = shifts.find((item) => item.id === dragId);
+    const source = visibleShifts.find((item) => item.id === dragId);
     setOverDay(null);
     setDragId(null);
     if (!source || source.shift_date === day) return;
