@@ -10,6 +10,7 @@ from api.payroll_corrections import router as payroll_corrections_router
 from api.payroll_audit_events import router as payroll_audit_events_router
 from api.payroll_revision_controls import router as revision_controls_router
 from api.production_health import router as production_health_router
+from api.hr_records import router as hr_records_router
 from api.schedules import router as schedules_router
 from api.schedule_actuals import router as schedule_actuals_router
 from api.schedule_migration import router as schedule_migration_router
@@ -32,6 +33,7 @@ app.include_router(payroll_audit_events_router)
 app.include_router(schedule_migration_router)
 app.include_router(revision_controls_router)
 app.include_router(production_health_router)
+app.include_router(hr_records_router)
 app.include_router(schedules_router)
 app.include_router(schedule_actuals_router)
 app.include_router(users_router)
