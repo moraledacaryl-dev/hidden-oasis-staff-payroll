@@ -96,7 +96,11 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
     if (!currentShift?.id) return;
     if (!window.confirm("Delete this scheduled shift? Existing saved payroll runs will not change unless you save a revision.")) return;
     setBusy(true);
-    const response = await fetch(`/api/schedule/shifts/${currentShift.id}/delete`, { method: "POST" });
+    const response = await fetch("/api/schedule/day", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ section: "remove", shift_id: currentShift.id }),
+    });
     const data = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok || !data.ok) {
