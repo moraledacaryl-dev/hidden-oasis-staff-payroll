@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -10,6 +11,16 @@ from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
 
+REASON_CATEGORIES = {
+    "Staff request",
+    "Emergency absence",
+    "Coverage adjustment",
+    "Management instruction",
+    "Correction of error",
+    "Weather / operational issue",
+    "Other",
+}
+
 
 class PublishSchedulePayload(BaseModel):
     notes: str | None = None
@@ -19,12 +30,26 @@ class AcknowledgeSchedulePayload(BaseModel):
     notes: str | None = None
 
 
+class PublishedChangeFields(BaseModel):
+    change_reason: str | None = None
+    change_note: str | None = None
+    attachment_ref: str | None = None
+
+
 def require_user(authorization: str | None, x_api_key: str | None, allowed: set[str]) -> dict[str, Any]:
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
     if user.get("role_key") not in allowed:
         raise HTTPException(status_code=403, detail="Schedule access denied.")
     return user
+
+
+def week_start_for_date(value: str | date) -> str:
+    if isinstance(value, date):
+        d = value
+    else:
+        d = datetime.fromisoformat(str(value)[:10]).date()
+    return (d - timedelta(days=d.weekday())).isoformat()
 
 
 def ensure_schema(conn) -> None:
@@ -55,6 +80,32 @@ def ensure_schema(conn) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_ack_week ON schedule_acknowledgements(week_start)")
     conn.commit()
+
+
+def publication_for_date(conn, work_date: str | date) -> dict[str, Any] | None:
+    ensure_schema(conn)
+    return fetchone(conn, "SELECT * FROM schedule_publications WHERE week_start=? AND status='Published'", (week_start_for_date(work_date),))
+
+
+def published_change_meta(payload: Any) -> dict[str, str | None]:
+    return {
+        "reason_category": getattr(payload, "change_reason", None),
+        "reason_note": getattr(payload, "change_note", None),
+        "attachment_ref": getattr(payload, "attachment_ref", None),
+    }
+
+
+def require_change_reason_if_published(conn, work_date: str | date, payload: Any) -> None:
+    if not publication_for_date(conn, work_date):
+        return
+    reason = str(getattr(payload, "change_reason", "") or "").strip()
+    note = str(getattr(payload, "change_note", "") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Published schedule changes require a reason.")
+    if reason not in REASON_CATEGORIES:
+        raise HTTPException(status_code=422, detail="Invalid published schedule change reason.")
+    if reason == "Other" and not note:
+        raise HTTPException(status_code=422, detail="Published schedule changes marked Other require a note.")
 
 
 @router.get("/schedules/week/{week_start}/publication")
