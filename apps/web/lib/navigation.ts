@@ -27,6 +27,12 @@ export const navItems: NavItem[] = [
     roles: ["owner", "payroll", "supervisor"],
   },
   {
+    href: "/hr",
+    label: "HR Records",
+    description: "Leave, reviews, memos.",
+    roles: ["owner", "payroll", "supervisor", "staff"],
+  },
+  {
     href: "/payroll/runs",
     label: "Payroll Runs",
     description: "Run history.",
