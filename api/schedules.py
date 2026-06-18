@@ -94,6 +94,14 @@ def ensure_schema(conn) -> None:
     """)
     ensure_column(conn, "scheduled_shifts", "legacy_schedule_id", "INTEGER")
     ensure_column(conn, "scheduled_shifts", "source", "TEXT NOT NULL DEFAULT 'planned'")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS legacy_schedule_ignores (
+            legacy_schedule_id INTEGER PRIMARY KEY,
+            ignored_by TEXT,
+            ignored_at TEXT NOT NULL,
+            reason TEXT
+        )
+    """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_date ON scheduled_shifts(shift_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_shifts_employee ON scheduled_shifts(employee_id)")
     ensure_schedule_change_log_schema(conn)
@@ -225,10 +233,26 @@ def fetch_legacy_schedule_rows(conn, start: str, end: str) -> list[dict[str, Any
         ORDER BY s.{date_col}, s.{start_col}, {employee_order_expr}
     """, (start, end))
 
+    migrated_ids = {
+        int(row["legacy_schedule_id"])
+        for row in fetchall(conn, "SELECT legacy_schedule_id FROM scheduled_shifts WHERE legacy_schedule_id IS NOT NULL")
+        if row.get("legacy_schedule_id") is not None
+    }
+    ignored_ids: set[int] = set()
+    if table_exists(conn, "legacy_schedule_ignores"):
+        ignored_ids = {
+            int(row["legacy_schedule_id"])
+            for row in fetchall(conn, "SELECT legacy_schedule_id FROM legacy_schedule_ignores")
+            if row.get("legacy_schedule_id") is not None
+        }
+
     imported: list[dict[str, Any]] = []
     for row in rows:
         data = dict(row)
-        data["id"] = -int(data.get("legacy_id") or 0)
+        legacy_id = int(data.get("legacy_id") or 0)
+        if legacy_id in migrated_ids or legacy_id in ignored_ids:
+            continue
+        data["id"] = -legacy_id
         data["source"] = "imported"
         data["movable"] = False
         data["position"] = data.get("position") or "Other"
