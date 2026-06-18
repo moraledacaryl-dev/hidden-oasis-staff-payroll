@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
+import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
 import { currentSession } from "@/lib/session";
 
 type ProductionHealth = {
@@ -16,8 +18,20 @@ type ProductionHealth = {
   mode?: string;
 };
 
+function apiBaseUrl(): string {
+  return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
+}
+
 async function getProductionHealth(): Promise<ProductionHealth> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ""}/api/production/health`, { cache: "no-store" });
+  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
+  if (!token) return { ok: false };
+  const res = await fetch(`${apiBaseUrl()}/api/v1/production/health`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
+    },
+    cache: "no-store",
+  });
   if (!res.ok) return { ok: false };
   return res.json();
 }
