@@ -19,7 +19,8 @@ export default async function ScheduleChangesPage({ params }: { params: Promise<
   }
   const { id } = await params;
   const runId = Number(id);
-  const [review, delta] = await Promise.all([getPayrollRunReview(runId), getPayrollRunChangeDelta(runId)]);
+  const [review, rawDelta] = await Promise.all([getPayrollRunReview(runId), getPayrollRunChangeDelta(runId)]);
+  const delta = rawDelta as typeof rawDelta & { baseline_run_id?: number | null; mode?: string };
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
       <div className="page">
@@ -43,18 +44,21 @@ export default async function ScheduleChangesPage({ params }: { params: Promise<
           <div className="table-wrap"><table>
             <thead><tr><th>ID</th><th>Date</th><th>Employee</th><th>Type</th><th>Entity</th><th>By</th><th>At</th><th>Undone</th></tr></thead>
             <tbody>
-              {delta.changes.map((change) => (
-                <tr key={change.id} title={`Before: ${shortJson(change.before_json)}\nAfter: ${shortJson(change.after_json)}`}>
-                  <td>{change.id}</td>
-                  <td>{change.work_date || "—"}</td>
-                  <td>{change.employee_id || "—"}</td>
-                  <td>{change.change_type}</td>
-                  <td>{change.entity_type} #{change.entity_id || "—"}</td>
-                  <td>{change.changed_by || "—"}</td>
-                  <td>{change.changed_at}</td>
-                  <td>{change.undone_at || "No"}</td>
-                </tr>
-              ))}
+              {delta.changes.map((change) => {
+                const detail = change as typeof change & { before_json?: string | null; after_json?: string | null };
+                return (
+                  <tr key={change.id} title={`Before: ${shortJson(detail.before_json)}\nAfter: ${shortJson(detail.after_json)}`}>
+                    <td>{change.id}</td>
+                    <td>{change.work_date || "—"}</td>
+                    <td>{change.employee_id || "—"}</td>
+                    <td>{change.change_type}</td>
+                    <td>{change.entity_type} #{change.entity_id || "—"}</td>
+                    <td>{change.changed_by || "—"}</td>
+                    <td>{change.changed_at}</td>
+                    <td>{change.undone_at || "No"}</td>
+                  </tr>
+                );
+              })}
               {delta.changes.length === 0 ? <tr><td colSpan={8}>No schedule/actual changes found for this run window.</td></tr> : null}
             </tbody>
           </table></div>
