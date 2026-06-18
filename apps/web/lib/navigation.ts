@@ -10,20 +10,32 @@ export type NavItem = {
 export const navItems: NavItem[] = [
   {
     href: "/",
-    label: "Command Center",
-    description: "Payroll status.",
+    label: "Dashboard",
+    description: "Overview.",
     roles: ["owner", "payroll", "supervisor"],
   },
   {
     href: "/cutoff",
     label: "Cutoff Control",
-    description: "Save and review.",
-    roles: ["owner", "payroll", "supervisor"],
+    description: "Review cycle.",
+    roles: ["owner", "payroll"],
   },
   {
     href: "/schedule",
     label: "Schedule",
     description: "Weekly board.",
+    roles: ["owner", "payroll", "supervisor"],
+  },
+  {
+    href: "/attendance",
+    label: "Attendance Review",
+    description: "Exceptions and OT.",
+    roles: ["owner", "supervisor"],
+  },
+  {
+    href: "/payslips",
+    label: "Payslip Distribution",
+    description: "Print and release.",
     roles: ["owner", "payroll", "supervisor"],
   },
   {
@@ -33,9 +45,33 @@ export const navItems: NavItem[] = [
     roles: ["owner", "payroll", "supervisor", "staff"],
   },
   {
+    href: "/staff",
+    label: "Staff Directory",
+    description: "Employee profiles.",
+    roles: ["owner", "payroll", "supervisor"],
+  },
+  {
+    href: "/reports",
+    label: "Reports",
+    description: "Summaries.",
+    roles: ["owner", "payroll", "supervisor"],
+  },
+  {
     href: "/payroll/runs",
     label: "Payroll Runs",
     description: "Run history.",
+    roles: ["owner", "payroll"],
+  },
+  {
+    href: "/payroll",
+    label: "Payroll Preview",
+    description: "Cutoff totals.",
+    roles: ["owner", "payroll"],
+  },
+  {
+    href: "/controls",
+    label: "System Controls",
+    description: "Operations.",
     roles: ["owner", "payroll"],
   },
   {
@@ -45,64 +81,22 @@ export const navItems: NavItem[] = [
     roles: ["owner"],
   },
   {
-    href: "/launch",
-    label: "Launch Check",
-    description: "Health checks.",
-    roles: ["owner"],
-  },
-  {
-    href: "/controls",
-    label: "Controls",
-    description: "Shortcuts.",
-    roles: ["owner", "payroll"],
-  },
-  {
-    href: "/me",
-    label: "My Portal",
-    description: "Staff view.",
-    roles: ["staff"],
-  },
-  {
-    href: "/staff",
-    label: "Staff",
-    description: "Directory.",
-    roles: ["owner", "payroll", "supervisor"],
-  },
-  {
-    href: "/supervisor",
-    label: "Supervisor",
-    description: "Action queue.",
-    roles: ["owner", "supervisor"],
-  },
-  {
-    href: "/payroll",
-    label: "Payroll Preview",
-    description: "Cutoff totals.",
-    roles: ["owner", "payroll"],
-  },
-  {
-    href: "/owner",
-    label: "Owner",
-    description: "Approval view.",
-    roles: ["owner"],
-  },
-  {
-    href: "/reports",
-    label: "Reports",
-    description: "Summaries.",
-    roles: ["owner", "payroll"],
-  },
-  {
     href: "/settings",
     label: "Settings",
-    description: "System tools.",
+    description: "Configuration.",
     roles: ["owner"],
   },
   {
     href: "/settings/password",
-    label: "Password",
-    description: "Change password.",
+    label: "Account",
+    description: "Password.",
     roles: ["owner", "payroll", "supervisor", "staff"],
+  },
+  {
+    href: "/me",
+    label: "My Dashboard",
+    description: "Staff portal.",
+    roles: ["staff"],
   },
 ];
 
