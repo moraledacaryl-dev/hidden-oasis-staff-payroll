@@ -18,7 +18,7 @@ export const navItems: NavItem[] = [
     href: "/cutoff",
     label: "Cutoff Control",
     description: "Review cycle.",
-    roles: ["owner", "payroll"],
+    roles: ["owner", "payroll", "supervisor"],
   },
   {
     href: "/schedule",
@@ -28,14 +28,8 @@ export const navItems: NavItem[] = [
   },
   {
     href: "/attendance",
-    label: "Attendance Review",
-    description: "Exceptions and OT.",
-    roles: ["owner", "supervisor"],
-  },
-  {
-    href: "/attendance/compliance",
-    label: "Attendance Compliance",
-    description: "Monthly infractions and memos.",
+    label: "Attendance",
+    description: "Review and compliance.",
     roles: ["owner", "supervisor"],
   },
   {

@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from api.payroll_drafts import must_be_payroll_user
+from api.main import current_user_from_token, require_api_key
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -28,6 +28,30 @@ class CashAdvancePayload(BaseModel):
 
 def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
+
+
+def require_cash_advance_viewer(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    require_api_key(x_api_key)
+    user = current_user_from_token(authorization)
+    if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
+        raise HTTPException(status_code=403, detail="Cash advances require owner, payroll, or supervisor role.")
+    return user
+
+
+def require_cash_advance_creator(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    require_api_key(x_api_key)
+    user = current_user_from_token(authorization)
+    if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
+        raise HTTPException(status_code=403, detail="Only owner, payroll, or supervisor can input cash advances.")
+    return user
+
+
+def require_cash_advance_editor(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    require_api_key(x_api_key)
+    user = current_user_from_token(authorization)
+    if user.get("role_key") not in {"owner", "payroll"}:
+        raise HTTPException(status_code=403, detail="Only owner or payroll can edit existing cash advances.")
+    return user
 
 
 def ensure_schema(conn) -> None:
@@ -70,7 +94,7 @@ def list_cash_advances(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    must_be_payroll_user(authorization, x_api_key)
+    require_cash_advance_viewer(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
@@ -94,7 +118,7 @@ def save_cash_advance(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
+    user = require_cash_advance_editor(authorization, x_api_key) if payload.id else require_cash_advance_creator(authorization, x_api_key)
     status = normalize_status(payload.status)
     conn = get_conn(DB_PATH)
     try:

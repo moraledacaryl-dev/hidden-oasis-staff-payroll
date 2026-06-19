@@ -32,20 +32,14 @@ async function authHeaders(): Promise<HeadersInit> {
 }
 
 async function loadAdvances(): Promise<Advance[]> {
-  const response = await fetch(`${apiBaseUrl()}/api/v1/cash-advances`, {
-    headers: await authHeaders(),
-    cache: "no-store",
-  });
+  const response = await fetch(`${apiBaseUrl()}/api/v1/cash-advances`, { headers: await authHeaders(), cache: "no-store" });
   if (!response.ok) return [];
   const data = await response.json().catch(() => ({}));
   return data.items || [];
 }
 
 async function loadEmployees(): Promise<Employee[]> {
-  const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/employees`, {
-    headers: await authHeaders(),
-    cache: "no-store",
-  });
+  const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/employees`, { headers: await authHeaders(), cache: "no-store" });
   if (!response.ok) return [];
   const data = await response.json().catch(() => ({}));
   return data.items || [];
@@ -55,22 +49,23 @@ export default async function CashAdvancesPage() {
   const session = await currentSession();
   if (!session) redirect("/login");
 
-  if (!["owner", "payroll"].includes(session.role_key)) {
-    return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
+  if (!["owner", "payroll", "supervisor"].includes(session.role_key)) {
+    return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div /></Shell>;
   }
 
+  const canEditExisting = ["owner", "payroll"].includes(session.role_key);
   const [advances, employees] = await Promise.all([loadAdvances(), loadEmployees()]);
   const active = advances.filter((item) => item.status === "Active");
   const totalBalance = active.reduce((sum, item) => sum + Number(item.remaining_balance || 0), 0);
 
   return (
-    <Shell allowedRoles={["owner", "payroll"]}>
+    <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className="page">
         <header className="page-header">
           <div className="grid">
             <span className="eyebrow">Cash Advances</span>
             <h1>Employee advances</h1>
-            <p className="muted">Add old balances, correct mistakes, and track remaining balances.</p>
+            <p className="muted">{canEditExisting ? "Add old balances, correct mistakes, and track remaining balances." : "Input new cash advances. Existing records are owner/payroll locked."}</p>
           </div>
           <StatusBadge label={`${active.length} active`} tone={active.length ? "warning" : "ok"} />
         </header>
@@ -82,37 +77,15 @@ export default async function CashAdvancesPage() {
         </section>
 
         <section className="card">
-          <div className="panel-title">
-            <div>
-              <h2>Add or correct record</h2>
-              <p className="muted">Past cash advance records are editable in case of mistakes.</p>
-            </div>
-          </div>
+          <div className="panel-title"><div><h2>Add cash advance</h2><p className="muted">Supervisors can input new records. Only owner/payroll can correct existing records.</p></div></div>
           <CashAdvanceForm employees={employees} />
         </section>
 
         <section className="card">
-          <div className="panel-title">
-            <div>
-              <h2>Advance ledger</h2>
-              <p className="muted">Owner/payroll only.</p>
-            </div>
-          </div>
-
+          <div className="panel-title"><div><h2>Advance ledger</h2><p className="muted">Historical and active balances.</p></div></div>
           <div className="table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Employee</th>
-                  <th>Amount</th>
-                  <th>Deduction</th>
-                  <th>Balance</th>
-                  <th>Status</th>
-                  <th>Reason</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Date</th><th>Employee</th><th>Amount</th><th>Deduction</th><th>Balance</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead>
               <tbody>
                 {advances.map((item) => (
                   <tr key={item.id}>
@@ -123,7 +96,7 @@ export default async function CashAdvancesPage() {
                     <td>{peso(item.remaining_balance)}</td>
                     <td>{item.status}</td>
                     <td>{item.reason || "—"}</td>
-                    <td><CashAdvanceForm employees={employees} item={item} /></td>
+                    <td><CashAdvanceForm employees={employees} item={item} canEditExisting={canEditExisting} /></td>
                   </tr>
                 ))}
                 {advances.length === 0 ? <tr><td colSpan={8}>No cash advances recorded yet.</td></tr> : null}

@@ -18,11 +18,23 @@ type Advance = {
   notes?: string | null;
 };
 
-export function CashAdvanceForm({ employees, item = null }: { employees: Employee[]; item?: Advance | null }) {
+export function CashAdvanceForm({
+  employees,
+  item = null,
+  canEditExisting = false,
+}: {
+  employees: Employee[];
+  item?: Advance | null;
+  canEditExisting?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(!item);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+
+  if (item && !canEditExisting) {
+    return <span className="muted">Owner/payroll only</span>;
+  }
 
   async function submit(formData: FormData) {
     setBusy(true);
@@ -70,36 +82,22 @@ export function CashAdvanceForm({ employees, item = null }: { employees: Employe
         Employee
         <select name="employee_id" defaultValue={item?.employee_id || ""} required>
           <option value="">Select employee</option>
-          {employees.map((employee) => (
-            <option key={employee.id} value={employee.id}>{employee.full_name}</option>
-          ))}
+          {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}
         </select>
       </label>
-
       <label>Date<input name="advance_date" type="date" defaultValue={(item?.advance_date || "").slice(0, 10)} required /></label>
       <label>Amount<input name="amount" type="number" min="0" step="0.01" defaultValue={item?.amount ?? ""} required /></label>
       <label>Deduction / payroll<input name="deduction_per_payroll" type="number" min="0" step="0.01" defaultValue={item?.deduction_per_payroll ?? 0} /></label>
       <label>Remaining balance<input name="remaining_balance" type="number" min="0" step="0.01" defaultValue={item?.remaining_balance ?? item?.amount ?? 0} /></label>
-
-      <label>
-        Status
-        <select name="status" defaultValue={item?.status || "Active"}>
-          <option>Active</option>
-          <option>Fully Paid</option>
-          <option>Cancelled</option>
-        </select>
-      </label>
-
+      <label>Status<select name="status" defaultValue={item?.status || "Active"}><option>Active</option><option>Fully Paid</option><option>Cancelled</option></select></label>
       <label>Approved by<input name="approved_by" defaultValue={item?.approved_by || ""} /></label>
       <label>Repayment method<input name="repayment_method" defaultValue={item?.repayment_method || "Payroll deduction"} /></label>
       <label>Reason<input name="reason" defaultValue={item?.reason || ""} /></label>
       <label>Notes<input name="notes" defaultValue={item?.notes || ""} /></label>
-
       <div className="badge-row">
         <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save"}</button>
         {item ? <button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button> : null}
       </div>
-
       {message ? <p className="footer-note">{message}</p> : null}
     </form>
   );
