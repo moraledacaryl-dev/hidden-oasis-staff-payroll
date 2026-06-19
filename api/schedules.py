@@ -75,6 +75,34 @@ def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
 
+def minutes_late_from_times(start_time: str | None, actual_in: str | None) -> int | None:
+    if not start_time or not actual_in:
+        return None
+    try:
+        start_h, start_m = [int(part) for part in str(start_time).split(":")[:2]]
+        in_h, in_m = [int(part) for part in str(actual_in).split(":")[:2]]
+    except Exception:
+        return None
+    scheduled_minutes = start_h * 60 + start_m
+    actual_minutes = in_h * 60 + in_m
+    diff = actual_minutes - scheduled_minutes
+    return diff if diff > 0 else 0
+
+
+def attendance_status_from_schedule(start_time: str | None, actual_in: str | None, fallback: str = "Pending") -> str:
+    minutes = minutes_late_from_times(start_time, actual_in)
+    if minutes is None:
+        return fallback
+    if minutes <= 0:
+        return "ON-TIME"
+    if minutes <= 5:
+        return "Grace Period"
+    if minutes > 30:
+        return "Partial Absence"
+    return "LATE"
+
+
+
 def table_columns(conn, table: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
@@ -594,7 +622,7 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
     user = require_schedule_editor(authorization, x_api_key)
     shift_date = payload.shift_date.isoformat()
     status_value = payload.attendance_status.strip() or "Pending"
-    if status_value not in {"Pending", "Approved", "Needs Review", "Needs Correction", "Rejected"}:
+    if status_value not in {"Pending", "Approved", "Needs Review", "Needs Correction", "Rejected", "ON-TIME", "Grace Period", "LATE", "Partial Absence"}:
         raise HTTPException(status_code=422, detail="Invalid attendance status.")
     conn = get_conn(DB_PATH)
     try:
@@ -602,6 +630,13 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
         if not employee_exists(conn, payload.employee_id):
             raise HTTPException(status_code=404, detail="Employee not found.")
         timestamp = now_iso()
+        shift = fetch_shift(conn, None, payload.employee_id, shift_date)
+        if status_value in {"Pending", "ON-TIME", "Grace Period", "LATE", "Partial Absence"}:
+            status_value = attendance_status_from_schedule(
+                str(shift.get("start_time") or "") if shift else None,
+                payload.actual_in,
+                fallback=status_value,
+            )
         existing = fetch_time_log(conn, payload.employee_id, shift_date)
         before = dict(existing) if existing else None
         if existing:
