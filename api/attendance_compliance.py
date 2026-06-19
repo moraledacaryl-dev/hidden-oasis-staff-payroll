@@ -47,6 +47,53 @@ def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
 
+
+def minutes_late_from_times(start_time: str | None, actual_in: str | None) -> int | None:
+
+    if not start_time or not actual_in:
+
+        return None
+
+    try:
+
+        start_h, start_m = [int(part) for part in str(start_time).split(":")[:2]]
+
+        in_h, in_m = [int(part) for part in str(actual_in).split(":")[:2]]
+
+    except Exception:
+
+        return None
+
+    scheduled_minutes = start_h * 60 + start_m
+
+    actual_minutes = in_h * 60 + in_m
+
+    diff = actual_minutes - scheduled_minutes
+
+    return diff if diff > 0 else 0
+
+def classify_late_minutes(minutes_late: int | None) -> str:
+
+    if minutes_late is None:
+
+        return "Missing"
+
+    if minutes_late <= 0:
+
+        return "ON-TIME"
+
+    if minutes_late <= 5:
+
+        return "Grace Period"
+
+    if minutes_late > 30:
+
+        return "Partial Absence"
+
+    return "LATE"
+
+
+
 def table_columns(conn, table: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
