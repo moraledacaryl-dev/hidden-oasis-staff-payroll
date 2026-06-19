@@ -83,6 +83,78 @@ def table_exists(conn, table: str) -> bool:
     return bool(row and int(row[0] or 0) > 0)
 
 
+def quote_ident(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def first_existing(cols: set[str], names: list[str]) -> str | None:
+    for name in names:
+        if name in cols:
+            return name
+    return None
+
+
+def sql_value_expr(cols: set[str], names: list[str], fallback: str, alias: str) -> str:
+    col = first_existing(cols, names)
+    return f"s.{quote_ident(col)} AS {alias}" if col else f"{fallback} AS {alias}"
+
+
+def fetch_compliance_shifts(conn, period_start: str, period_end: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+
+    if table_exists(conn, "scheduled_shifts"):
+        rows.extend(fetchall(
+            conn,
+            """
+            SELECT id, employee_id, shift_date, start_time, end_time, 'scheduled_shifts' AS schedule_source
+            FROM scheduled_shifts
+            WHERE employee_id IS NOT NULL
+              AND date(shift_date) BETWEEN date(?) AND date(?)
+            ORDER BY shift_date, start_time
+            """,
+            (period_start, period_end),
+        ))
+
+    if not table_exists(conn, "schedules"):
+        return rows
+
+    cols = table_columns(conn, "schedules")
+    date_col = first_existing(cols, ["work_date", "shift_date", "date", "schedule_date"])
+    start_col = first_existing(cols, ["shift_start", "start_time", "time_in", "scheduled_in"])
+    end_col = first_existing(cols, ["shift_end", "end_time", "time_out", "scheduled_out"])
+
+    if not date_col or not start_col or not end_col or "employee_id" not in cols:
+        return rows
+
+    joins: list[str] = []
+    where_parts = [f"date(s.{quote_ident(date_col)}) BETWEEN date(?) AND date(?)"]
+
+    if table_exists(conn, "scheduled_shifts") and "legacy_schedule_id" in table_columns(conn, "scheduled_shifts"):
+        joins.append("LEFT JOIN scheduled_shifts ss ON ss.legacy_schedule_id = s.id")
+        where_parts.append("ss.id IS NULL")
+
+    if table_exists(conn, "legacy_schedule_ignores"):
+        joins.append("LEFT JOIN legacy_schedule_ignores lsi ON lsi.legacy_schedule_id = s.id")
+        where_parts.append("lsi.legacy_schedule_id IS NULL")
+
+    sql = f"""
+        SELECT
+            -s.id AS id,
+            s.employee_id AS employee_id,
+            s.{quote_ident(date_col)} AS shift_date,
+            s.{quote_ident(start_col)} AS start_time,
+            s.{quote_ident(end_col)} AS end_time,
+            'legacy_schedules' AS schedule_source
+        FROM schedules s
+        {' '.join(joins)}
+        WHERE {' AND '.join(where_parts)}
+        ORDER BY s.{quote_ident(date_col)}, s.{quote_ident(start_col)}
+    """
+
+    rows.extend(fetchall(conn, sql, (period_start, period_end)))
+    return rows
+
+
 def ensure_column(conn, table: str, column: str, definition: str) -> None:
     if table_exists(conn, table) and column not in table_columns(conn, table):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
@@ -204,17 +276,7 @@ def attendance_compliance(
             ORDER BY COALESCE(department, ''), full_name
             """,
         )
-        shifts = fetchall(
-            conn,
-            """
-            SELECT id, employee_id, shift_date, start_time, end_time
-            FROM scheduled_shifts
-            WHERE employee_id IS NOT NULL
-              AND date(shift_date) BETWEEN date(?) AND date(?)
-            ORDER BY shift_date, start_time
-            """,
-            (period_start, period_end),
-        ) if table_exists(conn, "scheduled_shifts") else []
+        shifts = fetch_compliance_shifts(conn, period_start, period_end)
         actuals = fetchall(
             conn,
             """

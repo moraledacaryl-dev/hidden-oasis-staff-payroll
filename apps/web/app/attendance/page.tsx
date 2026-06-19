@@ -85,12 +85,10 @@ export default async function AttendancePage({
   });
 
   const memos = compliance.memos || [];
-
   const lateCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.late_infractions || 0), 0);
   const graceCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.grace_periods || 0), 0);
   const partialCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.partial_absences || 0), 0);
-  const unexcusedCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.unexcused_absences || 0), 0);
-  const awolCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.awol || 0), 0);
+  const absenceCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.approved_absences || 0) + Number(item.unexcused_absences || 0) + Number(item.awol || 0), 0);
   const actionCount = complianceItems.filter((item: any) => item.handbook_action !== "No handbook action required").length;
 
   return (
@@ -100,9 +98,7 @@ export default async function AttendancePage({
           <div className="grid">
             <span className="eyebrow">Attendance</span>
             <h1>{month}</h1>
-            <p className="muted">
-              Monthly compliance and staff attendance performance. Payroll cutoff is separate.
-            </p>
+            <p className="muted">Monthly compliance from old schedules + actual attendance logs. Payroll cutoff is separate.</p>
           </div>
           <StatusBadge label={actionCount ? `${actionCount} action needed` : "clear"} tone={actionCount ? "warning" : "ok"} />
         </header>
@@ -111,43 +107,30 @@ export default async function AttendancePage({
           <Link className="primary-link" href={`/attendance?month=${moveMonth(month, -1)}`}>Previous month</Link>
           <Link className="primary-link" href={`/attendance?month=${moveMonth(month, 1)}`}>Next month</Link>
           <Link className="primary-link" href={`/attendance?month=${defaultMonth()}`}>Current month</Link>
-          <Link className="primary-link" href="/schedule">Fix actual logs in Schedule</Link>
+          <Link className="primary-link" href="/schedule">Correct logs in Schedule</Link>
         </section>
 
         <form className="card" action="/attendance">
           <div className="form-grid">
-            <label>
-              Month
-              <input name="month" type="month" defaultValue={month} />
-            </label>
-            <label>
-              Staff search
-              <input name="employee" placeholder="Search employee name" defaultValue={params.employee || ""} />
-            </label>
-            <label>
-              Staff ID for 12-month history
-              <input name="employee_id" placeholder="Employee ID" defaultValue={employeeId} />
-            </label>
+            <label>Month<input name="month" type="month" defaultValue={month} /></label>
+            <label>Staff search<input name="employee" placeholder="Search employee name" defaultValue={params.employee || ""} /></label>
+            <label>Staff ID for 12-month history<input name="employee_id" placeholder="Employee ID" defaultValue={employeeId} /></label>
           </div>
-          <div className="badge-row">
-            <button className="primary-button" type="submit">View attendance</button>
-          </div>
+          <div className="badge-row"><button className="primary-button" type="submit">View attendance</button></div>
         </form>
 
         <section className="grid cols-4">
           <div className="card"><strong>{lateCount}</strong><p className="muted">Late infractions</p></div>
           <div className="card"><strong>{graceCount}</strong><p className="muted">Grace periods</p></div>
           <div className="card"><strong>{partialCount}</strong><p className="muted">Partial absences</p></div>
-          <div className="card"><strong>{unexcusedCount + awolCount}</strong><p className="muted">Unexcused / AWOL</p></div>
+          <div className="card"><strong>{absenceCount}</strong><p className="muted">Absences / leaves / AWOL</p></div>
         </section>
 
         <section className="card">
           <div className="panel-title">
             <div>
               <h2>Monthly Compliance</h2>
-              <p className="muted">
-                {periodStart} to {periodEnd}. Lates are computed from scheduled start versus actual in.
-              </p>
+              <p className="muted">{periodStart} to {periodEnd}. Lates are computed from scheduled start versus actual in.</p>
             </div>
           </div>
 
@@ -161,9 +144,8 @@ export default async function AttendancePage({
                   <th>Grace</th>
                   <th>Lates</th>
                   <th>Partial</th>
-                  <th>Unexcused</th>
-                  <th>AWOL</th>
-                  <th>Approved</th>
+                  <th>Absences</th>
+                  <th>Details</th>
                   <th>Handbook action</th>
                   <th>Memo</th>
                 </tr>
@@ -174,18 +156,41 @@ export default async function AttendancePage({
                     <td>
                       <strong>{item.full_name}</strong>
                       <br />
-                      <span className="muted">
-                        {item.employee_code || "—"} · {item.department || "—"} · ID {item.employee_id}
-                      </span>
+                      <span className="muted">{item.employee_code || "—"} · {item.department || "—"} · ID {item.employee_id}</span>
                     </td>
                     <td>{Number(item.scheduled_shifts || 0)}</td>
                     <td>{Number(item.missing_logs || 0)}</td>
                     <td>{Number(item.grace_periods || 0)}</td>
                     <td>{Number(item.late_infractions || 0)}</td>
                     <td>{Number(item.partial_absences || 0)}</td>
-                    <td>{Number(item.unexcused_absences || 0)}</td>
-                    <td>{Number(item.awol || 0)}</td>
-                    <td>{Number(item.approved_absences || 0)}</td>
+                    <td>
+                      Approved: {Number(item.approved_absences || 0)}
+                      <br />Unexcused: {Number(item.unexcused_absences || 0)}
+                      <br />AWOL: {Number(item.awol || 0)}
+                    </td>
+                    <td>
+                      {(item.late_details || []).length ? (
+                        <div>
+                          <strong>Lates</strong>
+                          {(item.late_details || []).map((late: any) => (
+                            <div key={`${late.date}-${late.actual_in}`} className="muted">
+                              {late.date}: {late.scheduled_start} → {late.actual_in} ({late.minutes_late} min, {late.status})
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {(item.absence_details || []).length ? (
+                        <div>
+                          <strong>Absences</strong>
+                          {(item.absence_details || []).map((absence: any) => (
+                            <div key={`${absence.date}-${absence.type}`} className="muted">
+                              {absence.date}: {absence.type}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {!(item.late_details || []).length && !(item.absence_details || []).length ? <span className="muted">—</span> : null}
+                    </td>
                     <td>
                       <strong>{item.handbook_action}</strong>
                       <br />
@@ -199,15 +204,11 @@ export default async function AttendancePage({
                           periodMonth={month}
                           suggestedAction={String(item.handbook_action || "Attendance infraction")}
                         />
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
+                      ) : <span className="muted">—</span>}
                     </td>
                   </tr>
                 ))}
-                {complianceItems.length === 0 ? (
-                  <tr><td colSpan={12}>No monthly attendance records found.</td></tr>
-                ) : null}
+                {complianceItems.length === 0 ? <tr><td colSpan={10}>No monthly attendance records found.</td></tr> : null}
               </tbody>
             </table>
           </div>
@@ -221,30 +222,15 @@ export default async function AttendancePage({
                 <p className="muted">{performance.employee?.full_name || "Selected employee"}</p>
               </div>
             </div>
-
             <section className="grid cols-4">
               <div className="card"><strong>{performance.totals?.late_infractions || 0}</strong><p className="muted">Total lates</p></div>
               <div className="card"><strong>{performance.totals?.grace_periods || 0}</strong><p className="muted">Grace periods</p></div>
               <div className="card"><strong>{performance.totals?.unexcused_absences || 0}</strong><p className="muted">Unexcused absences</p></div>
               <div className="card"><strong>{performance.totals?.awol || 0}</strong><p className="muted">AWOL</p></div>
             </section>
-
             <div className="table-wrap">
               <table>
-                <thead>
-                  <tr>
-                    <th>Month</th>
-                    <th>Scheduled</th>
-                    <th>Missing</th>
-                    <th>Grace</th>
-                    <th>Lates</th>
-                    <th>Partial</th>
-                    <th>Unexcused</th>
-                    <th>AWOL</th>
-                    <th>Approved</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>Month</th><th>Scheduled</th><th>Missing</th><th>Grace</th><th>Lates</th><th>Partial</th><th>Unexcused</th><th>AWOL</th><th>Approved</th><th>Action</th></tr></thead>
                 <tbody>
                   {(performance.months || []).map((row: any) => (
                     <tr key={row.month}>
@@ -273,29 +259,14 @@ export default async function AttendancePage({
               <p className="muted">Attendance memos issued for the selected month.</p>
             </div>
           </div>
-
           <div className="table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>Issued</th>
-                  <th>Employee</th>
-                  <th>Type</th>
-                  <th>Level</th>
-                  <th>Status</th>
-                  <th>Reason</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Issued</th><th>Employee</th><th>Type</th><th>Level</th><th>Status</th><th>Reason</th><th>Notes</th></tr></thead>
               <tbody>
                 {memos.map((memo: any) => (
                   <tr key={memo.id}>
                     <td>{memo.issued_at || memo.created_at || "—"}</td>
-                    <td>
-                      <strong>{memo.full_name || "—"}</strong>
-                      <br />
-                      <span className="muted">{memo.employee_code || "—"} · {memo.department || "—"}</span>
-                    </td>
+                    <td><strong>{memo.full_name || "—"}</strong><br /><span className="muted">{memo.employee_code || "—"} · {memo.department || "—"}</span></td>
                     <td>{memo.memo_type}</td>
                     <td>{memo.memo_level}</td>
                     <td>{memo.status}</td>
@@ -303,9 +274,7 @@ export default async function AttendancePage({
                     <td>{memo.notes || "—"}</td>
                   </tr>
                 ))}
-                {memos.length === 0 ? (
-                  <tr><td colSpan={7}>No attendance memos for this month.</td></tr>
-                ) : null}
+                {memos.length === 0 ? <tr><td colSpan={7}>No attendance memos for this month.</td></tr> : null}
               </tbody>
             </table>
           </div>
