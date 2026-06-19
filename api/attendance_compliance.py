@@ -49,49 +49,29 @@ def now_iso() -> str:
 
 
 def minutes_late_from_times(start_time: str | None, actual_in: str | None) -> int | None:
-
     if not start_time or not actual_in:
-
         return None
-
     try:
-
-        start_h, start_m = [int(part) for part in str(start_time).split(":")[:2]]
-
-        in_h, in_m = [int(part) for part in str(actual_in).split(":")[:2]]
-
+        start_h, start_m = [int(part) for part in str(start_time)[:5].split(":")[:2]]
+        in_h, in_m = [int(part) for part in str(actual_in)[:5].split(":")[:2]]
     except Exception:
-
         return None
-
     scheduled_minutes = start_h * 60 + start_m
-
     actual_minutes = in_h * 60 + in_m
-
     diff = actual_minutes - scheduled_minutes
-
     return diff if diff > 0 else 0
 
+
 def classify_late_minutes(minutes_late: int | None) -> str:
-
     if minutes_late is None:
-
         return "Missing"
-
     if minutes_late <= 0:
-
         return "ON-TIME"
-
     if minutes_late <= 5:
-
         return "Grace Period"
-
     if minutes_late > 30:
-
         return "Partial Absence"
-
     return "LATE"
-
 
 
 def table_columns(conn, table: str) -> set[str]:
@@ -284,6 +264,7 @@ def attendance_compliance(
                 "scheduled_shifts": 0,
                 "missing_logs": 0,
                 "late_infractions": 0,
+                "grace_periods": 0,
                 "partial_absences": 0,
                 "unexcused_absences": 0,
                 "awol": 0,
@@ -291,6 +272,8 @@ def attendance_compliance(
                 "year_unexcused_infractions": year_counts.get(employee_id, 0),
                 "latest_notice": None,
                 "latest_evidence": None,
+                "late_details": [],
+                "absence_details": [],
             }
 
         for shift in shifts:
@@ -304,21 +287,55 @@ def attendance_compliance(
             if not actual:
                 item["missing_logs"] += 1
                 continue
-            absence_type = str(actual.get("absence_type") or "")
-            if int(actual.get("is_absent") or 0):
-                if absence_type == "Unexcused Absence":
+            absence_type = str(actual.get("absence_type") or "").strip()
+            attendance_status = str(actual.get("attendance_status") or "").strip()
+
+            # Old data sometimes stores leave/absence in attendance_status instead of absence_type.
+            absence_label = absence_type or attendance_status
+            absence_label_lower = absence_label.lower()
+
+            is_absent = int(actual.get("is_absent") or 0) == 1
+            looks_like_absence = (
+                is_absent
+                or "leave" in absence_label_lower
+                or "absence" in absence_label_lower
+                or "awol" in absence_label_lower
+                or "absent" in absence_label_lower
+            )
+
+            if looks_like_absence:
+                if "unexcused" in absence_label_lower:
                     item["unexcused_absences"] += 1
-                elif absence_type == "AWOL":
+                elif "awol" in absence_label_lower:
                     item["awol"] += 1
-                elif absence_type and absence_type != "Rest Day":
+                elif "rest day" not in absence_label_lower and absence_label:
                     item["approved_absences"] += 1
+
+                item["absence_details"].append({
+                    "date": work_date,
+                    "type": absence_label or "Absent",
+                    "notice": actual.get("notice_timing"),
+                    "evidence": actual.get("evidence_ref"),
+                })
                 item["latest_notice"] = actual.get("notice_timing") or item["latest_notice"]
                 item["latest_evidence"] = actual.get("evidence_ref") or item["latest_evidence"]
                 continue
-            minutes = late_minutes(work_date, str(shift.get("start_time") or ""), actual.get("actual_in"))
-            if minutes > 5:
+
+            minutes = minutes_late_from_times(shift.get("start_time"), actual.get("actual_in"))
+            late_status = classify_late_minutes(minutes)
+
+            if minutes is not None and 1 <= minutes <= 5:
+                item["grace_periods"] += 1
+            if minutes is not None and minutes > 5:
                 item["late_infractions"] += 1
-            if minutes > 30:
+                item["late_details"].append({
+                    "date": work_date,
+                    "scheduled_start": shift.get("start_time"),
+                    "actual_in": actual.get("actual_in"),
+                    "minutes_late": minutes,
+                    "status": late_status,
+                })
+            if minutes is not None and minutes > 30:
                 item["partial_absences"] += 1
 
         items = []
@@ -330,7 +347,7 @@ def attendance_compliance(
                 int(item["awol"]),
             )
             item["attendance_reward_status"] = reward_status(int(item["year_unexcused_infractions"]))
-            if any(int(item[key]) for key in ["scheduled_shifts", "missing_logs", "late_infractions", "partial_absences", "unexcused_absences", "awol", "approved_absences"]):
+            if any(int(item[key]) for key in ["scheduled_shifts", "missing_logs", "late_infractions", "grace_periods", "partial_absences", "unexcused_absences", "awol", "approved_absences"]):
                 items.append(item)
         items.sort(key=lambda row: (row["handbook_action"] == "No handbook action required", row.get("department") or "", row.get("full_name") or ""))
         return {"ok": True, "month": month, "period_start": period_start, "period_end": period_end, "items": items, "memos": memos}

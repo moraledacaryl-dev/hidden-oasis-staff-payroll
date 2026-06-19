@@ -206,7 +206,7 @@ export default async function AttendancePage({
                   </tr>
                 ))}
                 {complianceItems.length === 0 ? (
-                  <tr><td colSpan={11}>No monthly attendance records found.</td></tr>
+                  <tr><td colSpan={12}>No monthly attendance records found.</td></tr>
                 ) : null}
               </tbody>
             </table>
