@@ -54,7 +54,7 @@ export const navItems: NavItem[] = [
     href: "/cash-advances",
     label: "Cash Advances",
     description: "Advances and balances.",
-    roles: ["owner", "payroll"],
+    roles: ["owner", "payroll", "supervisor"],
   },
   {
     href: "/reports/operations",
