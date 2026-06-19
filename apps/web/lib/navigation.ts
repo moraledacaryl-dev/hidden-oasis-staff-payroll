@@ -33,6 +33,12 @@ export const navItems: NavItem[] = [
     roles: ["owner", "supervisor"],
   },
   {
+    href: "/attendance/compliance",
+    label: "Attendance Compliance",
+    description: "Monthly infractions and memos.",
+    roles: ["owner", "supervisor"],
+  },
+  {
     href: "/payslips",
     label: "Payslip Distribution",
     description: "Print and release.",
@@ -49,6 +55,12 @@ export const navItems: NavItem[] = [
     label: "Staff Directory",
     description: "Employee profiles.",
     roles: ["owner", "payroll", "supervisor"],
+  },
+  {
+    href: "/cash-advances",
+    label: "Cash Advances",
+    description: "Advances and balances.",
+    roles: ["owner", "payroll"],
   },
   {
     href: "/reports/operations",
