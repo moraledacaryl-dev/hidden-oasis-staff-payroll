@@ -4,7 +4,19 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const positions = ["Receptionist", "Cook", "Barista", "Bartender", "Security", "Housekeeper", "Other"];
-const leaveKinds = ["None", "Rest Day", "Absent", "Paid Leave", "Unpaid Leave", "Sick Leave", "Emergency Leave", "Holiday"];
+const leaveKinds = [
+  "None",
+  "Rest Day",
+  "Approved / Excused Absence",
+  "Unexcused Absence",
+  "AWOL",
+  "Sick Leave",
+  "Emergency Leave",
+  "Bereavement Leave",
+  "Official Business",
+  "Other Approved Absence",
+];
+const noticeTimings = ["In advance", "At least 1 hour before shift", "After shift start", "No notice"];
 const attendanceStatuses = ["Pending", "Approved", "Needs Review", "Needs Correction", "Rejected"];
 
 type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
@@ -13,7 +25,7 @@ type Bundle = {
   ok: boolean;
   employee?: ScheduleEmployee | null;
   shift?: Shift | null;
-  actual?: { id: number; actual_in?: string | null; actual_out?: string | null; attendance_status?: string | null; approved_ot_hours?: number | null; notes?: string | null; is_absent?: number | null; absence_type?: string | null } | null;
+  actual?: { id: number; actual_in?: string | null; actual_out?: string | null; attendance_status?: string | null; approved_ot_hours?: number | null; notes?: string | null; is_absent?: number | null; absence_type?: string | null; notice_given_at?: string | null; notice_timing?: string | null; evidence_ref?: string | null } | null;
   leave?: { id: number; leave_type_name?: string | null; reason?: string | null; paid?: number | null; status?: string | null; days?: number | null; paid_hours?: number | null } | null;
   payroll_locked?: boolean;
   paid_run?: { id: number; period_start: string; period_end: string } | null;
@@ -154,6 +166,9 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       leave_days: Number(formData.get("leave_days") || 0),
       leave_hours: Number(formData.get("leave_hours") || 0) || null,
       reason: String(formData.get("reason") || "") || null,
+      notice_given_at: String(formData.get("notice_given_at") || "") || null,
+      notice_timing: String(formData.get("notice_timing") || "") || null,
+      evidence_ref: String(formData.get("evidence_ref") || "") || null,
     });
   }
 
@@ -207,8 +222,9 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
           <form action={saveLeave} className="form-grid modal-form">
             <label>Employee<select value={employeeId} disabled={readOnly || lockedSnapshot} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
             <label>Type<select name="leave_kind" defaultValue={bundle.leave?.leave_type_name || bundle.actual?.absence_type || "None"} disabled={readOnly || lockedSnapshot}>{leaveKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
-            <label>Days<input name="leave_days" type="number" min="0" step="0.25" defaultValue={bundle.leave?.days ?? 1} disabled={readOnly || lockedSnapshot} /></label>
-            <label>Hours optional<input name="leave_hours" type="number" min="0" step="0.25" defaultValue={bundle.leave?.paid_hours ?? ""} disabled={readOnly || lockedSnapshot} /></label>
+            <label>Date informed<input name="notice_given_at" type="datetime-local" defaultValue={bundle.actual?.notice_given_at ? String(bundle.actual.notice_given_at).replace(" ", "T").slice(0, 16) : ""} disabled={readOnly || lockedSnapshot} /></label>
+            <label>Notice timing<select name="notice_timing" defaultValue={bundle.actual?.notice_timing || ""} disabled={readOnly || lockedSnapshot}><option value="">Select notice timing</option>{noticeTimings.map((timing) => <option key={timing}>{timing}</option>)}</select></label>
+            <label>Evidence / reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Medical certificate, chat screenshot, approval note, etc." disabled={readOnly || lockedSnapshot} /></label>
             <label>Reason / notes<input name="reason" defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || lockedSnapshot} /></label>
             {canEdit && !lockedSnapshot ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save leave / absence"}</button> : null}
           </form>

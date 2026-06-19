@@ -66,6 +66,9 @@ class DayLeavePayload(BaseModel):
     shift_date: date
     leave_kind: str = "None"
     reason: str | None = None
+    notice_given_at: str | None = None
+    notice_timing: str | None = None
+    evidence_ref: str | None = None
 
 
 def now_iso() -> str:
@@ -126,6 +129,10 @@ def ensure_schema(conn) -> None:
         WHERE legacy_schedule_id IS NOT NULL
         """
     )
+    if table_exists(conn, "time_logs"):
+        ensure_column(conn, "time_logs", "notice_given_at", "TEXT")
+        ensure_column(conn, "time_logs", "notice_timing", "TEXT")
+        ensure_column(conn, "time_logs", "evidence_ref", "TEXT")
     ensure_schedule_change_log_schema(conn)
     conn.commit()
 
@@ -629,7 +636,18 @@ def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(
     user = require_schedule_editor(authorization, x_api_key)
     shift_date = payload.shift_date.isoformat()
     leave_kind = payload.leave_kind.strip() or "None"
-    allowed = {"None", "Rest Day", "Absent", "Paid Leave", "Unpaid Leave", "Sick Leave", "Emergency Leave", "Holiday"}
+    allowed = {
+        "None",
+        "Rest Day",
+        "Approved / Excused Absence",
+        "Unexcused Absence",
+        "AWOL",
+        "Sick Leave",
+        "Emergency Leave",
+        "Bereavement Leave",
+        "Official Business",
+        "Other Approved Absence",
+    }
     if leave_kind not in allowed:
         raise HTTPException(status_code=422, detail="Invalid leave or absence type.")
     conn = get_conn(DB_PATH)
@@ -646,28 +664,85 @@ def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(
                 log_id = int(existing_log["id"])
             else:
                 log_id = None
-        elif leave_kind in {"Rest Day", "Absent"}:
+        else:
+            is_infraction_absence = leave_kind in {"Unexcused Absence", "AWOL"}
+            attendance_status = "Needs Review" if is_infraction_absence else "Approved"
+            notice_given_at = None if leave_kind == "AWOL" else payload.notice_given_at
+            notice_timing = "No notice" if leave_kind == "AWOL" else (payload.notice_timing or None)
+
             if existing_log:
-                conn.execute("UPDATE time_logs SET is_absent=1, absence_type=?, attendance_status='Approved', reviewed_by=?, reviewed_at=?, notes=?, updated_at=? WHERE id=?", (leave_kind, user.get("display_name"), timestamp, payload.reason, timestamp, existing_log["id"]))
+                conn.execute(
+                    """
+                    UPDATE time_logs
+                    SET is_absent=1,
+                        absence_type=?,
+                        attendance_status=?,
+                        reviewed_by=?,
+                        reviewed_at=?,
+                        notes=?,
+                        notice_given_at=?,
+                        notice_timing=?,
+                        evidence_ref=?,
+                        updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        leave_kind,
+                        attendance_status,
+                        user.get("display_name"),
+                        timestamp,
+                        payload.reason,
+                        notice_given_at,
+                        notice_timing,
+                        payload.evidence_ref,
+                        timestamp,
+                        existing_log["id"],
+                    ),
+                )
                 log_id = int(existing_log["id"])
             else:
                 cur = conn.execute(
                     """
-                    INSERT INTO time_logs(employee_id, work_date, source, verification_type, is_absent, absence_type, detected_ot_hours, approved_ot_hours, ot_status, attendance_status, reviewed_by, reviewed_at, notes, created_at, updated_at)
-                    VALUES (?, ?, 'manual', 'Manual', 1, ?, 0, 0, 'None', 'Approved', ?, ?, ?, ?, ?)
+                    INSERT INTO time_logs(
+                        employee_id, work_date, source, verification_type,
+                        is_absent, absence_type, detected_ot_hours, approved_ot_hours,
+                        ot_status, attendance_status, reviewed_by, reviewed_at,
+                        notes, notice_given_at, notice_timing, evidence_ref,
+                        created_at, updated_at
+                    )
+                    VALUES (?, ?, 'manual', 'Manual', 1, ?, 0, 0, 'None', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (payload.employee_id, shift_date, leave_kind, user.get("display_name"), timestamp, payload.reason, timestamp, timestamp),
+                    (
+                        payload.employee_id,
+                        shift_date,
+                        leave_kind,
+                        attendance_status,
+                        user.get("display_name"),
+                        timestamp,
+                        payload.reason,
+                        notice_given_at,
+                        notice_timing,
+                        payload.evidence_ref,
+                        timestamp,
+                        timestamp,
+                    ),
                 )
                 log_id = int(cur.lastrowid)
-        else:
-            paid = 0 if leave_kind == "Unpaid Leave" else 1
-            leave_type_id = ensure_leave_type(conn, leave_kind, paid)
-            existing_leave = fetch_leave(conn, payload.employee_id, shift_date)
-            if existing_leave:
-                conn.execute("UPDATE leave_requests SET leave_type_id=?, start_date=?, end_date=?, days=1, paid=?, status='Approved', reason=?, reviewed_by=?, reviewed_at=? WHERE id=?", (leave_type_id, shift_date, shift_date, paid, payload.reason, user.get("display_name"), timestamp, existing_leave["id"]))
-            else:
-                conn.execute("INSERT INTO leave_requests(employee_id, leave_type_id, start_date, end_date, days, paid, status, reason, reviewed_by, reviewed_at, created_at) VALUES (?, ?, ?, ?, 1, ?, 'Approved', ?, ?, ?, ?)", (payload.employee_id, leave_type_id, shift_date, shift_date, paid, payload.reason, user.get("display_name"), timestamp, timestamp))
-            log_id = int(existing_log["id"]) if existing_log else None
+
+            if leave_kind in {"Sick Leave", "Emergency Leave", "Bereavement Leave", "Official Business", "Other Approved Absence"}:
+                paid = 0 if leave_kind == "Emergency Leave" else 1
+                leave_type_id = ensure_leave_type(conn, leave_kind, paid)
+                existing_leave = fetch_leave(conn, payload.employee_id, shift_date)
+                if existing_leave:
+                    conn.execute(
+                        "UPDATE leave_requests SET leave_type_id=?, start_date=?, end_date=?, days=1, paid=?, status='Approved', reason=?, reviewed_by=?, reviewed_at=? WHERE id=?",
+                        (leave_type_id, shift_date, shift_date, paid, payload.reason, user.get("display_name"), timestamp, existing_leave["id"]),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO leave_requests(employee_id, leave_type_id, start_date, end_date, days, paid, status, reason, reviewed_by, reviewed_at, created_at) VALUES (?, ?, ?, ?, 1, ?, 'Approved', ?, ?, ?, ?)",
+                        (payload.employee_id, leave_type_id, shift_date, shift_date, paid, payload.reason, user.get("display_name"), timestamp, timestamp),
+                    )
         if log_id:
             after = dict(fetchone(conn, "SELECT * FROM time_logs WHERE id=?", (log_id,)) or {})
             log_schedule_change(conn, change_type="update_absence" if before else "create_absence", entity_type="time_log", entity_id=log_id, employee_id=payload.employee_id, work_date=shift_date, before=before, after=after, changed_by=user.get("display_name"))
