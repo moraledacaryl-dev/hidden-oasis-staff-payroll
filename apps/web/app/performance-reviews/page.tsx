@@ -25,10 +25,12 @@ async function loadAnnualReviews(year: number) {
     headers: await authHeaders(),
     cache: "no-store",
   });
+
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     return { ok: false, year, items: [], error: `Annual review API failed ${response.status}: ${text}` };
   }
+
   return response.json();
 }
 
@@ -48,6 +50,7 @@ export default async function PerformanceReviewsPage({
   const year = Number(params.year || defaultYear());
   const employeeFilter = (params.employee || "").trim().toLowerCase();
   const data = await loadAnnualReviews(year);
+
   const items = (data.items || []).filter((item: any) => {
     if (!employeeFilter) return true;
     return String(item.employee?.full_name || "").toLowerCase().includes(employeeFilter);
@@ -71,10 +74,18 @@ export default async function PerformanceReviewsPage({
 
         <form className="card review-form" action="/performance-reviews">
           <div className="review-form-grid">
-            <label>Year<input name="year" type="number" min="2024" max="2100" defaultValue={year} /></label>
-            <label>Staff search<input name="employee" placeholder="Search employee name" defaultValue={params.employee || ""} /></label>
+            <label>
+              Year
+              <input name="year" type="number" min="2024" max="2100" defaultValue={year} />
+            </label>
+            <label>
+              Staff search
+              <input name="employee" placeholder="Search employee name" defaultValue={params.employee || ""} />
+            </label>
           </div>
-          <div className="badge-row"><button className="primary-button" type="submit">View reviews</button></div>
+          <div className="badge-row">
+            <button className="primary-button" type="submit">View reviews</button>
+          </div>
         </form>
 
         {!data.ok ? (
@@ -94,7 +105,7 @@ export default async function PerformanceReviewsPage({
           <div className="panel-title">
             <div>
               <h2>Employees</h2>
-              <p className="muted">Open one employee at a time for a cleaner review workflow.</p>
+              <p className="muted">Open one employee at a time for a clean review workflow.</p>
             </div>
           </div>
 
@@ -114,6 +125,7 @@ export default async function PerformanceReviewsPage({
               <tbody>
                 {items.map((item: any) => {
                   const previous = (item.previous_reviews || [])[0];
+
                   return (
                     <tr key={item.employee.id}>
                       <td>

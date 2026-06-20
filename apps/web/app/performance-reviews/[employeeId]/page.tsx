@@ -22,6 +22,7 @@ async function loadAnnualReviews(year: number) {
     headers: await authHeaders(),
     cache: "no-store",
   });
+
   if (!response.ok) return { ok: false, items: [] };
   return response.json();
 }
@@ -31,6 +32,7 @@ async function loadLogs(employeeId: number, year: number) {
     headers: await authHeaders(),
     cache: "no-store",
   });
+
   if (!response.ok) return { ok: false, items: [] };
   return response.json();
 }
@@ -113,7 +115,9 @@ export default async function EmployeePerformancePage({
                         {log.category}{Number(log.is_general || 0) ? " · General" : ""}
                       </span>
                       <span className="badge">{log.area}</span>
-                      <span className={log.severity === "High" ? "badge danger" : log.severity === "Medium" ? "badge warning" : "badge"}>{log.severity}</span>
+                      <span className={log.severity === "High" ? "badge danger" : log.severity === "Medium" ? "badge warning" : "badge"}>
+                        {log.severity}
+                      </span>
                     </div>
                     <div className="review-log-note"><strong>{log.note}</strong></div>
                     {log.private_note ? <span className="muted">Private: {log.private_note}</span> : null}
