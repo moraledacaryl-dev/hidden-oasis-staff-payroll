@@ -5,9 +5,8 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
-from api.payroll_drafts import must_be_payroll_user
 from api.schedules import DayActualPayload, DaySchedulePayload, MoveShiftPayload
-from api.schedules import POSITIONS, clean_shift, day_bundle, employee_exists
+from api.schedules import POSITIONS, clean_shift, day_bundle, employee_exists, require_schedule_editor
 from api.schedules import ensure_schema, fetch_legacy_schedule_row, fetch_shift, fetch_time_log
 from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
 from core.db import DB_PATH, fetchone, get_conn
@@ -73,7 +72,7 @@ def migrate_legacy_row(conn, legacy_id: int, actor: str | None) -> int:
 
 @router.post("/schedules/day/scheduled")
 def save_schedule_history(payload: DaySchedulePayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
+    user = require_schedule_editor(authorization, x_api_key)
     employee_id = payload.employee_id if payload.employee_id and payload.employee_id > 0 else None
     conn = get_conn(DB_PATH)
     try:
@@ -120,7 +119,7 @@ def save_schedule_history(payload: DaySchedulePayload, authorization: str | None
 
 @router.post("/schedules/day/actual")
 def save_actual_history(payload: DayActualPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
+    user = require_schedule_editor(authorization, x_api_key)
     shift_date = payload.shift_date.isoformat()
     conn = get_conn(DB_PATH)
     try:
@@ -163,7 +162,7 @@ def save_actual_history(payload: DayActualPayload, authorization: str | None = H
 
 @router.post("/schedules/shifts/{shift_id}/move")
 def move_shift_history(shift_id: int, payload: MoveShiftPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
+    user = require_schedule_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
         ensure_history_schema(conn)
@@ -189,7 +188,7 @@ def delete_shift_history(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
+    user = require_schedule_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
         ensure_history_schema(conn)
