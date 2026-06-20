@@ -347,3 +347,257 @@ label:has(input[type="radio"]) input,
   color: var(--ink) !important;
   font-weight: 700 !important;
 }
+
+
+/* Supervisor UI polish: global anti-overlap + performance review layout */
+.page,
+.card,
+.panel-title,
+.form-row,
+.form-grid,
+.badge-row,
+.action-row,
+.table-wrap,
+.modal-panel,
+.coverage-review,
+.payslip-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.card,
+.coverage-review,
+.modal-panel,
+.action-item,
+td,
+th {
+  overflow-wrap: anywhere;
+}
+
+.panel-title {
+  flex-wrap: wrap;
+}
+
+.panel-title > * {
+  min-width: 0;
+}
+
+.badge-row,
+.action-row {
+  align-items: center;
+}
+
+.badge-row > *,
+.action-row > * {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.form-row,
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 10px;
+  align-items: end;
+  width: 100%;
+}
+
+.form-grid label,
+.form-row label,
+.field {
+  min-width: 0;
+  width: 100%;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+textarea {
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.35;
+  resize: vertical;
+}
+
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  max-width: 16px !important;
+  min-height: 16px !important;
+  padding: 0 !important;
+  flex: 0 0 16px !important;
+  margin: 2px 0 0;
+  align-self: flex-start;
+  accent-color: var(--accent);
+}
+
+label:has(input[type="checkbox"]),
+label:has(input[type="radio"]),
+.review-check,
+.check-field {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  width: 100%;
+  min-width: 0;
+  text-align: left !important;
+  line-height: 1.35;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 0.86rem !important;
+  color: var(--ink) !important;
+  font-weight: 700 !important;
+}
+
+.primary-button,
+.button,
+.primary-link {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.review-page {
+  max-width: 1320px;
+}
+
+.review-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.review-form {
+  display: grid;
+  gap: 14px;
+  width: min(860px, 100%);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.review-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+.review-form label,
+.review-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 820;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.review-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.review-side {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.review-log-list {
+  display: grid;
+  gap: 10px;
+}
+
+.review-log-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  min-width: 0;
+}
+
+.review-log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-log-note {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.review-table table {
+  min-width: 880px;
+}
+
+@media (max-width: 1180px) {
+  .review-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .review-form {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .form-row,
+  .form-grid,
+  .review-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-toolbar,
+  .badge-row,
+  .action-row {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .review-toolbar > *,
+  .badge-row > *,
+  .action-row > *,
+  .primary-button,
+  .button,
+  .primary-link {
+    width: 100%;
+  }
+
+  table {
+    min-width: 720px;
+  }
+}

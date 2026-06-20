@@ -54,7 +54,14 @@ export default async function DashboardPage() {
 
           <div className="card">
             <div className="panel-title"><div><h2>Quick actions</h2><p className="muted">Common work areas.</p></div></div>
-            <div className="grid cols-2"><Link className="primary-link" href="/schedule">Schedule</Link><Link className="primary-link" href="/attendance">Attendance Review</Link><Link className="primary-link" href="/payslips">Payslip Distribution</Link><Link className="primary-link" href="/hr">HR Records</Link></div>
+            <div className="grid cols-2">
+                <Link className="primary-link" href="/schedule">Schedule</Link>
+                <Link className="primary-link" href="/attendance">Attendance</Link>
+                {session.role_key === "supervisor" ? <Link className="primary-link" href="/performance-reviews">Performance Reviews</Link> : <Link className="primary-link" href="/payroll/runs">Payroll Runs</Link>}
+                {session.role_key === "supervisor" ? <Link className="primary-link" href="/cash-advances">Cash Advances</Link> : <Link className="primary-link" href="/hr">HR Records</Link>}
+                <Link className="primary-link" href={session.role_key === "supervisor" ? "/reports/operations" : "/reports"}>Reports</Link>
+                <Link className="primary-link" href="/settings/password">Account</Link>
+              </div>
           </div>
         </section>
       </div>

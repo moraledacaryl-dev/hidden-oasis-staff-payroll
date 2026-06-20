@@ -29,7 +29,7 @@ export function PerformanceLogForm({ employeeId }: Props) {
       is_general: formData.get("is_general") ? 1 : 0,
     };
 
-    const response = await fetch("/api/v1/performance/logs", {
+    const response = await fetch("/api/performance/logs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -39,7 +39,7 @@ export function PerformanceLogForm({ employeeId }: Props) {
     setBusy(false);
 
     if (!response.ok || !data.ok) {
-      setMessage(typeof data.detail === "string" ? data.detail : "Performance log was not saved.");
+      setMessage(typeof data.detail === "string" ? data.detail : "Performance note was not saved.");
       return;
     }
 
@@ -52,10 +52,10 @@ export function PerformanceLogForm({ employeeId }: Props) {
   }
 
   return (
-    <form action={submit} className="card grid">
+    <form action={submit} className="card review-form">
       <strong>Performance Note</strong>
 
-      <div className="form-grid">
+      <div className="review-form-grid">
         <label>Date<input name="log_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} /></label>
         <label>
           Category
@@ -94,10 +94,10 @@ export function PerformanceLogForm({ employeeId }: Props) {
       <label>Note<textarea name="note" rows={3} required placeholder="What happened? Be factual and specific." /></label>
       <label>Private management note<textarea name="private_note" rows={2} placeholder="Optional internal context." /></label>
       <label>Evidence / attachment reference<input name="evidence_ref" placeholder="Optional file/link/reference." /></label>
-      <label><input name="is_general" type="checkbox" /> General observation</label>
+      <label className="review-check"><input name="is_general" type="checkbox" /> General observation</label>
 
       <div className="badge-row">
-        <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save log"}</button>
+        <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save note"}</button>
         <button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button>
       </div>
 

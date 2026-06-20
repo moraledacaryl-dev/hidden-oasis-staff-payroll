@@ -66,18 +66,18 @@ export default async function HrPage() {
         <header className="page-header">
           <div>
             <span className="eyebrow">HR Records</span>
-            <h1>Leave, reviews, infractions, and memos</h1>
-            <p className="muted">Staff records are tracked separately from payroll snapshots.</p>
+            <h1>Leave and formal records</h1>
+            <p className="muted">Leave balances and formal HR records. Annual performance reviews are handled separately.</p>
           </div>
         </header>
 
         <section className="grid cols-3">
-          <div className="card"><strong>Annual reviews</strong><p>{annualReviews}</p></div>
+          <div className="card"><strong>Formal records</strong><p>{records.length}</p></div>
           <div className="card"><strong>Infractions</strong><p>{infractions}</p></div>
           <div className="card"><strong>Memos</strong><p>{memos}</p></div>
         </section>
 
-        {canCreate ? <section className="card"><div className="panel-title"><div><h2>Issue HR record</h2><p className="muted">Create annual review, infraction, or supervisor memo.</p></div></div><HrRecordForm employees={employees} /></section> : null}
+        {canCreate ? <section className="card"><div className="panel-title"><div><h2>Add formal HR record</h2><p className="muted">Create infraction, memo, leave note, or HR document. Use Performance Reviews for annual reviews.</p></div></div><HrRecordForm employees={employees} /></section> : null}
 
         <section className="card">
           <div className="panel-title"><div><h2>Leave balances</h2><p className="muted">Credits, used leave, and remaining leave by employee.</p></div></div>

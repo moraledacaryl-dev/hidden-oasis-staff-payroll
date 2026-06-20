@@ -59,18 +59,18 @@ export default async function PerformanceReviewsPage({
 
   return (
     <Shell allowedRoles={["owner", "supervisor"]}>
-      <div className="page">
+      <div className="page review-page">
         <header className="page-header">
           <div className="grid">
-            <span className="eyebrow">Performance Reviews</span>
+            <span className="eyebrow">Performance</span>
             <h1>Annual Reviews {year}</h1>
-            <p className="muted">Structured yearly staff reviews. This is separate from memos and attendance discipline.</p>
+            <p className="muted">Choose an employee to open their notes, previous comments, and annual review.</p>
           </div>
           <StatusBadge label={`${finalizedCount} finalized`} tone={finalizedCount ? "ok" : undefined} />
         </header>
 
-        <form className="card" action="/performance-reviews">
-          <div className="form-grid">
+        <form className="card review-form" action="/performance-reviews">
+          <div className="review-form-grid">
             <label>Year<input name="year" type="number" min="2024" max="2100" defaultValue={year} /></label>
             <label>Staff search<input name="employee" placeholder="Search employee name" defaultValue={params.employee || ""} /></label>
           </div>
@@ -93,57 +93,48 @@ export default async function PerformanceReviewsPage({
         <section className="card">
           <div className="panel-title">
             <div>
-              <h2>Employee Reviews</h2>
-              <p className="muted">Choose an employee to open their review page, logs, previous comments, and annual review form.</p>
+              <h2>Employees</h2>
+              <p className="muted">Open one employee at a time for a cleaner review workflow.</p>
             </div>
           </div>
 
-          <div className="table-wrap">
+          <div className="table-wrap review-table">
             <table>
               <thead>
                 <tr>
                   <th>Employee</th>
+                  <th>Department</th>
+                  <th>Position</th>
                   <th>Status</th>
                   <th>Overall</th>
-                  <th>Previous comments</th>
-                  <th>Current comments</th>
-                  <th>Review</th>
+                  <th>Last review note</th>
+                  <th>Open</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item: any) => (
-                  <tr key={item.employee.id}>
-                    <td>
-                      <strong>{item.employee.full_name}</strong>
-                      <br />
-                      <span className="muted">{item.employee.employee_code || "—"} · {item.employee.department || "—"} · {item.employee.position || "—"}</span>
-                    </td>
-                    <td>{item.review?.status || "Not started"}</td>
-                    <td>{item.review?.overall_rating ? `${item.review.overall_rating}/5` : "—"}</td>
-                    <td>
-                      {(item.previous_reviews || []).length ? (
-                        (item.previous_reviews || []).map((previous: any) => (
-                          <div key={previous.id} className="muted">
-                            <strong>{previous.review_year}</strong>: {previous.strengths || previous.improvements || previous.supervisor_recommendation || "No comment"}
-                          </div>
-                        ))
-                      ) : (
-                        <span className="muted">No previous comments</span>
-                      )}
-                    </td>
-                    <td>
-                      {item.review?.strengths ? <div><strong>Positive:</strong> {item.review.strengths}</div> : null}
-                      {item.review?.improvements ? <div><strong>Improve:</strong> {item.review.improvements}</div> : null}
-                      {!item.review?.strengths && !item.review?.improvements ? <span className="muted">—</span> : null}
-                    </td>
-                    <td>
-                      <Link className="primary-link" href={`/performance-reviews/${item.employee.id}?year=${year}`}>
-                        Open page
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-                {items.length === 0 ? <tr><td colSpan={6}>No employees found.</td></tr> : null}
+                {items.map((item: any) => {
+                  const previous = (item.previous_reviews || [])[0];
+                  return (
+                    <tr key={item.employee.id}>
+                      <td>
+                        <strong>{item.employee.full_name}</strong>
+                        <br />
+                        <span className="muted">{item.employee.employee_code || "—"}</span>
+                      </td>
+                      <td>{item.employee.department || "—"}</td>
+                      <td>{item.employee.position || "—"}</td>
+                      <td>{item.review?.status || "Not started"}</td>
+                      <td>{item.review?.overall_rating ? `${item.review.overall_rating}/5` : "—"}</td>
+                      <td>{previous ? `${previous.review_year}: ${previous.strengths || previous.improvements || previous.supervisor_recommendation || "No comment"}` : "No previous comments"}</td>
+                      <td>
+                        <Link className="primary-link" href={`/performance-reviews/${item.employee.id}?year=${year}`}>
+                          Open
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {items.length === 0 ? <tr><td colSpan={7}>No employees found.</td></tr> : null}
               </tbody>
             </table>
           </div>

@@ -64,7 +64,7 @@ export default async function EmployeePerformancePage({
   if (!item) {
     return (
       <Shell allowedRoles={["owner", "supervisor"]}>
-        <div className="page">
+        <div className="page review-page">
           <Link className="primary-link" href={`/performance-reviews?year=${year}`}>Back</Link>
           <section className="card">Employee not found.</section>
         </div>
@@ -74,13 +74,14 @@ export default async function EmployeePerformancePage({
 
   const employee = item.employee;
   const logs = logsData.items || [];
+  const currentMonth = new Date().toISOString().slice(0, 7);
 
   return (
     <Shell allowedRoles={["owner", "supervisor"]}>
-      <div className="page">
-        <section className="badge-row">
+      <div className="page review-page">
+        <section className="review-toolbar">
           <Link className="primary-link" href={`/performance-reviews?year=${year}`}>Back to reviews</Link>
-          <Link className="primary-link" href={`/attendance?month=${year}-06&employee=${encodeURIComponent(employee.full_name || "")}`}>View attendance</Link>
+          <Link className="primary-link" href={`/attendance?month=${currentMonth}&employee=${encodeURIComponent(employee.full_name || "")}`}>View attendance</Link>
         </section>
 
         <header className="page-header">
@@ -91,64 +92,56 @@ export default async function EmployeePerformancePage({
           </div>
         </header>
 
-        <PerformanceLogForm employeeId={employeeId} />
+        <section className="review-two-col">
+          <div className="review-side">
+            <PerformanceLogForm employeeId={employeeId} />
 
-        <section className="card">
-          <div className="panel-title">
-            <div>
-              <h2>This year’s performance notes</h2>
-              <p className="muted">Supervisor notes used as context for the annual review.</p>
-            </div>
-          </div>
+            <section className="card">
+              <div className="panel-title">
+                <div>
+                  <h2>This year’s performance notes</h2>
+                  <p className="muted">Supervisor notes used as context for the annual review.</p>
+                </div>
+              </div>
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Category</th>
-                  <th>Area</th>
-                  <th>Severity</th>
-                  <th>Note</th>
-                  <th>Logged by</th>
-                </tr>
-              </thead>
-              <tbody>
+              <div className="review-log-list">
                 {logs.map((log: any) => (
-                  <tr key={log.id}>
-                    <td>{log.log_date}</td>
-                    <td>{log.category}{Number(log.is_general || 0) ? " · General" : ""}</td>
-                    <td>{log.area}</td>
-                    <td>{log.severity}</td>
-                    <td>
-                      <strong>{log.note}</strong>
-                      {log.private_note ? <><br /><span className="muted">Private: {log.private_note}</span></> : null}
-                      {log.evidence_ref ? <><br /><span className="muted">Evidence: {log.evidence_ref}</span></> : null}
-                    </td>
-                    <td>{log.created_by || "—"}</td>
-                  </tr>
+                  <article key={log.id} className="review-log-card">
+                    <div className="review-log-meta">
+                      <span className="badge">{log.log_date}</span>
+                      <span className={log.category === "Concern" ? "badge warning" : log.category === "Positive" ? "badge ok" : "badge"}>
+                        {log.category}{Number(log.is_general || 0) ? " · General" : ""}
+                      </span>
+                      <span className="badge">{log.area}</span>
+                      <span className={log.severity === "High" ? "badge danger" : log.severity === "Medium" ? "badge warning" : "badge"}>{log.severity}</span>
+                    </div>
+                    <div className="review-log-note"><strong>{log.note}</strong></div>
+                    {log.private_note ? <span className="muted">Private: {log.private_note}</span> : null}
+                    {log.evidence_ref ? <span className="muted">Evidence: {log.evidence_ref}</span> : null}
+                    <span className="muted">Logged by {log.created_by || "—"}</span>
+                  </article>
                 ))}
-                {logs.length === 0 ? <tr><td colSpan={6}>No performance notes yet.</td></tr> : null}
-              </tbody>
-            </table>
+                {logs.length === 0 ? <p className="footer-note">No performance notes yet.</p> : null}
+              </div>
+            </section>
           </div>
-        </section>
 
-        <section className="card">
-          <div className="panel-title">
-            <div>
-              <h2>Annual Review</h2>
-              <p className="muted">Previous comments are shown inside the review form.</p>
+          <section className="card">
+            <div className="panel-title">
+              <div>
+                <h2>Annual Review</h2>
+                <p className="muted">Previous comments are shown inside the review form.</p>
+              </div>
             </div>
-          </div>
 
-          <AnnualReviewForm
-            employee={employee}
-            review={item.review}
-            previousReviews={item.previous_reviews || []}
-            reviewYear={year}
-            canFinalize={session.role_key === "owner"}
-          />
+            <AnnualReviewForm
+              employee={employee}
+              review={item.review}
+              previousReviews={item.previous_reviews || []}
+              reviewYear={year}
+              canFinalize={session.role_key === "owner"}
+            />
+          </section>
         </section>
       </div>
     </Shell>

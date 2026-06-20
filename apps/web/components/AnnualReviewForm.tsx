@@ -55,7 +55,7 @@ export function AnnualReviewForm({ employee, review, previousReviews, reviewYear
       body[key] = raw ? Number(raw) : null;
     }
 
-    const response = await fetch("/api/v1/performance/annual-reviews", {
+    const response = await fetch("/api/performance/annual-reviews", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -76,14 +76,14 @@ export function AnnualReviewForm({ employee, review, previousReviews, reviewYear
 
   if (!open) {
     return (
-      <button className="button small" type="button" onClick={() => setOpen(true)}>
+      <button className="primary-button" type="button" onClick={() => setOpen(true)}>
         {review ? "Edit review" : "Start review"}
       </button>
     );
   }
 
   return (
-    <form action={submit} className="grid" style={{ minWidth: 340 }}>
+    <form action={submit} className="review-form">
       <strong>{employee.full_name}</strong>
 
       {previousReviews.length ? (
@@ -102,7 +102,7 @@ export function AnnualReviewForm({ employee, review, previousReviews, reviewYear
         <p className="muted">No previous review comments yet.</p>
       )}
 
-      <div className="form-grid">
+      <div className="review-form-grid">
         {ratingFields.map(([key, label]) => (
           <label key={key}>
             {label}
@@ -124,7 +124,7 @@ export function AnnualReviewForm({ employee, review, previousReviews, reviewYear
       <label>Training needed<textarea name="training_needed" rows={2} defaultValue={value(review, "training_needed")} /></label>
       <label>Supervisor recommendation<textarea name="supervisor_recommendation" rows={3} defaultValue={value(review, "supervisor_recommendation")} /></label>
 
-      <div className="form-grid">
+      <div className="review-form-grid">
         <label>
           Final result
           <select name="final_result" defaultValue={value(review, "final_result", "Draft")}>

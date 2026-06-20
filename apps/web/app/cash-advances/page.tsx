@@ -69,8 +69,6 @@ export default async function CashAdvancesPage() {
           </div>
           <StatusBadge label={`${active.length} active`} tone={active.length ? "warning" : "ok"} />
         </header>
-        <section className="card"><div className="panel-title"><div><h2>Add cash advance</h2><p className="muted">Input new cash advance records here.</p></div></div><CashAdvanceForm employees={employees} /></section>
-
         <section className="grid cols-3">
           <div className="card"><strong>{advances.length}</strong><p className="muted">Total records</p></div>
           <div className="card"><strong>{active.length}</strong><p className="muted">Active advances</p></div>
