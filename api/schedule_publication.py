@@ -133,7 +133,7 @@ def get_schedule_publication(week_start: str, authorization: str | None = Header
 
 @router.post("/schedules/week/{week_start}/publish")
 def publish_schedule(week_start: str, payload: PublishSchedulePayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    user = require_user(authorization, x_api_key, {"owner", "payroll"})
+    user = require_user(authorization, x_api_key, {"owner", "payroll", "supervisor"})
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
