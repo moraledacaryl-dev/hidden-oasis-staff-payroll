@@ -42,7 +42,10 @@ async function loadCompliance(month: string) {
     headers: await authHeaders(),
     cache: "no-store",
   });
-  if (!response.ok) return { ok: false, items: [], memos: [] };
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    return { ok: false, items: [], memos: [], error: `Attendance API failed ${response.status}: ${text}` };
+  }
   return response.json();
 }
 
@@ -118,6 +121,13 @@ export default async function AttendancePage({
           </div>
           <div className="badge-row"><button className="primary-button" type="submit">View attendance</button></div>
         </form>
+
+        {!compliance.ok ? (
+          <section className="card">
+            <strong>Attendance data did not load.</strong>
+            <p className="muted">{compliance.error || "The compliance API returned an error."}</p>
+          </section>
+        ) : null}
 
         <section className="grid cols-4">
           <div className="card"><strong>{lateCount}</strong><p className="muted">Late infractions</p></div>

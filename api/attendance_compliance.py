@@ -267,13 +267,19 @@ def attendance_compliance(
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
+        employee_cols = table_columns(conn, "employees")
+        name_col = "full_name" if "full_name" in employee_cols else "name"
+        code_expr = "employee_code" if "employee_code" in employee_cols else "'' AS employee_code"
+        dept_expr = "department" if "department" in employee_cols else "'' AS department"
+        pos_expr = "position" if "position" in employee_cols else "'' AS position"
+        status_where = "WHERE COALESCE(employment_status, 'active') NOT IN ('inactive', 'terminated', 'resigned')" if "employment_status" in employee_cols else ""
         employees = fetchall(
             conn,
-            """
-            SELECT id, employee_code, full_name, department, position
+            f"""
+            SELECT id, {code_expr}, {name_col} AS full_name, {dept_expr}, {pos_expr}
             FROM employees
-            WHERE COALESCE(employment_status, 'active') NOT IN ('inactive', 'terminated', 'resigned')
-            ORDER BY COALESCE(department, ''), full_name
+            {status_where}
+            ORDER BY COALESCE(department, ''), {name_col}
             """,
         )
         shifts = fetch_compliance_shifts(conn, period_start, period_end)
