@@ -96,8 +96,8 @@ export default async function EmployeePerformancePage({
         <section className="card">
           <div className="panel-title">
             <div>
-              <h2>This year’s performance logs</h2>
-              <p className="muted">Supervisor observations used as context for the annual review.</p>
+              <h2>This year’s performance notes</h2>
+              <p className="muted">Supervisor notes used as context for the annual review.</p>
             </div>
           </div>
 
@@ -128,7 +128,7 @@ export default async function EmployeePerformancePage({
                     <td>{log.created_by || "—"}</td>
                   </tr>
                 ))}
-                {logs.length === 0 ? <tr><td colSpan={6}>No performance logs yet.</td></tr> : null}
+                {logs.length === 0 ? <tr><td colSpan={6}>No performance notes yet.</td></tr> : null}
               </tbody>
             </table>
           </div>

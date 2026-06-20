@@ -48,12 +48,12 @@ export function PerformanceLogForm({ employeeId }: Props) {
   }
 
   if (!open) {
-    return <button className="primary-button" type="button" onClick={() => setOpen(true)}>Log instance</button>;
+    return <button className="primary-button" type="button" onClick={() => setOpen(true)}>Add Performance Note</button>;
   }
 
   return (
     <form action={submit} className="card grid">
-      <strong>Log performance instance</strong>
+      <strong>Performance Note</strong>
 
       <div className="form-grid">
         <label>Date<input name="log_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} /></label>
@@ -94,7 +94,7 @@ export function PerformanceLogForm({ employeeId }: Props) {
       <label>Note<textarea name="note" rows={3} required placeholder="What happened? Be factual and specific." /></label>
       <label>Private management note<textarea name="private_note" rows={2} placeholder="Optional internal context." /></label>
       <label>Evidence / attachment reference<input name="evidence_ref" placeholder="Optional file/link/reference." /></label>
-      <label><input name="is_general" type="checkbox" /> General note, not a specific incident</label>
+      <label><input name="is_general" type="checkbox" /> General observation</label>
 
       <div className="badge-row">
         <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save log"}</button>
