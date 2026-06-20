@@ -243,7 +243,7 @@ def handbook_action(lates: int, partial_absences: int, unexcused_absences: int, 
     elif awol >= 1:
         actions.append("AWOL: written notice + 30-day probation")
 
-    return "; ".join(actions) if actions else "No handbook action required"
+    return "; ".join(actions) if actions else "No action required"
 
 
 def reward_status(year_unexcused: int) -> str:
@@ -417,7 +417,7 @@ def attendance_compliance(
             item["attendance_reward_status"] = reward_status(int(item["year_unexcused_infractions"]))
             if any(int(item[key]) for key in ["scheduled_shifts", "missing_logs", "late_infractions", "grace_periods", "partial_absences", "unexcused_absences", "awol", "approved_absences"]):
                 items.append(item)
-        items.sort(key=lambda row: (row["handbook_action"] == "No handbook action required", row.get("department") or "", row.get("full_name") or ""))
+        items.sort(key=lambda row: (row["handbook_action"] == "No action required", row.get("department") or "", row.get("full_name") or ""))
         return {"ok": True, "month": month, "period_start": period_start, "period_end": period_end, "items": items, "memos": memos}
     finally:
         conn.close()

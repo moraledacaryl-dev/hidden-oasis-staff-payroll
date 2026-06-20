@@ -92,7 +92,7 @@ export default async function AttendancePage({
   const graceCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.grace_periods || 0), 0);
   const partialCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.partial_absences || 0), 0);
   const absenceCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.approved_absences || 0) + Number(item.unexcused_absences || 0) + Number(item.awol || 0), 0);
-  const actionCount = complianceItems.filter((item: any) => item.handbook_action !== "No handbook action required").length;
+  const actionCount = complianceItems.filter((item: any) => item.handbook_action !== "No action required").length;
 
   return (
     <Shell allowedRoles={["owner", "supervisor"]}>
@@ -207,7 +207,7 @@ export default async function AttendancePage({
                       <span className="muted">{item.attendance_reward_status}</span>
                     </td>
                     <td>
-                      {item.handbook_action !== "No handbook action required" ? (
+                      {item.handbook_action !== "No action required" ? (
                         <AttendanceMemoForm
                           employeeId={Number(item.employee_id)}
                           employeeName={String(item.full_name || "Employee")}
