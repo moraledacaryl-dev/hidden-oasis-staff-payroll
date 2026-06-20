@@ -66,7 +66,7 @@ export default async function PerformanceReviewsPage({
             <h1>Annual Reviews {year}</h1>
             <p className="muted">Structured yearly staff reviews. This is separate from memos and attendance discipline.</p>
           </div>
-          <StatusBadge label={`${finalizedCount} finalized`} tone={finalizedCount ? "ok" : "neutral"} />
+          <StatusBadge label={`${finalizedCount} finalized`} tone={finalizedCount ? "ok" : undefined} />
         </header>
 
         <form className="card" action="/performance-reviews">
