@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { AnnualReviewForm } from "@/components/AnnualReviewForm";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiBaseUrl } from "@/lib/api";
@@ -94,7 +93,7 @@ export default async function PerformanceReviewsPage({
           <div className="panel-title">
             <div>
               <h2>Employee Reviews</h2>
-              <p className="muted">Supervisor can see previous comments while writing the current annual review.</p>
+              <p className="muted">Choose an employee to open their review page, logs, previous comments, and annual review form.</p>
             </div>
           </div>
 
@@ -137,13 +136,9 @@ export default async function PerformanceReviewsPage({
                       {!item.review?.strengths && !item.review?.improvements ? <span className="muted">—</span> : null}
                     </td>
                     <td>
-                      <AnnualReviewForm
-                        employee={item.employee}
-                        review={item.review}
-                        previousReviews={item.previous_reviews || []}
-                        reviewYear={year}
-                        canFinalize={session.role_key === "owner"}
-                      />
+                      <Link className="primary-link" href={`/performance-reviews/${item.employee.id}?year=${year}`}>
+                        Open page
+                      </Link>
                     </td>
                   </tr>
                 ))}

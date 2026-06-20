@@ -321,3 +321,183 @@ def save_annual_review(
         return {"ok": True, "review": review}
     finally:
         conn.close()
+
+class PerformanceLogPayload(BaseModel):
+    id: int | None = None
+    employee_id: int
+    log_date: str
+    category: str = "Neutral"
+    area: str = "General"
+    severity: str = "Low"
+    note: str
+    private_note: str | None = None
+    evidence_ref: str | None = None
+    is_general: int = 0
+
+
+def ensure_performance_logs_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS performance_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            log_date TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'Neutral',
+            area TEXT NOT NULL DEFAULT 'General',
+            severity TEXT NOT NULL DEFAULT 'Low',
+            note TEXT NOT NULL,
+            private_note TEXT,
+            evidence_ref TEXT,
+            is_general INTEGER DEFAULT 0,
+            created_by TEXT,
+            created_by_role TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_performance_logs_employee_date ON performance_logs(employee_id, log_date)")
+    conn.commit()
+
+
+@router.get("/performance/logs")
+def list_performance_logs(
+    employee_id: int | None = Query(default=None),
+    year: int | None = Query(default=None),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_review_user(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_performance_logs_schema(conn)
+        where = []
+        params: list[Any] = []
+
+        if employee_id is not None:
+            where.append("pl.employee_id=?")
+            params.append(employee_id)
+
+        if year is not None:
+            where.append("date(pl.log_date) BETWEEN date(?) AND date(?)")
+            params.extend([f"{year}-01-01", f"{year}-12-31"])
+
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+        rows = fetchall(
+            conn,
+            f"""
+            SELECT
+                pl.*,
+                e.full_name,
+                e.employee_code,
+                e.department,
+                e.position
+            FROM performance_logs pl
+            LEFT JOIN employees e ON e.id = pl.employee_id
+            {where_sql}
+            ORDER BY date(pl.log_date) DESC, pl.id DESC
+            """,
+            tuple(params),
+        )
+        return {"ok": True, "items": rows}
+    finally:
+        conn.close()
+
+
+@router.post("/performance/logs")
+def save_performance_log(
+    payload: PerformanceLogPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = require_review_user(authorization, x_api_key)
+    timestamp = now_iso()
+
+    if payload.category not in {"Positive", "Concern", "Neutral", "General"}:
+        raise HTTPException(status_code=422, detail="Invalid log category.")
+    if payload.severity not in {"Low", "Medium", "High"}:
+        raise HTTPException(status_code=422, detail="Invalid severity.")
+    if not payload.note.strip():
+        raise HTTPException(status_code=422, detail="Note is required.")
+
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_performance_logs_schema(conn)
+
+        if not fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,)):
+            raise HTTPException(status_code=404, detail="Employee not found.")
+
+        existing = None
+        if payload.id:
+            existing = fetchone(conn, "SELECT * FROM performance_logs WHERE id=?", (payload.id,))
+            if not existing:
+                raise HTTPException(status_code=404, detail="Performance log not found.")
+            if user.get("role_key") != "owner" and existing.get("created_by") != user.get("display_name"):
+                raise HTTPException(status_code=403, detail="Supervisor can only edit their own performance logs.")
+
+        values = (
+            payload.employee_id,
+            payload.log_date,
+            payload.category,
+            payload.area,
+            payload.severity,
+            payload.note.strip(),
+            payload.private_note,
+            payload.evidence_ref,
+            int(payload.is_general or 0),
+            user.get("display_name"),
+            user.get("role_key"),
+            timestamp,
+        )
+
+        if existing:
+            conn.execute(
+                """
+                UPDATE performance_logs
+                SET
+                    employee_id=?,
+                    log_date=?,
+                    category=?,
+                    area=?,
+                    severity=?,
+                    note=?,
+                    private_note=?,
+                    evidence_ref=?,
+                    is_general=?,
+                    created_by=?,
+                    created_by_role=?,
+                    updated_at=?
+                WHERE id=?
+                """,
+                values + (payload.id,),
+            )
+            log_id = int(payload.id)
+        else:
+            conn.execute(
+                """
+                INSERT INTO performance_logs (
+                    employee_id,
+                    log_date,
+                    category,
+                    area,
+                    severity,
+                    note,
+                    private_note,
+                    evidence_ref,
+                    is_general,
+                    created_by,
+                    created_by_role,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values + (timestamp,),
+            )
+            log_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+        conn.commit()
+        item = fetchone(conn, "SELECT * FROM performance_logs WHERE id=?", (log_id,))
+        return {"ok": True, "item": item}
+    finally:
+        conn.close()
