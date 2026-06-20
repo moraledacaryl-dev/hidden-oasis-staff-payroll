@@ -300,3 +300,50 @@ td div {
     min-width: 720px;
   }
 }
+
+
+/* Checkbox/radio normalization: keep small and left-aligned globally */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  max-width: 16px !important;
+  min-height: 16px !important;
+  padding: 0 !important;
+  flex: 0 0 16px !important;
+  margin: 0;
+  align-self: flex-start;
+  accent-color: var(--accent);
+}
+
+label:has(input[type="checkbox"]),
+label:has(input[type="radio"]),
+.review-check,
+.check-field {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  width: 100%;
+  min-width: 0;
+  text-align: left !important;
+  line-height: 1.35;
+}
+
+label:has(input[type="checkbox"]) input,
+label:has(input[type="radio"]) input,
+.review-check input,
+.check-field input {
+  margin-top: 2px;
+}
+
+.review-check,
+.check-field {
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 0.86rem !important;
+  color: var(--ink) !important;
+  font-weight: 700 !important;
+}
