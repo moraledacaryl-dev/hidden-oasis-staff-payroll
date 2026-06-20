@@ -57,6 +57,12 @@ export const navItems: NavItem[] = [
     roles: ["owner", "payroll", "supervisor"],
   },
   {
+    href: "/performance-reviews",
+    label: "Performance Reviews",
+    description: "Annual staff reviews.",
+    roles: ["owner", "supervisor"],
+  },
+  {
     href: "/reports/operations",
     label: "Reports",
     description: "Summaries.",
