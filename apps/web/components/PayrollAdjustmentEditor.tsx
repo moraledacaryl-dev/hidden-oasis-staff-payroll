@@ -16,6 +16,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
   const [adjustment, setAdjustment] = useState<Adjustment>({});
   const [selectedAdvanceId, setSelectedAdvanceId] = useState<number | null>(null);
   const [cashAmount, setCashAmount] = useState(0);
+  const [serverEditable, setServerEditable] = useState(true);
 
   const selectedAdvance = useMemo(() => advances.find((item) => item.id === selectedAdvanceId), [advances, selectedAdvanceId]);
 
@@ -34,6 +35,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
     setAdjustment(current);
     setSelectedAdvanceId(current.cash_advance_id ? Number(current.cash_advance_id) : null);
     setCashAmount(Number(current.cash_advance_amount || 0));
+    setServerEditable(data.editable !== false);
   }
 
   useEffect(() => { if (open) void load(); }, [open]);
@@ -71,11 +73,20 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
   }
 
   if (disabled) return <span className="muted">Locked</span>;
-  if (!open) return <button className="button small" type="button" onClick={() => setOpen(true)}>Add earnings / deductions</button>;
+  if (!open) return <button className="button small" type="button" onClick={() => setOpen(true)}>Edit earnings / deductions</button>;
+
+  if (!loading && !serverEditable) {
+    return (
+      <div className="card">
+        <div className="panel-title"><div><h3>{employeeName}</h3><p className="muted">This is a paid-payroll adjustment revision. Original manual values are preserved and locked; only the calculated employee difference is settled.</p></div></div>
+        <button className="button ghost" type="button" onClick={() => setOpen(false)}>Close</button>
+      </div>
+    );
+  }
 
   return (
     <div className="card">
-      <div className="panel-title"><div><h3>{employeeName}</h3><p className="muted">Add final earnings and deductions before sending payroll for review.</p></div></div>
+      <div className="panel-title"><div><h3>{employeeName}</h3><p className="muted">These are replacement values for this employee. Saving replaces the carried amount; it does not add another duplicate adjustment.</p></div></div>
       {loading ? <p className="muted">Loading adjustments…</p> : (
         <form action={submit} className="form-grid modal-form">
           <fieldset>
@@ -87,14 +98,14 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
             <legend>Cash advance repayment</legend>
             <label>Cash advance<select value={selectedAdvanceId || ""} onChange={(event) => chooseAdvance(event.target.value)}><option value="">No cash advance deduction</option>{advances.map((advance) => <option key={advance.id} value={advance.id}>{advance.advance_date} · Balance ₱{advance.available_balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</option>)}</select></label>
             <label>Deduction amount<input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance || 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
-            {selectedAdvance ? <p className="muted">Prefilled with the full available balance. You may lower it, but it cannot exceed the balance.</p> : null}
+            {selectedAdvance ? <p className="muted">Change this amount to replace the carried repayment. It cannot exceed the available balance.</p> : null}
           </fieldset>
           <fieldset>
             <legend>Other deduction</legend>
             <label>Amount<input name="other_deduction" type="number" min="0" step="0.01" defaultValue={adjustment.other_deduction || 0} /></label>
             <label>Description<input name="other_deduction_note" defaultValue={adjustment.other_deduction_note || ""} placeholder="Uniform, damage, correction…" /></label>
           </fieldset>
-          <div className="badge-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save adjustments"}</button><button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></div>
+          <div className="badge-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save replacement values"}</button><button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></div>
           {message ? <p className="footer-note">{message}</p> : null}
         </form>
       )}
