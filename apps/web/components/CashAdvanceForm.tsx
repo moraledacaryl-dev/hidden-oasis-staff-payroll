@@ -14,27 +14,68 @@ type Advance = {
   repayment_method?: string | null;
   deduction_per_payroll?: number;
   remaining_balance?: number;
+  total_repaid?: number;
+  overpayment_credit?: number;
   status?: string | null;
   notes?: string | null;
 };
 
-export function CashAdvanceForm({ employees, item = null, canEditExisting = false }: { employees: Employee[]; item?: Advance | null; canEditExisting?: boolean }) {
+export function CashAdvanceForm({ employees, item = null, canEditExisting = false, isOwner = false }: { employees: Employee[]; item?: Advance | null; canEditExisting?: boolean; isOwner?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(!item);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [method, setMethod] = useState(item?.repayment_method || "Payroll deduction");
+  const [amount, setAmount] = useState(Number(item?.amount || 0));
 
   if (item && !canEditExisting) return null;
+
+  const originalAmount = Number(item?.amount || 0);
+  const totalRepaid = Number(item?.total_repaid || 0);
+  const amountChanged = Boolean(item) && Math.abs(amount - originalAmount) >= 0.005;
+  const correctedBalance = Math.max(0, amount - totalRepaid);
+  const overpaymentCredit = Math.max(0, totalRepaid - amount);
 
   async function submit(formData: FormData) {
     setBusy(true);
     setMessage("");
+
+    if (item && amountChanged) {
+      if (!isOwner) {
+        setBusy(false);
+        setMessage("Only the owner can correct the original amount.");
+        return;
+      }
+      const correctionReason = String(formData.get("correction_reason") || "").trim();
+      if (!correctionReason) {
+        setBusy(false);
+        setMessage("Enter a reason for changing the original amount.");
+        return;
+      }
+      const correctionResponse = await fetch("/api/cash-advances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "correct_amount",
+          cash_advance_id: item.id,
+          corrected_amount: amount,
+          correction_reason: correctionReason,
+          reference: String(formData.get("correction_reference") || "") || null,
+        }),
+      });
+      const correctionData = await correctionResponse.json().catch(() => ({}));
+      if (!correctionResponse.ok || !correctionData.ok) {
+        setBusy(false);
+        setMessage(typeof correctionData.detail === "string" ? correctionData.detail : "Amount correction was not saved.");
+        return;
+      }
+    }
+
     const body = {
       id: item?.id || null,
       employee_id: Number(formData.get("employee_id") || 0),
       advance_date: String(formData.get("advance_date") || ""),
-      amount: Number(formData.get("amount") || 0),
+      amount,
       reason: String(formData.get("reason") || "") || null,
       approved_by: String(formData.get("approved_by") || "") || null,
       repayment_method: String(formData.get("repayment_method") || "Payroll deduction"),
@@ -74,8 +115,18 @@ export function CashAdvanceForm({ employees, item = null, canEditExisting = fals
         </label>
 
         <label className="cash-field">
-          <span>Advance amount</span>
-          <input name="amount" type="number" min="0.01" step="0.01" defaultValue={item?.amount ?? ""} required />
+          <span>Original advance amount</span>
+          <input
+            name="amount_display"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={amount || ""}
+            onChange={(event) => setAmount(Number(event.target.value || 0))}
+            disabled={Boolean(item) && !isOwner}
+            required
+          />
+          {item && !isOwner ? <small>Only the owner can correct the original amount.</small> : null}
         </label>
 
         <label className="cash-field">
@@ -119,109 +170,51 @@ export function CashAdvanceForm({ employees, item = null, canEditExisting = fals
           </label>
         ) : <input type="hidden" name="status" value="Active" />}
 
+        {item && amountChanged ? (
+          <div className="cash-correction-panel">
+            <div className="cash-correction-preview">
+              <div><span>Previous amount</span><strong>₱{originalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</strong></div>
+              <div><span>Corrected amount</span><strong>₱{amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</strong></div>
+              <div><span>Repayments applied</span><strong>₱{totalRepaid.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</strong></div>
+              <div><span>New remaining balance</span><strong>₱{correctedBalance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</strong></div>
+            </div>
+            {overpaymentCredit > 0 ? <p className="cash-credit-warning">This correction creates an employee credit of ₱{overpaymentCredit.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. It must be settled as an over-deduction correction.</p> : null}
+            <div className="cash-correction-fields">
+              <label className="cash-field"><span>Correction reason</span><input name="correction_reason" required placeholder="Why the original amount was incorrect" /></label>
+              <label className="cash-field"><span>Reference</span><input name="correction_reference" placeholder="Optional receipt, voucher, or accounting reference" /></label>
+            </div>
+          </div>
+        ) : null}
+
         <div className="cash-form-actions">
           {message ? <p className="cash-form-message">{message}</p> : <span />}
           <div className="action-row">
-            {item ? <button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button> : null}
+            {item ? <button className="button ghost" type="button" onClick={() => { setAmount(originalAmount); setOpen(false); }}>Cancel</button> : null}
             <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save changes" : "Add cash advance"}</button>
           </div>
         </div>
       </form>
 
       <style jsx>{`
-        .cash-advance-form {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 14px 16px;
-          align-items: start;
-          min-width: 0;
-        }
-        .cash-field {
-          display: grid;
-          gap: 6px;
-          min-width: 0;
-        }
-        .cash-field > span {
-          color: var(--muted);
-          font-size: 0.72rem;
-          font-weight: 820;
-          text-transform: uppercase;
-          letter-spacing: 0.07em;
-        }
-        .cash-field input,
-        .cash-field select {
-          width: 100%;
-          min-width: 0;
-        }
-        .cash-field small {
-          color: var(--muted);
-          font-size: 0.76rem;
-          font-weight: 500;
-          line-height: 1.35;
-          text-transform: none;
-          letter-spacing: normal;
-        }
-        .cash-field-deduction {
-          grid-column: span 2;
-        }
-        .cash-form-actions {
-          grid-column: 1 / -1;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          padding-top: 2px;
-        }
-        .cash-form-actions .action-row {
-          margin-left: auto;
-        }
-        .cash-form-message {
-          color: var(--danger);
-          font-size: 0.82rem;
-          font-weight: 700;
-        }
-        .cash-advance-form-edit {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          width: 100%;
-          margin-top: 10px;
-          padding: 14px;
-          border: 1px solid var(--line);
-          border-radius: 14px;
-          background: var(--surface-soft);
-        }
-        .cash-advance-form-edit .cash-field-deduction {
-          grid-column: span 2;
-        }
-        @media (max-width: 1080px) {
-          .cash-advance-form {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-          .cash-field-deduction,
-          .cash-form-actions {
-            grid-column: 1 / -1;
-          }
-        }
-        @media (max-width: 720px) {
-          .cash-advance-form,
-          .cash-advance-form-edit {
-            grid-template-columns: 1fr;
-          }
-          .cash-field-deduction,
-          .cash-advance-form-edit .cash-field-deduction,
-          .cash-form-actions {
-            grid-column: 1;
-          }
-          .cash-form-actions {
-            display: grid;
-          }
-          .cash-form-actions > span {
-            display: none;
-          }
-          .cash-form-actions .action-row {
-            width: 100%;
-            margin-left: 0;
-          }
-        }
+        .cash-advance-form { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px 16px; align-items:start; min-width:0; }
+        .cash-field { display:grid; gap:6px; min-width:0; }
+        .cash-field > span { color:var(--muted); font-size:.72rem; font-weight:820; text-transform:uppercase; letter-spacing:.07em; }
+        .cash-field input,.cash-field select { width:100%; min-width:0; }
+        .cash-field small { color:var(--muted); font-size:.76rem; font-weight:500; line-height:1.35; text-transform:none; letter-spacing:normal; }
+        .cash-field-deduction { grid-column:span 2; }
+        .cash-form-actions { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; gap:12px; padding-top:2px; }
+        .cash-form-actions .action-row { margin-left:auto; }
+        .cash-form-message { color:var(--danger); font-size:.82rem; font-weight:700; }
+        .cash-advance-form-edit { grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; margin-top:10px; padding:14px; border:1px solid var(--line); border-radius:14px; background:var(--surface-soft); }
+        .cash-advance-form-edit .cash-field-deduction { grid-column:span 2; }
+        .cash-correction-panel { grid-column:1/-1; display:grid; gap:12px; padding:14px; border:1px solid #edd19c; border-radius:14px; background:var(--warning-soft); }
+        .cash-correction-preview { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+        .cash-correction-preview div { display:grid; gap:4px; padding:10px; border-radius:10px; background:rgba(255,255,255,.72); }
+        .cash-correction-preview span { color:var(--muted); font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }
+        .cash-correction-fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .cash-credit-warning { color:var(--danger); font-size:.82rem; font-weight:750; }
+        @media (max-width:1080px) { .cash-advance-form{grid-template-columns:repeat(2,minmax(0,1fr));} .cash-field-deduction,.cash-form-actions{grid-column:1/-1;} .cash-correction-preview{grid-template-columns:repeat(2,minmax(0,1fr));} }
+        @media (max-width:720px) { .cash-advance-form,.cash-advance-form-edit{grid-template-columns:1fr;} .cash-field-deduction,.cash-advance-form-edit .cash-field-deduction,.cash-form-actions{grid-column:1;} .cash-form-actions{display:grid;} .cash-form-actions>span{display:none;} .cash-form-actions .action-row{width:100%;margin-left:0;} .cash-correction-preview,.cash-correction-fields{grid-template-columns:1fr;} }
       `}</style>
     </>
   );
