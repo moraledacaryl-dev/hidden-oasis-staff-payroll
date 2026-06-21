@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { navGroups } from "@/lib/navigation";
 import type { RoleKey } from "@/lib/types";
+import styles from "./SidebarNav.module.css";
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
@@ -15,7 +16,7 @@ export function SidebarNav({ role }: { role: RoleKey }) {
 
   return (
     <nav className="nav-list" aria-label="Main navigation">
-      {navGroups.map((group) => {
+      {navGroups.map((group, groupIndex) => {
         const items = group.items.filter((item) => item.roles.includes(role));
         if (!items.length) return null;
 
@@ -24,9 +25,9 @@ export function SidebarNav({ role }: { role: RoleKey }) {
         if (!group.label) {
           return items.map((item) => (
             <Link
-              className={`nav-card ${isActive(pathname, item.href) ? "active" : ""}`}
+              className={`nav-card ${isActive(pathname, item.href) ? styles.activeLink : ""}`}
               href={item.href}
-              key={item.href}
+              key={`${groupIndex}-${item.href}`}
               title={item.label}
             >
               <strong>{item.label}</strong>
@@ -36,15 +37,15 @@ export function SidebarNav({ role }: { role: RoleKey }) {
         }
 
         return (
-          <details className="nav-group" defaultOpen={groupActive} key={group.label}>
-            <summary className={groupActive ? "active" : ""}>
+          <details className={styles.group} defaultOpen={groupActive} key={group.label}>
+            <summary className={groupActive ? styles.active : ""}>
               <strong>{group.label}</strong>
-              <span className="nav-chevron" aria-hidden="true">›</span>
+              <span className={styles.chevron} aria-hidden="true">›</span>
             </summary>
-            <div className="nav-sublist">
+            <div className={styles.sublist}>
               {items.map((item) => (
                 <Link
-                  className={`nav-card nav-subcard ${isActive(pathname, item.href) ? "active" : ""}`}
+                  className={`nav-card ${styles.subcard} ${isActive(pathname, item.href) ? styles.activeLink : ""}`}
                   href={item.href}
                   key={item.href}
                   title={item.label}
