@@ -21,6 +21,7 @@ from core.runtime_guard import validate_runtime_environment
 from api.attendance_compliance import router as attendance_compliance_router
 from api.cash_advances import router as cash_advances_router
 from api.performance_reviews import router as performance_reviews_router
+from api.payroll_adjustments import router as payroll_adjustments_router
 
 @app.on_event("startup")
 def validate_runtime() -> None:
@@ -46,3 +47,4 @@ app.include_router(schedule_publication_router)
 app.include_router(attendance_compliance_router)
 app.include_router(cash_advances_router)
 app.include_router(performance_reviews_router)
+app.include_router(payroll_adjustments_router)
