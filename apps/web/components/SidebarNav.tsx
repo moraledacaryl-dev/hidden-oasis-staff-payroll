@@ -39,7 +39,7 @@ export function SidebarNav({ role }: { role: RoleKey }) {
         return (
           <details
             className={styles.group}
-            defaultOpen={groupActive}
+            open={groupActive || undefined}
             key={`${group.label}-${pathname}`}
           >
             <summary className={groupActive ? styles.active : ""}>
