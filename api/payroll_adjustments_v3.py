@@ -37,6 +37,34 @@ def reserved(conn, advance_id: int, run_id: int) -> float:
     return round(float(row.get("total") or 0), 2)
 
 
+def current_adjustment(conn, run_id: int, employee_id: int, item: dict[str, Any]) -> dict[str, Any]:
+    adjustment = fetchone(conn, "SELECT * FROM payroll_item_adjustments WHERE payroll_run_id=? AND employee_id=?", (run_id, employee_id))
+    if adjustment:
+        return adjustment
+
+    linked = fetchone(
+        conn,
+        "SELECT cash_advance_id,amount FROM cash_advance_repayments WHERE payroll_run_id=? AND employee_id=? AND COALESCE(active,1)=1 ORDER BY id DESC LIMIT 1",
+        (run_id, employee_id),
+    )
+    current_cash = round(float(item.get("cash_advance_deduction") or 0), 2)
+    advance_id = int(linked["cash_advance_id"]) if linked and linked.get("cash_advance_id") else None
+
+    if current_cash > 0 and not advance_id:
+        candidates = fetchall(conn, "SELECT id FROM cash_advances WHERE employee_id=? AND status<>'Cancelled' ORDER BY date(advance_date),id", (employee_id,))
+        if len(candidates) == 1:
+            advance_id = int(candidates[0]["id"])
+
+    return {
+        "additional_earning": 0,
+        "additional_earning_note": None,
+        "other_deduction": 0,
+        "other_deduction_note": None,
+        "cash_advance_id": advance_id,
+        "cash_advance_amount": current_cash,
+    }
+
+
 @router.get("/payroll/runs/{run_id}/employees/{employee_id}/adjustments")
 def get_adjustments(run_id: int, employee_id: int, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     must_be_payroll_user(authorization, x_api_key)
@@ -47,16 +75,27 @@ def get_adjustments(run_id: int, employee_id: int, authorization: str | None = H
         item = fetchone(conn, "SELECT * FROM payroll_items WHERE payroll_run_id=? AND employee_id=?", (run_id, employee_id))
         if not run or not item:
             raise HTTPException(status_code=404, detail="Payroll employee item not found.")
-        adjustment = fetchone(conn, "SELECT * FROM payroll_item_adjustments WHERE payroll_run_id=? AND employee_id=?", (run_id, employee_id)) or {}
+
+        adjustment = current_adjustment(conn, run_id, employee_id, item)
+        selected_id = int(adjustment.get("cash_advance_id") or 0)
+        selected_amount = round(float(adjustment.get("cash_advance_amount") or 0), 2)
         options = []
         for advance in fetchall(conn, "SELECT * FROM cash_advances WHERE employee_id=? AND status<>'Cancelled' ORDER BY date(advance_date),id", (employee_id,)):
-            selected = int(adjustment.get("cash_advance_id") or 0) == int(advance["id"])
+            selected = selected_id == int(advance["id"])
             available = recalculate_balance(conn, int(advance["id"]))["balance"] - reserved(conn, int(advance["id"]), run_id)
             if selected:
-                available += float(adjustment.get("cash_advance_amount") or 0)
+                available += selected_amount
             if available > 0 or selected:
                 options.append({**advance, "available_balance": round(max(0, available), 2)})
-        return {"ok": True, "run": run, "item": item, "adjustment": adjustment, "cash_advances": options, "editable": run.get("status") == "Draft" and run.get("revision_treatment") != "adjust_paid"}
+
+        return {
+            "ok": True,
+            "run": run,
+            "item": item,
+            "adjustment": adjustment,
+            "cash_advances": options,
+            "editable": run.get("status") == "Draft" and run.get("revision_treatment") != "adjust_paid",
+        }
     finally:
         conn.close()
 
@@ -84,11 +123,11 @@ def save_adjustments(run_id: int, employee_id: int, payload: AdjustmentPayload, 
         if run.get("revision_treatment") == "adjust_paid":
             raise HTTPException(status_code=409, detail="Paid revisions are difference-only.")
 
-        old = fetchone(conn, "SELECT * FROM payroll_item_adjustments WHERE payroll_run_id=? AND employee_id=?", (run_id, employee_id)) or {}
+        old = current_adjustment(conn, run_id, employee_id, item)
         old_earning = round(float(old.get("additional_earning") or 0), 2)
         old_other = round(float(old.get("other_deduction") or 0), 2)
         old_advance = old.get("cash_advance_id")
-        old_cash = round(float(old.get("cash_advance_amount") or 0), 2)
+        old_cash = round(float(old.get("cash_advance_amount") or item.get("cash_advance_deduction") or 0), 2)
 
         if payload.cash_advance_id:
             advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=? AND employee_id=?", (payload.cash_advance_id, employee_id))
