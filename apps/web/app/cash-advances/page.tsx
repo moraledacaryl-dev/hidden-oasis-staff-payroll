@@ -14,7 +14,7 @@ type Repayment = { id: number; repayment_date: string; amount: number; source: s
 type Advance = {
   id: number; employee_id: number; full_name?: string; employee_code?: string; department?: string;
   advance_date: string; amount: number; deduction_per_payroll: number; remaining_balance: number;
-  total_repaid?: number; repayment_method?: string; status: string; reason?: string | null; repayments?: Repayment[];
+  total_repaid?: number; overpayment_credit?: number; repayment_method?: string; status: string; reason?: string | null; repayments?: Repayment[];
 };
 
 async function authHeaders(): Promise<HeadersInit> {
@@ -48,6 +48,7 @@ export default async function CashAdvancesPage() {
   if (!["owner", "payroll", "supervisor"].includes(session.role_key)) return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div /></Shell>;
 
   const canEditExisting = ["owner", "payroll"].includes(session.role_key);
+  const isOwner = session.role_key === "owner";
   const [advances, employees] = await Promise.all([loadAdvances(), loadEmployees()]);
   const active = advances.filter((item) => item.status === "Active");
   const totalBalance = active.reduce((sum, item) => sum + Number(item.remaining_balance || 0), 0);
@@ -69,7 +70,7 @@ export default async function CashAdvancesPage() {
 
         <section className="card cash-create-card">
           <div className="panel-title"><div><h2>Add cash advance</h2><p className="muted">Create a new advance and select how it will normally be repaid.</p></div></div>
-          <CashAdvanceForm employees={employees} />
+          <CashAdvanceForm employees={employees} isOwner={isOwner} />
         </section>
 
         <section className="cash-card-list">
@@ -77,6 +78,7 @@ export default async function CashAdvancesPage() {
             const original = Number(item.amount || 0);
             const balance = Number(item.remaining_balance || 0);
             const repaid = Number(item.total_repaid || 0);
+            const credit = Number(item.overpayment_credit || 0);
             const paidPercent = original > 0 ? Math.min(100, Math.max(0, (repaid / original) * 100)) : 0;
             const isClosed = item.status === "Fully Paid" || item.status === "Cancelled";
 
@@ -108,12 +110,13 @@ export default async function CashAdvancesPage() {
                   <div className="cash-progress-label"><span>{Math.round(paidPercent)}% repaid</span><span>{balance <= 0 ? "Complete" : `${peso(balance)} left`}</span></div>
                 </div>
 
+                {credit > 0 ? <div className="cash-reason"><span>Employee credit</span><p>{peso(credit)} was over-deducted and requires settlement.</p></div> : null}
                 {item.reason ? <div className="cash-reason"><span>Reason</span><p>{item.reason}</p></div> : null}
 
                 <div className="cash-card-footer">
                   <div className="cash-primary-actions">
                     <ManualRepaymentForm advanceId={item.id} balance={balance} employeeName={item.full_name || "employee"} />
-                    {canEditExisting ? <CashAdvanceForm employees={employees} item={item} canEditExisting /> : null}
+                    {canEditExisting ? <CashAdvanceForm employees={employees} item={item} canEditExisting isOwner={isOwner} /> : null}
                   </div>
                   <details className="cash-history">
                     <summary>Repayment history <span>{item.repayments?.length || 0}</span></summary>
