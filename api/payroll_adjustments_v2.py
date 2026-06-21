@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from api.cash_advances import ensure_schema as ensure_cash_schema, recalculate_balance
+from api.cash_advances_v2 import ensure_schema as ensure_cash_schema, recalculate_balance
 from api.payroll_drafts import must_be_payroll_user, totals
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
