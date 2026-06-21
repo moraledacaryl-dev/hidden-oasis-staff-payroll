@@ -82,7 +82,9 @@ def correct_cash_advance_amount(
             raise HTTPException(status_code=422, detail="Corrected amount is the same as the current amount.")
 
         total_repaid = round(float(old_summary.get("paid") or 0), 2)
-        historical_paid = round(max(0.0, old_amount - float(advance.get("ledger_opening_balance") or old_amount)), 2)
+        opening_value = advance.get("ledger_opening_balance")
+        old_opening = old_amount if opening_value is None else float(opening_value)
+        historical_paid = round(max(0.0, old_amount - old_opening), 2)
         new_opening = round(max(0.0, corrected_amount - historical_paid), 2)
         overpayment_credit = round(max(0.0, total_repaid - corrected_amount), 2)
         stamp = now_iso()
