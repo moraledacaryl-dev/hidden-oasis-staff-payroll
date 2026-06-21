@@ -1,0 +1,364 @@
+.cash-advance-page {
+  max-width: 1180px;
+}
+
+.cash-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cash-summary-card {
+  display: grid;
+  gap: 5px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.cash-summary-card span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cash-summary-card strong {
+  font-size: clamp(1.35rem, 2vw, 1.85rem);
+  letter-spacing: -0.05em;
+}
+
+.cash-summary-card.emphasis {
+  border-color: #bfd1c6;
+  background: linear-gradient(135deg, var(--surface), var(--accent-soft));
+}
+
+.cash-create-card {
+  padding: 18px;
+}
+
+.cash-card-list {
+  display: grid;
+  gap: 14px;
+}
+
+.cash-advance-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.cash-advance-card.is-closed {
+  box-shadow: none;
+  background: var(--surface-soft);
+}
+
+.cash-card-header,
+.cash-card-footer,
+.cash-card-main,
+.cash-progress-label,
+.cash-history-row {
+  min-width: 0;
+}
+
+.cash-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cash-card-person {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.cash-card-person h2 {
+  font-size: 1.08rem;
+  line-height: 1.1;
+}
+
+.cash-card-person p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.cash-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 900;
+}
+
+.cash-card-main {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.6fr);
+  gap: 22px;
+  align-items: end;
+}
+
+.cash-balance-block {
+  display: grid;
+  gap: 3px;
+}
+
+.cash-balance-block > span,
+.cash-card-facts span,
+.cash-reason > span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 820;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cash-balance-block > strong {
+  font-size: clamp(1.85rem, 4vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.07em;
+}
+
+.cash-balance-block small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.cash-card-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cash-card-facts > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-soft);
+}
+
+.cash-card-facts strong {
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.cash-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.cash-progress-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ebe8df;
+}
+
+.cash-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.cash-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 720;
+}
+
+.cash-reason {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border-left: 3px solid var(--line-strong);
+  border-radius: 0 10px 10px 0;
+  background: var(--surface-soft);
+}
+
+.cash-reason p {
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.cash-card-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 2px;
+}
+
+.cash-primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.cash-history {
+  width: min(560px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.cash-history summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.cash-history summary::-webkit-details-marker {
+  display: none;
+}
+
+.cash-history summary span {
+  min-width: 24px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.72rem;
+}
+
+.cash-history-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.cash-history-row {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 0.9fr;
+  gap: 12px;
+  padding: 10px 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cash-history-row:last-child {
+  border-bottom: 0;
+}
+
+.cash-history-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cash-history-row strong {
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.cash-history-row span,
+.cash-empty-history {
+  color: var(--muted);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.cash-empty-history {
+  padding: 12px;
+}
+
+.cash-empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 170px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .cash-card-main {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .cash-card-footer {
+    display: grid;
+  }
+
+  .cash-history {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .cash-summary-grid,
+  .cash-card-facts,
+  .cash-history-row {
+    grid-template-columns: 1fr;
+  }
+
+  .cash-summary-grid {
+    gap: 8px;
+  }
+
+  .cash-summary-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 14px;
+  }
+
+  .cash-summary-card strong {
+    font-size: 1.25rem;
+  }
+
+  .cash-advance-card {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .cash-card-header {
+    align-items: center;
+  }
+
+  .cash-card-facts > div {
+    grid-template-columns: minmax(100px, 0.7fr) 1fr;
+    align-items: center;
+  }
+
+  .cash-card-facts strong {
+    text-align: right;
+  }
+
+  .cash-progress-label {
+    font-size: 0.7rem;
+  }
+
+  .cash-primary-actions {
+    display: grid;
+  }
+
+  .cash-primary-actions > * {
+    width: 100%;
+  }
+}
