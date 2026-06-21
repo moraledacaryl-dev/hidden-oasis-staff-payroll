@@ -78,13 +78,10 @@ def get_adjustments(run_id: int, employee_id: int, authorization: str | None = H
 
         adjustment = current_adjustment(conn, run_id, employee_id, item)
         selected_id = int(adjustment.get("cash_advance_id") or 0)
-        selected_amount = round(float(adjustment.get("cash_advance_amount") or 0), 2)
         options = []
         for advance in fetchall(conn, "SELECT * FROM cash_advances WHERE employee_id=? AND status<>'Cancelled' ORDER BY date(advance_date),id", (employee_id,)):
             selected = selected_id == int(advance["id"])
             available = recalculate_balance(conn, int(advance["id"]))["balance"] - reserved(conn, int(advance["id"]), run_id)
-            if selected:
-                available += selected_amount
             if available > 0 or selected:
                 options.append({**advance, "available_balance": round(max(0, available), 2)})
 
@@ -127,15 +124,12 @@ def save_adjustments(run_id: int, employee_id: int, payload: AdjustmentPayload, 
         old_earning = round(float(old.get("additional_earning") or 0), 2)
         old_other = round(float(old.get("other_deduction") or 0), 2)
         old_advance = old.get("cash_advance_id")
-        old_cash = round(float(old.get("cash_advance_amount") or item.get("cash_advance_deduction") or 0), 2)
 
         if payload.cash_advance_id:
             advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=? AND employee_id=?", (payload.cash_advance_id, employee_id))
             if not advance:
                 raise HTTPException(status_code=404, detail="Cash advance not found for this employee.")
             available = recalculate_balance(conn, int(payload.cash_advance_id))["balance"] - reserved(conn, int(payload.cash_advance_id), run_id)
-            if old_advance == payload.cash_advance_id:
-                available += old_cash
             if cash > round(available, 2):
                 raise HTTPException(status_code=422, detail=f"Deduction cannot exceed the available balance of {available:.2f}.")
 
