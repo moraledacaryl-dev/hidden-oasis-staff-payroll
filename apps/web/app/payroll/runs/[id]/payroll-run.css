@@ -1,0 +1,246 @@
+.employee-payroll-list {
+  display: grid;
+  gap: 12px;
+}
+
+.employee-payroll-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.employee-payroll-toggle {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 44px minmax(180px, 1.3fr) repeat(2, minmax(120px, 0.7fr)) minmax(140px, 0.8fr) 30px;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.employee-payroll-toggle:hover {
+  background: var(--surface-soft);
+}
+
+.employee-payroll-avatar {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.employee-payroll-person,
+.employee-payroll-metric,
+.employee-payroll-net {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.employee-payroll-person strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employee-payroll-person small,
+.employee-payroll-metric small,
+.employee-payroll-net small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.employee-payroll-metric strong {
+  font-size: 0.9rem;
+}
+
+.employee-payroll-net {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.employee-payroll-net strong {
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+.employee-payroll-chevron {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.employee-payroll-body {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.employee-payroll-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.employee-payroll-columns section {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.employee-payroll-columns h3 {
+  margin-bottom: 4px;
+}
+
+.employee-payroll-columns p,
+.employee-payslip-preview > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 0.82rem;
+}
+
+.employee-payroll-columns p span {
+  min-width: 0;
+}
+
+.employee-payroll-columns p small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.employee-payroll-columns p strong,
+.employee-payslip-preview strong {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.employee-payroll-total,
+.employee-payslip-net {
+  margin-top: 5px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-weight: 850;
+}
+
+.employee-payslip-preview {
+  background: linear-gradient(145deg, var(--surface), var(--accent-soft)) !important;
+}
+
+.employee-payslip-net strong {
+  color: var(--accent);
+  font-size: 1.05rem;
+}
+
+.employee-payroll-warnings {
+  padding: 12px 14px;
+  border: 1px solid #edd19c;
+  border-radius: 14px;
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.employee-payroll-warnings p {
+  margin-top: 5px;
+  font-size: 0.82rem;
+}
+
+.employee-payroll-adjustments {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.payroll-run-version-note {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  .employee-payroll-toggle {
+    grid-template-columns: 44px minmax(160px, 1fr) repeat(2, minmax(100px, 0.65fr)) 30px;
+  }
+
+  .employee-payroll-net {
+    grid-column: 2 / 5;
+  }
+
+  .employee-payroll-columns {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .employee-payslip-preview {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .employee-payroll-toggle {
+    grid-template-columns: 40px minmax(0, 1fr) 28px;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .employee-payroll-metric {
+    display: none;
+  }
+
+  .employee-payroll-net {
+    grid-column: 2;
+    padding: 8px 10px;
+  }
+
+  .employee-payroll-chevron {
+    grid-column: 3;
+    grid-row: 1 / 3;
+  }
+
+  .employee-payroll-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .employee-payslip-preview {
+    grid-column: 1;
+  }
+
+  .employee-payroll-adjustments {
+    display: grid;
+  }
+}
