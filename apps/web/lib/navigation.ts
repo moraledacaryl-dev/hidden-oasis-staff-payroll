@@ -7,116 +7,153 @@ export type NavItem = {
   roles: RoleKey[];
 };
 
-export const navItems: NavItem[] = [
+export type NavGroup = {
+  label: string | null;
+  items: NavItem[];
+};
+
+export const navGroups: NavGroup[] = [
   {
-    href: "/",
-    label: "Dashboard",
-    description: "Overview.",
-    roles: ["owner", "payroll", "supervisor"],
+    label: null,
+    items: [
+      {
+        href: "/",
+        label: "Dashboard",
+        description: "Overview.",
+        roles: ["owner", "payroll", "supervisor"],
+      },
+      {
+        href: "/me",
+        label: "My Dashboard",
+        description: "Staff portal.",
+        roles: ["staff"],
+      },
+    ],
   },
   {
-    href: "/cutoff",
-    label: "Cutoff Control",
-    description: "Review cycle.",
-    roles: ["owner", "payroll", "supervisor"],
+    label: "Operations",
+    items: [
+      {
+        href: "/schedule",
+        label: "Schedule",
+        description: "Weekly board.",
+        roles: ["owner", "payroll", "supervisor"],
+      },
+      {
+        href: "/attendance",
+        label: "Attendance",
+        description: "Review and compliance.",
+        roles: ["owner", "supervisor"],
+      },
+    ],
   },
   {
-    href: "/schedule",
-    label: "Schedule",
-    description: "Weekly board.",
-    roles: ["owner", "payroll", "supervisor"],
+    label: "People",
+    items: [
+      {
+        href: "/staff",
+        label: "Staff Directory",
+        description: "Employee profiles.",
+        roles: ["owner", "payroll", "supervisor"],
+      },
+      {
+        href: "/performance-reviews",
+        label: "Performance Reviews",
+        description: "Annual staff reviews.",
+        roles: ["owner", "supervisor"],
+      },
+      {
+        href: "/hr",
+        label: "HR Records",
+        description: "Leave and formal records.",
+        roles: ["owner", "payroll", "supervisor", "staff"],
+      },
+      {
+        href: "/cash-advances",
+        label: "Cash Advances",
+        description: "Advances and balances.",
+        roles: ["owner", "payroll", "supervisor"],
+      },
+    ],
   },
   {
-    href: "/attendance",
-    label: "Attendance",
-    description: "Review and compliance.",
-    roles: ["owner", "supervisor"],
+    label: "Payroll",
+    items: [
+      {
+        href: "/cutoff",
+        label: "Cutoff Control",
+        description: "Review cycle.",
+        roles: ["owner", "payroll", "supervisor"],
+      },
+      {
+        href: "/payroll",
+        label: "Payroll Preview",
+        description: "Cutoff totals.",
+        roles: ["owner", "payroll"],
+      },
+      {
+        href: "/payroll/runs",
+        label: "Payroll Runs",
+        description: "Run history.",
+        roles: ["owner", "payroll"],
+      },
+      {
+        href: "/payslips",
+        label: "Payslip Distribution",
+        description: "Print and release.",
+        roles: ["owner", "payroll", "supervisor"],
+      },
+      {
+        href: "/reports/operations",
+        label: "Reports",
+        description: "Operational summaries.",
+        roles: ["supervisor"],
+      },
+      {
+        href: "/reports",
+        label: "Reports",
+        description: "Payroll summaries.",
+        roles: ["owner", "payroll"],
+      },
+    ],
   },
   {
-    href: "/payslips",
-    label: "Payslip Distribution",
-    description: "Print and release.",
-    roles: ["owner", "payroll", "supervisor"],
+    label: "System",
+    items: [
+      {
+        href: "/controls",
+        label: "System Controls",
+        description: "Operations.",
+        roles: ["owner", "payroll"],
+      },
+      {
+        href: "/backup",
+        label: "Backups",
+        description: "Data safety.",
+        roles: ["owner"],
+      },
+      {
+        href: "/settings",
+        label: "Settings",
+        description: "Configuration.",
+        roles: ["owner"],
+      },
+    ],
   },
   {
-    href: "/hr",
-    label: "HR Records",
-    description: "Leave, reviews, memos.",
-    roles: ["owner", "payroll", "supervisor", "staff"],
-  },
-  {
-    href: "/staff",
-    label: "Staff Directory",
-    description: "Employee profiles.",
-    roles: ["owner", "payroll", "supervisor"],
-  },
-  {
-    href: "/cash-advances",
-    label: "Cash Advances",
-    description: "Advances and balances.",
-    roles: ["owner", "payroll", "supervisor"],
-  },
-  {
-    href: "/performance-reviews",
-    label: "Performance Reviews",
-    description: "Annual staff reviews.",
-    roles: ["owner", "supervisor"],
-  },
-  {
-    href: "/reports/operations",
-    label: "Reports",
-    description: "Summaries.",
-    roles: ["supervisor"],
-  },
-  {
-    href: "/reports",
-    label: "Reports",
-    description: "Summaries.",
-    roles: ["owner", "payroll"],
-  },
-  {
-    href: "/payroll/runs",
-    label: "Payroll Runs",
-    description: "Run history.",
-    roles: ["owner", "payroll"],
-  },
-  {
-    href: "/payroll",
-    label: "Payroll Preview",
-    description: "Cutoff totals.",
-    roles: ["owner", "payroll"],
-  },
-  {
-    href: "/controls",
-    label: "System Controls",
-    description: "Operations.",
-    roles: ["owner", "payroll"],
-  },
-  {
-    href: "/backup",
-    label: "Backups",
-    description: "Data safety.",
-    roles: ["owner"],
-  },
-  {
-    href: "/settings",
-    label: "Settings",
-    description: "Configuration.",
-    roles: ["owner"],
-  },
-  {
-    href: "/settings/password",
-    label: "Account",
-    description: "Password.",
-    roles: ["owner", "payroll", "supervisor", "staff"],
-  },
-  {
-    href: "/me",
-    label: "My Dashboard",
-    description: "Staff portal.",
-    roles: ["staff"],
+    label: null,
+    items: [
+      {
+        href: "/settings/password",
+        label: "Account",
+        description: "Password.",
+        roles: ["owner", "payroll", "supervisor", "staff"],
+      },
+    ],
   },
 ];
+
+export const navItems: NavItem[] = navGroups.flatMap((group) => group.items);
 
 export const roleLabels: Record<RoleKey, string> = {
   owner: "Owner",
