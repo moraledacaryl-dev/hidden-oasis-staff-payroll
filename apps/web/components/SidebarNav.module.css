@@ -1,0 +1,122 @@
+.group {
+  display: grid;
+  gap: 4px;
+}
+
+.group > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.group > summary:hover,
+.group > summary.active {
+  background: var(--surface-soft);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.group > summary strong {
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.chevron {
+  font-size: 1.05rem;
+  font-weight: 900;
+  line-height: 1;
+  transition: transform 0.16s ease;
+}
+
+.group[open] .chevron {
+  transform: rotate(90deg);
+}
+
+.sublist {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 4px 9px;
+  padding-left: 9px;
+  border-left: 1px solid var(--line);
+}
+
+.subcard {
+  padding: 8px 9px !important;
+  border-radius: 10px !important;
+}
+
+.activeLink {
+  background: var(--accent-soft) !important;
+  border-color: #b9d1c2 !important;
+  color: var(--accent) !important;
+}
+
+:global(html[data-sidebar="collapsed"]) .group > summary {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  margin: 0 auto;
+  display: grid;
+  place-items: center;
+}
+
+:global(html[data-sidebar="collapsed"]) .group > summary strong,
+:global(html[data-sidebar="collapsed"]) .chevron,
+:global(html[data-sidebar="collapsed"]) .sublist {
+  display: none;
+}
+
+:global(html[data-sidebar="collapsed"]) .group > summary::before {
+  content: "•";
+  color: var(--accent);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+@media (max-width: 980px) {
+  .group {
+    min-width: 0;
+  }
+
+  .group > summary {
+    background: var(--surface-soft);
+    border-color: var(--line);
+  }
+
+  .sublist {
+    margin-left: 0;
+  }
+
+  :global(html[data-sidebar="collapsed"]) .group > summary {
+    width: auto;
+    height: auto;
+    padding: 9px 10px;
+    margin: 0;
+    display: flex;
+  }
+
+  :global(html[data-sidebar="collapsed"]) .group > summary strong,
+  :global(html[data-sidebar="collapsed"]) .chevron,
+  :global(html[data-sidebar="collapsed"]) .sublist {
+    display: initial;
+  }
+
+  :global(html[data-sidebar="collapsed"]) .group > summary::before {
+    content: none;
+  }
+}
