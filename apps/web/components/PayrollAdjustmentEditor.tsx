@@ -2,9 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import styles from "./PayrollAdjustmentEditor.module.css";
 
 type CashAdvance = { id: number; advance_date: string; amount: number; available_balance: number; reason?: string | null };
 type Adjustment = { additional_earning?: number; additional_earning_note?: string | null; other_deduction?: number; other_deduction_note?: string | null; cash_advance_id?: number | null; cash_advance_amount?: number };
+
+function peso(value?: number | null): string {
+  return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(value || 0));
+}
 
 export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disabled = false }: { runId: number; employeeId: number; employeeName: string; disabled?: boolean }) {
   const router = useRouter();
@@ -44,7 +49,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
     const id = value ? Number(value) : null;
     setSelectedAdvanceId(id);
     const item = advances.find((advance) => advance.id === id);
-    setCashAmount(item ? Number(item.available_balance || 0) : 0);
+    setCashAmount(item ? Math.min(Number(item.available_balance || 0), Number(adjustment.cash_advance_amount || item.available_balance || 0)) : 0);
   }
 
   async function submit(formData: FormData) {
@@ -77,36 +82,59 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
 
   if (!loading && !serverEditable) {
     return (
-      <div className="card">
-        <div className="panel-title"><div><h3>{employeeName}</h3><p className="muted">This is a paid-payroll adjustment revision. Original manual values are preserved and locked; only the calculated employee difference is settled.</p></div></div>
-        <button className="button ghost" type="button" onClick={() => setOpen(false)}>Close</button>
+      <div className={styles.editor}>
+        <div className={styles.headerCopy}>
+          <h3>{employeeName}</h3>
+          <p className={styles.helper}>This paid-payroll revision is locked. Only the calculated employee difference can be settled.</p>
+        </div>
+        <div className={styles.actions}><button className="button ghost" type="button" onClick={() => setOpen(false)}>Close</button></div>
       </div>
     );
   }
 
   return (
-    <div className="card">
-      <div className="panel-title"><div><h3>{employeeName}</h3><p className="muted">These are replacement values for this employee. Saving replaces the carried amount; it does not add another duplicate adjustment.</p></div></div>
-      {loading ? <p className="muted">Loading adjustments…</p> : (
-        <form action={submit} className="form-grid modal-form">
-          <fieldset>
-            <legend>Additional earning</legend>
-            <label>Amount<input name="additional_earning" type="number" min="0" step="0.01" defaultValue={adjustment.additional_earning || 0} /></label>
-            <label>Description<input name="additional_earning_note" defaultValue={adjustment.additional_earning_note || ""} placeholder="Bonus, allowance, correction…" /></label>
-          </fieldset>
-          <fieldset>
-            <legend>Cash advance repayment</legend>
-            <label>Cash advance<select value={selectedAdvanceId || ""} onChange={(event) => chooseAdvance(event.target.value)}><option value="">No cash advance deduction</option>{advances.map((advance) => <option key={advance.id} value={advance.id}>{advance.advance_date} · Balance ₱{advance.available_balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</option>)}</select></label>
-            <label>Deduction amount<input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance || 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
-            {selectedAdvance ? <p className="muted">Change this amount to replace the carried repayment. It cannot exceed the available balance.</p> : null}
-          </fieldset>
-          <fieldset>
-            <legend>Other deduction</legend>
-            <label>Amount<input name="other_deduction" type="number" min="0" step="0.01" defaultValue={adjustment.other_deduction || 0} /></label>
-            <label>Description<input name="other_deduction_note" defaultValue={adjustment.other_deduction_note || ""} placeholder="Uniform, damage, correction…" /></label>
-          </fieldset>
-          <div className="badge-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save replacement values"}</button><button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></div>
-          {message ? <p className="footer-note">{message}</p> : null}
+    <div className={styles.editor}>
+      <div className={styles.header}>
+        <div className={styles.headerCopy}>
+          <h3>{employeeName}</h3>
+          <p className={styles.helper}>Enter the final amounts for this employee. Saving replaces the current values; it does not add another adjustment.</p>
+        </div>
+      </div>
+
+      {loading ? <p className={styles.helper}>Loading adjustments…</p> : (
+        <form action={submit}>
+          <div className={styles.grid}>
+            <section className={styles.section}>
+              <div className={styles.sectionTitle}><strong>Additional earning</strong><span>Bonus, allowance, or one-time correction.</span></div>
+              <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="additional_earning" type="number" min="0" step="0.01" defaultValue={adjustment.additional_earning || 0} /></label>
+              <label className={styles.field}><span className={styles.fieldLabel}>Description</span><input name="additional_earning_note" defaultValue={adjustment.additional_earning_note || ""} placeholder="Optional note" /></label>
+            </section>
+
+            <section className={styles.section}>
+              <div className={styles.sectionTitle}><strong>Cash advance repayment</strong><span>Select the advance and enter the final deduction for this payroll.</span></div>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Cash advance</span>
+                <select value={selectedAdvanceId || ""} onChange={(event) => chooseAdvance(event.target.value)}>
+                  <option value="">No cash advance deduction</option>
+                  {advances.map((advance) => <option key={advance.id} value={advance.id}>{advance.advance_date} · Available {peso(advance.available_balance)}</option>)}
+                </select>
+              </label>
+              <label className={styles.field}><span className={styles.fieldLabel}>Deduction amount</span><input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance || 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
+              {selectedAdvance ? <div className={styles.balanceRow}><span>Available balance</span><strong>{peso(selectedAdvance.available_balance)}</strong></div> : null}
+            </section>
+
+            <section className={styles.section}>
+              <div className={styles.sectionTitle}><strong>Other deduction</strong><span>Uniform, damage, or another approved deduction.</span></div>
+              <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="other_deduction" type="number" min="0" step="0.01" defaultValue={adjustment.other_deduction || 0} /></label>
+              <label className={styles.field}><span className={styles.fieldLabel}>Description</span><input name="other_deduction_note" defaultValue={adjustment.other_deduction_note || ""} placeholder="Optional note" /></label>
+            </section>
+          </div>
+
+          {message ? <p className={styles.error}>{message}</p> : null}
+          <div className={styles.actions}>
+            <button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save final values"}</button>
+          </div>
         </form>
       )}
     </div>
