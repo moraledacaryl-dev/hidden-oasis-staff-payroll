@@ -24,12 +24,11 @@ from api.cash_advances_v3 import router as cash_advances_router
 from api.cash_repayments_v2 import router as cash_repayments_router
 from api.cash_advance_corrections_v2 import router as cash_advance_corrections_router
 from api.performance_reviews import router as performance_reviews_router
-from api.payroll_adjustments_v2 import router as payroll_adjustments_router
+from api.payroll_adjustments_v3 import router as payroll_adjustments_router
 
 @app.on_event("startup")
 def validate_runtime() -> None:
     validate_runtime_environment()
-
 
 app.include_router(payroll_drafts_router)
 app.include_router(payroll_return_router)
