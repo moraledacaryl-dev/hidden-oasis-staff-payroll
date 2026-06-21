@@ -14,14 +14,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const runId = Number(id);
   if (!runId) return NextResponse.json({ ok: false, message: "Missing payroll run." }, { status: 422 });
   const body = await request.json().catch(() => ({}));
-  const response = await fetch(`${apiBaseUrl()}/api/v1/payroll/runs/${runId}/save-revision`, {
+  const response = await fetch(`${apiBaseUrl()}/api/v1/payroll/runs/${runId}/save-controlled-revision`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
     },
-    body: JSON.stringify({ run_label: body.run_label || null }),
+    body: JSON.stringify({
+      run_label: body.run_label || null,
+      revision_reason: body.revision_reason || "",
+      treatment: body.treatment || null,
+    }),
     cache: "no-store",
   });
   const data = await response.json().catch(() => ({}));
