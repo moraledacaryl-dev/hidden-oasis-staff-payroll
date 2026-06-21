@@ -7,9 +7,9 @@ from core.db import DB_PATH, fetchall, fetchone, get_conn
 def main() -> None:
     conn = get_conn(DB_PATH)
     try:
-        employee = fetchone(conn, "SELECT * FROM employees WHERE lower(trim(full_name))='kate gumahin'")
+        employee = fetchone(conn, "SELECT * FROM employees WHERE lower(trim(full_name))='kate irish gumahin'")
         if not employee:
-            print(json.dumps({"error": "Kate Gumahin not found"}, indent=2))
+            print(json.dumps({"error": "Kate Irish Gumahin not found"}, indent=2))
             return
 
         employee_id = int(employee["id"])
