@@ -57,7 +57,7 @@ def get_adjustments(run_id: int, employee_id: int, authorization: str | None = H
             if available > 0 or selected:
                 options.append({**advance, "available_balance": round(max(0, available), 2)})
         conn.commit()
-        return {"ok": True, "run": run, "item": item, "adjustment": adjustment, "cash_advances": options}
+        return {"ok": True, "run": run, "item": item, "adjustment": adjustment, "cash_advances": options, "editable": run.get("status") == "Draft" and run.get("revision_treatment") != "adjust_paid"}
     finally:
         conn.close()
 
@@ -79,6 +79,8 @@ def save_adjustments(run_id: int, employee_id: int, payload: AdjustmentPayload, 
             raise HTTPException(status_code=404, detail="Payroll employee item not found.")
         if run.get("status") != "Draft":
             raise HTTPException(status_code=409, detail="Adjustments are editable only while the run is Draft.")
+        if run.get("revision_treatment") == "adjust_paid":
+            raise HTTPException(status_code=409, detail="Paid payroll revisions are difference-only. Manual values from the paid run are preserved but cannot be edited.")
         old = fetchone(conn, "SELECT * FROM payroll_item_adjustments WHERE payroll_run_id=? AND employee_id=?", (run_id, employee_id)) or {}
         oe, od, oc = float(old.get("additional_earning") or 0), float(old.get("other_deduction") or 0), float(old.get("cash_advance_amount") or 0)
         old_advance = old.get("cash_advance_id")
