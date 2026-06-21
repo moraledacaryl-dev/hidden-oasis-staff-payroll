@@ -20,7 +20,7 @@ from api.schedule_publication import router as schedule_publication_router
 from api.users import router as users_router
 from core.runtime_guard import validate_runtime_environment
 from api.attendance_compliance import router as attendance_compliance_router
-from api.cash_advances_v3 import router as cash_advances_router
+from api.cash_advances_v4 import router as cash_advances_router
 from api.cash_repayments_v2 import router as cash_repayments_router
 from api.cash_advance_corrections_v2 import router as cash_advance_corrections_router
 from api.performance_reviews import router as performance_reviews_router
