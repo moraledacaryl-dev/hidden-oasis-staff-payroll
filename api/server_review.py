@@ -22,6 +22,7 @@ from core.runtime_guard import validate_runtime_environment
 from api.attendance_compliance import router as attendance_compliance_router
 from api.cash_advances_v3 import router as cash_advances_router
 from api.cash_repayments_v2 import router as cash_repayments_router
+from api.cash_advance_corrections import router as cash_advance_corrections_router
 from api.performance_reviews import router as performance_reviews_router
 from api.payroll_adjustments_v2 import router as payroll_adjustments_router
 
@@ -50,5 +51,6 @@ app.include_router(schedule_publication_router)
 app.include_router(attendance_compliance_router)
 app.include_router(cash_advances_router)
 app.include_router(cash_repayments_router)
+app.include_router(cash_advance_corrections_router)
 app.include_router(performance_reviews_router)
 app.include_router(payroll_adjustments_router)
