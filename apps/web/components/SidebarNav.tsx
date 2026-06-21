@@ -37,7 +37,11 @@ export function SidebarNav({ role }: { role: RoleKey }) {
         }
 
         return (
-          <details className={styles.group} defaultOpen={groupActive} key={group.label}>
+          <details
+            className={styles.group}
+            defaultOpen={groupActive}
+            key={`${group.label}-${pathname}`}
+          >
             <summary className={groupActive ? styles.active : ""}>
               <strong>{group.label}</strong>
               <span className={styles.chevron} aria-hidden="true">›</span>
