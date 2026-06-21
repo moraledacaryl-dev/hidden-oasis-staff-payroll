@@ -18,7 +18,7 @@ async function authHeaders(): Promise<HeadersInit> {
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const response = await fetch(`${apiBaseUrl()}/api/v1/cash-advances/${id}/repayments`, {
+  const response = await fetch(`${apiBaseUrl()}/api/v1/cash-advances/${id}/manual-repayments`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(await request.json()),
