@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from api.cash_advances import ensure_schema, now_iso, recalculate_balance, require_cash_advance_viewer
+from api.cash_advances_v2 import ensure_schema, now_iso, recalculate_balance, require_cash_advance_viewer
 from core.db import DB_PATH, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
