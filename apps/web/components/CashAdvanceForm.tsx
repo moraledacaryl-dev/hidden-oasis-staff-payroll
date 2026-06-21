@@ -56,18 +56,75 @@ export function CashAdvanceForm({ employees, item = null, canEditExisting = fals
   if (!open) return <button className="button small" type="button" onClick={() => setOpen(true)}>Edit details</button>;
 
   return (
-    <form action={submit} className="form-grid modal-form">
-      <label>Employee<select name="employee_id" defaultValue={item?.employee_id || ""} required disabled={Boolean(item)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
-      <label>Cash advance date<input name="advance_date" type="date" defaultValue={(item?.advance_date || "").slice(0, 10)} required /></label>
-      <label>Advance amount<input name="amount" type="number" min="0.01" step="0.01" defaultValue={item?.amount ?? ""} required /></label>
-      <label>Repayment setup<select name="repayment_method" value={method} onChange={(event) => setMethod(event.target.value)}><option>Payroll deduction</option><option>Manual repayment</option></select></label>
-      {method === "Payroll deduction" ? <label>Suggested deduction per payroll<input name="deduction_per_payroll" type="number" min="0" step="0.01" defaultValue={item?.deduction_per_payroll ?? 0} /><span className="muted">Payroll may use the full balance or a smaller amount before finalizing each run.</span></label> : <input type="hidden" name="deduction_per_payroll" value="0" />}
-      <label>Approved by<input name="approved_by" defaultValue={item?.approved_by || ""} placeholder="Name of approving supervisor or owner" /></label>
-      <label>Reason<input name="reason" defaultValue={item?.reason || ""} placeholder="Purpose of the advance" /></label>
-      <label>Notes<input name="notes" defaultValue={item?.notes || ""} placeholder="Optional internal note" /></label>
-      {item ? <label>Status<select name="status" defaultValue={item?.status === "Approved" ? "Active" : item?.status || "Active"}><option>Active</option><option>Cancelled</option></select></label> : <input type="hidden" name="status" value="Active" />}
-      <div className="badge-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save changes" : "Add cash advance"}</button>{item ? <button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button> : null}</div>
-      {message ? <p className="footer-note">{message}</p> : null}
+    <form action={submit} className={`cash-advance-form${item ? " cash-advance-form-edit" : ""}`}>
+      {item ? <input type="hidden" name="employee_id" value={item.employee_id || ""} /> : null}
+
+      <label className="cash-field cash-field-employee">
+        <span>Employee</span>
+        <select name={item ? undefined : "employee_id"} defaultValue={item?.employee_id || ""} required disabled={Boolean(item)}>
+          <option value="">Select employee</option>
+          {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}
+        </select>
+      </label>
+
+      <label className="cash-field cash-field-date">
+        <span>Cash advance date</span>
+        <input name="advance_date" type="date" defaultValue={(item?.advance_date || "").slice(0, 10)} required />
+      </label>
+
+      <label className="cash-field cash-field-amount">
+        <span>Advance amount</span>
+        <input name="amount" type="number" min="0.01" step="0.01" defaultValue={item?.amount ?? ""} required />
+      </label>
+
+      <label className="cash-field cash-field-method">
+        <span>Repayment setup</span>
+        <select name="repayment_method" value={method} onChange={(event) => setMethod(event.target.value)}>
+          <option>Payroll deduction</option>
+          <option>Manual repayment</option>
+        </select>
+      </label>
+
+      {method === "Payroll deduction" ? (
+        <label className="cash-field cash-field-deduction">
+          <span>Suggested deduction per payroll</span>
+          <input name="deduction_per_payroll" type="number" min="0" step="0.01" defaultValue={item?.deduction_per_payroll ?? 0} />
+          <small>Used as the suggested amount. Payroll can still change it before finalizing the run.</small>
+        </label>
+      ) : <input type="hidden" name="deduction_per_payroll" value="0" />}
+
+      <label className="cash-field cash-field-approved">
+        <span>Approved by</span>
+        <input name="approved_by" defaultValue={item?.approved_by || ""} placeholder="Supervisor or owner" />
+      </label>
+
+      <label className="cash-field cash-field-reason">
+        <span>Reason</span>
+        <input name="reason" defaultValue={item?.reason || ""} placeholder="Purpose of the advance" />
+      </label>
+
+      <label className="cash-field cash-field-notes">
+        <span>Notes</span>
+        <input name="notes" defaultValue={item?.notes || ""} placeholder="Optional internal note" />
+      </label>
+
+      {item ? (
+        <label className="cash-field cash-field-status">
+          <span>Status</span>
+          <select name="status" defaultValue={item?.status === "Approved" ? "Active" : item?.status || "Active"}>
+            <option>Active</option>
+            <option>Cancelled</option>
+          </select>
+        </label>
+      ) : <input type="hidden" name="status" value="Active" />}
+
+      <div className="cash-form-actions">
+        {message ? <p className="cash-form-message">{message}</p> : <span />}
+        <div className="action-row">
+          {item ? <button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button> : null}
+          <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save changes" : "Add cash advance"}</button>
+        </div>
+      </div>
     </form>
   );
 }
