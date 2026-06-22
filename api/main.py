@@ -103,7 +103,7 @@ def role_to_key(role: str | None) -> str:
     return ROLE_STAFF
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
-    return clean_row({"id": user.get("id"), "display_name": user.get("display_name") or "", "role": user.get("role") or "Staff", "role_key": role_to_key(user.get("role")), "active": int(user.get("active") or 0), "must_change_password": int(user.get("must_change_password") or 0), "last_login_at": user.get("last_login_at")})
+    return clean_row({"id": user.get("id"), "display_name": user.get("display_name") or "", "role": user.get("role") or "Staff", "role_key": role_to_key(user.get("role")), "active": int(user.get("active") or 0), "must_change_password": int(user.get("must_change_password") or 0), "last_login_at": user.get("last_login_at"), "employee_id": user.get("employee_id")})
 
 def token_secret() -> str:
     return os.getenv("STAFF_PAYROLL_SESSION_SECRET") or os.getenv("STAFF_PAYROLL_API_KEY") or "dev-only-change-staff-payroll-session-secret"

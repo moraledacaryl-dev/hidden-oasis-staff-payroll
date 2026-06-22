@@ -54,6 +54,7 @@ export default async function HrPage() {
   if (!["owner", "payroll", "supervisor", "staff"].includes(session.role_key)) {
     return <Shell allowedRoles={["owner", "payroll", "supervisor", "staff"]}><div /></Shell>;
   }
+  const isStaff = session.role_key === "staff";
   const canCreate = ["owner", "payroll", "supervisor"].includes(session.role_key);
   const [employees, leaveEmployees, records] = await Promise.all([loadEmployees(), loadLeaveBalances(), loadHrRecords()]);
   const annualReviews = records.filter((record) => record.record_type === "Annual Review").length;
@@ -66,13 +67,13 @@ export default async function HrPage() {
         <header className="page-header">
           <div>
             <span className="eyebrow">HR Records</span>
-            <h1>Leave and formal records</h1>
-            <p className="muted">Leave balances and formal HR records. Annual performance reviews are handled separately.</p>
+            <h1>{isStaff ? "My leave and records" : "Leave and formal records"}</h1>
+            <p className="muted">{isStaff ? "Your leave balances and formal records linked to your employee account." : "Leave balances and formal HR records. Annual performance reviews are handled separately."}</p>
           </div>
         </header>
 
         <section className="grid cols-3">
-          <div className="card"><strong>Formal records</strong><p>{records.length}</p></div>
+          <div className="card"><strong>{isStaff ? "My records" : "Formal records"}</strong><p>{records.length}</p></div>
           <div className="card"><strong>Infractions</strong><p>{infractions}</p></div>
           <div className="card"><strong>Memos</strong><p>{memos}</p></div>
         </section>
@@ -80,18 +81,18 @@ export default async function HrPage() {
         {canCreate ? <section className="card"><div className="panel-title"><div><h2>Add formal HR record</h2><p className="muted">Create infraction, memo, leave note, or HR document. Use Performance Reviews for annual reviews.</p></div></div><HrRecordForm employees={employees} /></section> : null}
 
         <section className="card">
-          <div className="panel-title"><div><h2>Leave balances</h2><p className="muted">Credits, used leave, and remaining leave by employee.</p></div></div>
+          <div className="panel-title"><div><h2>Leave balances</h2><p className="muted">{isStaff ? "Credits, used leave, and remaining leave on your record." : "Credits, used leave, and remaining leave by employee."}</p></div></div>
           <div className="table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Leave balances</th></tr></thead><tbody>
             {leaveEmployees.map((employee) => <tr key={employee.id}><td>{employee.full_name}</td><td>{employee.department || "—"}</td><td>{employee.balances.length ? employee.balances.map((b) => `${b.leave_type_name}: ${num(b.remaining)} remaining / ${num(b.credits)} credits`).join(" · ") : "No entitlement set"}</td></tr>)}
-            {leaveEmployees.length === 0 ? <tr><td colSpan={3}>No leave balance records found.</td></tr> : null}
+            {leaveEmployees.length === 0 ? <tr><td colSpan={3}>{isStaff ? "No leave balance records found for your linked employee account." : "No leave balance records found."}</td></tr> : null}
           </tbody></table></div>
         </section>
 
         <section className="card">
-          <div className="panel-title"><div><h2>HR record timeline</h2><p className="muted">Newest records first.</p></div></div>
+          <div className="panel-title"><div><h2>{isStaff ? "My formal record timeline" : "HR record timeline"}</h2><p className="muted">Newest records first.</p></div></div>
           <div className="table-wrap"><table><thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Subject</th><th>Severity</th><th>Status</th><th>Issued by</th></tr></thead><tbody>
             {records.map((record) => <tr key={record.id}><td>{record.record_date}</td><td>{record.employee_name}</td><td>{record.record_type}</td><td>{record.subject}{record.rating != null ? ` · Rating ${record.rating}` : ""}</td><td>{record.severity}</td><td>{record.status}</td><td>{record.issued_by || "—"}</td></tr>)}
-            {records.length === 0 ? <tr><td colSpan={7}>No HR records yet.</td></tr> : null}
+            {records.length === 0 ? <tr><td colSpan={7}>{isStaff ? "No formal records found for your linked employee account." : "No HR records yet."}</td></tr> : null}
           </tbody></table></div>
         </section>
       </div>
