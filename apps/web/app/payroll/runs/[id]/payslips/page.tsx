@@ -23,9 +23,9 @@ function hasValue(value: number | null | undefined) {
   return Number(value || 0) > 0;
 }
 
-function PayslipCard({ item, run, copyLabel, companyCopy = false }: { item: PayrollReviewItem; run: PayrollRun; copyLabel: string; companyCopy?: boolean }) {
+function PayslipCopy({ item, run, copyLabel, companyCopy = false }: { item: PayrollReviewItem; run: PayrollRun; copyLabel: string; companyCopy?: boolean }) {
   return (
-    <article className={`card payslip-card${companyCopy ? " company-copy" : ""}`}>
+    <div className={`payslip-copy${companyCopy ? " company-copy" : ""}`}>
       <div className="copy-label">{copyLabel}</div>
       <div className="payslip-top">
         <div><span className="eyebrow">Hidden Oasis</span><h2>Employee Payslip</h2><div className="payslip-meta"><p className="muted">Period: {run.period_start} to {run.period_end}</p><p className="muted">Payout: {run.payout_date} · Run #{run.id}</p></div></div>
@@ -61,7 +61,7 @@ function PayslipCard({ item, run, copyLabel, companyCopy = false }: { item: Payr
       </div>
       <div className="payslip-summary"><div><span>Mandatory deductions</span><strong>{peso(mandatoryDeductions(item))}</strong></div><div><span>Tax / advances / other</span><strong>{peso(taxAdvanceOther(item))}</strong></div><div><span>Net pay</span><strong>{peso(item.net_pay)}</strong></div></div>
       <div className="payslip-signature"><span>Received by: __________________________</span><span>Date: _______________</span></div>
-    </article>
+    </div>
   );
 }
 
@@ -116,10 +116,10 @@ export default async function PayslipPreviewPage({ params }: { params: Promise<{
         {items.length === 0 ? <section className="card"><h2>No payroll items</h2><p className="muted">This run has no saved employee payroll lines yet.</p></section> : null}
         <section className="payslip-grid">
           {items.map((item) => (
-            <div className="payslip-pair" key={item.id}>
-              <PayslipCard item={item} run={run} copyLabel="Employee Copy" />
-              <PayslipCard item={item} run={run} copyLabel="Company Copy" companyCopy />
-            </div>
+            <article className="payslip-sheet" key={item.id}>
+              <PayslipCopy item={item} run={run} copyLabel="Employee Copy" />
+              <PayslipCopy item={item} run={run} copyLabel="Company Copy" companyCopy />
+            </article>
           ))}
         </section>
       </div>
