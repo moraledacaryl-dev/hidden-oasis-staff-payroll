@@ -47,6 +47,20 @@ async function activeLeave(employeeId: number, shiftDate: string) {
   return data.leave || null;
 }
 
+async function clearRestDay(employeeId: number, workDate: string) {
+  if (!employeeId || !workDate) return;
+  const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/rest-days`, {
+    method: "POST",
+    headers: await apiHeaders(true),
+    body: JSON.stringify({ employee_id: employeeId, work_date: workDate, active: false }),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(typeof data.detail === "string" ? data.detail : data.message || "Could not clear rest day.");
+  }
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day?${url.searchParams.toString()}`, {
@@ -97,6 +111,15 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: false,
         detail: `This day is marked as ${leave.leave_type_name || "leave"}. Clear the day first before scheduling work or recording actual attendance.`,
+      }, { status: 409 });
+    }
+
+    try {
+      await clearRestDay(employeeId, shiftDate);
+    } catch (error) {
+      return NextResponse.json({
+        ok: false,
+        detail: error instanceof Error ? error.message : "Could not clear rest day.",
       }, { status: 409 });
     }
   }
