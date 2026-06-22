@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
 import { currentSession } from "@/lib/session";
 import { numberText, peso } from "@/lib/api";
+import "./print.css";
 
 function apiBaseUrl(): string {
   return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
