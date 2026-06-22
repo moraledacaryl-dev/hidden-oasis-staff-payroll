@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { moveScheduledShift } from "@/app/schedule/actions";
 import { ScheduleDayEditorModal } from "@/components/ScheduleDayEditorModal";
 import styles from "@/app/schedule/page.module.css";
+import restStyles from "./ScheduleRestDay.module.css";
 
 type Shift = {
   id: number;
@@ -167,7 +168,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
               const isOver = overDay === `${row.id || "unassigned"}:${day}`;
               return (
                 <div
-                  className={`${styles.scheduleCell} ${isOver ? styles.dropTarget : ""} ${isRestDay ? styles.restDayCell : ""}`}
+                  className={`${styles.scheduleCell} ${isOver ? styles.dropTarget : ""} ${isRestDay ? restStyles.restDayCell : ""}`}
                   key={`${row.id || "unassigned"}-${day}`}
                   onDragOver={(event) => {
                     if (!canEdit || isRestDay) return;
@@ -210,17 +211,17 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
                     ))}
 
                     {cellShifts.length === 0 && isRestDay ? (
-                      <div className={styles.restDayCard}>
+                      <div className={restStyles.restDayCard}>
                         <strong>Rest Day</strong>
                         <span>No scheduled shift</span>
-                        {canEdit && row.id !== null ? <button className={styles.clearRestDay} type="button" onClick={() => setRestDay(row.id as number, day, false)}>Clear</button> : null}
+                        {canEdit && row.id !== null ? <button className={restStyles.clearRestDay} type="button" onClick={() => setRestDay(row.id as number, day, false)}>Clear</button> : null}
                       </div>
                     ) : null}
 
                     {cellShifts.length === 0 && !isRestDay ? (
-                      <div className={styles.emptyDayActions}>
+                      <div className={restStyles.emptyDayActions}>
                         <button className={styles.emptyDay} type="button" onClick={() => canEdit && setEditor({ day, shift: null, employeeId: row.id })}>{canEdit ? "Add shift" : "—"}</button>
-                        {canEdit && row.id !== null ? <button className={styles.markRestDay} type="button" onClick={() => setRestDay(row.id as number, day, true)}>Rest day</button> : null}
+                        {canEdit && row.id !== null ? <button className={restStyles.markRestDay} type="button" onClick={() => setRestDay(row.id as number, day, true)}>Rest day</button> : null}
                       </div>
                     ) : null}
                   </div>
