@@ -1,0 +1,59 @@
+.restDayCell {
+  border-color: rgba(49, 91, 70, 0.28);
+  background: var(--accent-soft);
+}
+
+.emptyDayActions {
+  display: grid;
+  gap: 6px;
+}
+
+.markRestDay {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(49, 91, 70, 0.28);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 0.78rem;
+}
+
+.markRestDay:hover {
+  border-color: var(--accent);
+  background: #dcebe1;
+}
+
+.restDayCard {
+  display: grid;
+  gap: 5px;
+  min-height: 92px;
+  align-content: center;
+  justify-items: center;
+  padding: 10px;
+  border: 1px solid rgba(49, 91, 70, 0.28);
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-align: center;
+}
+
+.restDayCard strong {
+  font-size: 0.92rem;
+}
+
+.restDayCard span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.clearRestDay {
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
