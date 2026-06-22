@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MarkPaidButton } from "@/components/MarkPaidButton";
+import { RecalculatePayrollButton } from "@/components/RecalculatePayrollButton";
 import { PayrollRevisionBanner } from "@/components/PayrollRevisionBanner";
 import { EmployeePayrollCard } from "@/components/EmployeePayrollCard";
 import { getPayrollRunChangeDelta, getPayrollRunReview, peso } from "@/lib/api";
@@ -28,6 +29,7 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
   const run = review.run;
   const items = review.items;
   const editable = run.status === "Draft";
+  const canRecalculate = editable && run.revision_treatment !== "adjust_paid";
   const warningCount = items.filter((item) => String(item.warnings || "").trim()).length;
   const versionText = run.revision_of_run_id ? `Revision of run #${run.revision_of_run_id}` : "Original payroll version";
 
@@ -40,12 +42,14 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
             <h1>Run #{run.id} · {run.period_start} to {run.period_end}</h1>
             <p className="muted">Review each employee's calculated pay, adjustments, deductions, and final payslip amount.</p>
             <div className="action-row">
+              {canRecalculate ? <RecalculatePayrollButton runId={run.id} /> : null}
               <Link className="button ghost" href={`/payroll/runs/${run.id}/reports`}>Reports</Link>
               <Link className="button ghost" href={`/payroll/runs/${run.id}/audit`}>Audit timeline</Link>
               <Link className="button ghost" href={`/payroll/runs/${run.id}/corrections`}>Corrections</Link>
               <Link className="button ghost" href={`/payroll/runs/${run.id}/payslips`}>Payslips</Link>
               {session.role_key === "owner" && run.status === "Approved" && !run.paid_at ? <MarkPaidButton runId={run.id} /> : null}
             </div>
+            {canRecalculate ? <p className="muted">Use Recalculate Draft after changing Schedule, Attendance, OT, Leave, employee payroll settings, or cash advances. Manual employee adjustments are preserved.</p> : null}
           </div>
           <StatusBadge label={run.status} tone={statusTone(run.status)} />
         </header>
