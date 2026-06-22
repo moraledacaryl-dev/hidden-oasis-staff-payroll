@@ -6,21 +6,23 @@ import { useRouter } from "next/navigation";
 const positions = ["Receptionist", "Cook", "Barista", "Bartender", "Security", "Housekeeper", "Other"];
 const leaveKinds = [
   "None",
-  "Rest Day",
-  "Approved / Excused Absence",
-  "Unexcused Absence",
-  "AWOL",
+  "SIL",
   "Sick Leave",
+  "Vacation Leave",
   "Emergency Leave",
   "Bereavement Leave",
   "Official Business",
   "Other Approved Absence",
+  "Approved / Excused Absence",
+  "Unexcused Absence",
+  "AWOL",
 ];
 const noticeTimings = ["In advance", "At least 1 hour before shift", "After shift start", "No notice"];
 const attendanceStatuses = ["Pending", "Approved", "Needs Review", "Needs Correction", "Rejected"];
 
 type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
 type Shift = { id: number; employee_id: number | null; shift_date: string; start_time: string; end_time: string; position: string; department?: string | null; employee_department?: string | null; break_minutes: number; status: string; notes?: string | null; employee_name?: string | null; planned_paid_hours: number; is_overnight: boolean; source?: string; movable?: boolean };
+type TabKey = "scheduled" | "actual" | "leave";
 type Bundle = {
   ok: boolean;
   employee?: ScheduleEmployee | null;
@@ -38,6 +40,7 @@ type Props = {
   day: string;
   shift: Shift | null;
   initialEmployeeId?: number | null;
+  initialTab?: TabKey;
   employees: ScheduleEmployee[];
   canEdit: boolean;
   onClose: () => void;
@@ -47,9 +50,9 @@ function emptyBundle(): Bundle {
   return { ok: true, shift: null, actual: null, leave: null };
 }
 
-export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = null, employees, canEdit, onClose }: Props) {
+export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = null, initialTab = "scheduled", employees, canEdit, onClose }: Props) {
   const router = useRouter();
-  const [tab, setTab] = useState<"scheduled" | "actual" | "leave">("scheduled");
+  const [tab, setTab] = useState<TabKey>(initialTab);
   const [bundle, setBundle] = useState<Bundle>(emptyBundle());
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,7 +63,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
 
   useEffect(() => {
     if (!open) return;
-    setTab("scheduled");
+    setTab(initialTab);
     setMessage("");
     setEmployeeId(shift?.employee_id ? String(shift.employee_id) : (initialEmployeeId ? String(initialEmployeeId) : ""));
     setShiftDate(shift?.shift_date || day);
@@ -76,7 +79,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       .then((res) => res.json())
       .then((data) => setBundle(data))
       .catch(() => setMessage("Could not load employee-day details."));
-  }, [day, initialEmployeeId, open, shift]);
+  }, [day, initialEmployeeId, initialTab, open, shift]);
 
   const currentShift = bundle.shift || shift;
   const selectedEmployee = useMemo(() => employees.find((item) => String(item.id) === employeeId), [employeeId, employees]);
@@ -85,7 +88,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
 
   if (!open) return null;
 
-  async function save(section: "scheduled" | "actual" | "leave", payload: Record<string, unknown>) {
+  async function save(section: TabKey, payload: Record<string, unknown>) {
     setBusy(true);
     setMessage("");
     const response = await fetch("/api/schedule/day", {
@@ -163,7 +166,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       employee_id: Number(employeeId),
       shift_date: shiftDate,
       leave_kind: String(formData.get("leave_kind") || "None"),
-      leave_days: Number(formData.get("leave_days") || 0),
+      leave_days: Number(formData.get("leave_days") || 1),
       leave_hours: Number(formData.get("leave_hours") || 0) || null,
       reason: String(formData.get("reason") || "") || null,
       notice_given_at: String(formData.get("notice_given_at") || "") || null,
@@ -222,6 +225,8 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
           <form action={saveLeave} className="form-grid modal-form">
             <label>Employee<select value={employeeId} disabled={readOnly || lockedSnapshot} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
             <label>Type<select name="leave_kind" defaultValue={bundle.leave?.leave_type_name || bundle.actual?.absence_type || "None"} disabled={readOnly || lockedSnapshot}>{leaveKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
+            <label>Days<input name="leave_days" type="number" min="0.25" step="0.25" defaultValue={bundle.leave?.days ?? 1} disabled={readOnly || lockedSnapshot} /></label>
+            <label>Hours, if partial<input name="leave_hours" type="number" min="0" step="0.25" defaultValue={bundle.leave?.paid_hours ?? ""} disabled={readOnly || lockedSnapshot} /></label>
             <label>Date informed<input name="notice_given_at" type="datetime-local" defaultValue={bundle.actual?.notice_given_at ? String(bundle.actual.notice_given_at).replace(" ", "T").slice(0, 16) : ""} disabled={readOnly || lockedSnapshot} /></label>
             <label>Notice timing<select name="notice_timing" defaultValue={bundle.actual?.notice_timing || ""} disabled={readOnly || lockedSnapshot}><option value="">Select notice timing</option>{noticeTimings.map((timing) => <option key={timing}>{timing}</option>)}</select></label>
             <label>Evidence / reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Medical certificate, chat screenshot, approval note, etc." disabled={readOnly || lockedSnapshot} /></label>
