@@ -8,15 +8,25 @@
   gap: 6px;
 }
 
-.markRestDay {
+.markRestDay,
+.markLeave {
   width: 100%;
   min-height: 34px;
-  border: 1px solid rgba(49, 91, 70, 0.28);
   border-radius: 10px;
-  background: var(--accent-soft);
-  color: var(--accent);
   font-weight: 800;
   font-size: 0.78rem;
+}
+
+.markRestDay {
+  border: 1px solid rgba(49, 91, 70, 0.28);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.markLeave {
+  border: 1px solid #b8c9df;
+  background: #edf4fb;
+  color: #315d88;
 }
 
 .markRestDay:hover {
@@ -24,27 +34,60 @@
   background: #dcebe1;
 }
 
-.restDayCard {
+.markLeave:hover {
+  border-color: #315d88;
+  background: #e2eef9;
+}
+
+.restDayCard,
+.leaveCard {
   display: grid;
   gap: 5px;
   min-height: 92px;
   align-content: center;
   justify-items: center;
   padding: 10px;
-  border: 1px solid rgba(49, 91, 70, 0.28);
   border-radius: 12px;
-  background: var(--accent-soft);
-  color: var(--accent);
   text-align: center;
 }
 
-.restDayCard strong {
+.restDayCard {
+  border: 1px solid rgba(49, 91, 70, 0.28);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.leaveCard {
+  width: 100%;
+  border: 1px solid #b8c9df;
+  background: #edf4fb;
+  color: #315d88;
+  cursor: pointer;
+}
+
+.leaveCard:hover {
+  border-color: #315d88;
+  background: #e2eef9;
+}
+
+.restDayCard strong,
+.leaveCard strong {
   font-size: 0.92rem;
 }
 
-.restDayCard span {
+.restDayCard span,
+.leaveCard span {
   color: var(--muted);
   font-size: 0.74rem;
+}
+
+.leaveCard small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.7rem;
+  line-height: 1.25;
 }
 
 .clearRestDay {
