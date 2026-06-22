@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MarkPaidButton } from "@/components/MarkPaidButton";
+import { PayrollWorkflowButton } from "@/components/PayrollWorkflowButton";
 import { RecalculatePayrollButton } from "@/components/RecalculatePayrollButton";
 import { PayrollRevisionBanner } from "@/components/PayrollRevisionBanner";
 import { EmployeePayrollCard } from "@/components/EmployeePayrollCard";
@@ -40,9 +41,11 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
           <div className="grid">
             <span className="eyebrow">Payroll Review</span>
             <h1>Run #{run.id} · {run.period_start} to {run.period_end}</h1>
-            <p className="muted">Review each employee's calculated pay, adjustments, deductions, and final payslip amount.</p>
+            <p className="muted">Review each employee&apos;s calculated pay, adjustments, deductions, and final payslip amount.</p>
             <div className="action-row">
               {canRecalculate ? <RecalculatePayrollButton runId={run.id} /> : null}
+              {run.status === "Draft" ? <PayrollWorkflowButton runId={run.id} action="submit-review" /> : null}
+              {session.role_key === "owner" && run.status === "For Owner Review" ? <PayrollWorkflowButton runId={run.id} action="approve" /> : null}
               <Link className="button ghost" href={`/payroll/runs/${run.id}/reports`}>Reports</Link>
               <Link className="button ghost" href={`/payroll/runs/${run.id}/audit`}>Audit timeline</Link>
               <Link className="button ghost" href={`/payroll/runs/${run.id}/corrections`}>Corrections</Link>
@@ -50,6 +53,8 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
               {session.role_key === "owner" && run.status === "Approved" && !run.paid_at ? <MarkPaidButton runId={run.id} /> : null}
             </div>
             {canRecalculate ? <p className="muted">Use Recalculate Draft after changing Schedule, Attendance, OT, Leave, employee payroll settings, or cash advances. Manual employee adjustments are preserved.</p> : null}
+            {run.status === "Draft" ? <p className="muted">When all figures are correct, submit the run for owner review.</p> : null}
+            {session.role_key === "owner" && run.status === "For Owner Review" ? <p className="muted">This run is ready for owner approval.</p> : null}
           </div>
           <StatusBadge label={run.status} tone={statusTone(run.status)} />
         </header>
