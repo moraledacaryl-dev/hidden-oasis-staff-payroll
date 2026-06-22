@@ -35,6 +35,18 @@ function isApprovedLeave(value: unknown): boolean {
   ].includes(normalized(value));
 }
 
+async function activeLeave(employeeId: number, shiftDate: string) {
+  if (!employeeId || !shiftDate) return null;
+  const params = new URLSearchParams({ employee_id: String(employeeId), shift_date: shiftDate });
+  const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day?${params.toString()}`, {
+    headers: await apiHeaders(),
+    cache: "no-store",
+  });
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => ({}));
+  return data.leave || null;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day?${url.searchParams.toString()}`, {
@@ -58,6 +70,18 @@ export async function POST(request: Request) {
     });
     const data = await response.json().catch(() => ({}));
     return NextResponse.json(data, { status: response.status });
+  }
+
+  if (section === "scheduled" || section === "actual") {
+    const employeeId = Number(body.employee_id || 0);
+    const shiftDate = String(body.shift_date || "");
+    const leave = await activeLeave(employeeId, shiftDate);
+    if (leave) {
+      return NextResponse.json({
+        ok: false,
+        detail: `This day is marked as ${leave.leave_type_name || "leave"}. Clear the leave first before scheduling work or recording actual attendance.`,
+      }, { status: 409 });
+    }
   }
 
   let route = section === "scheduled" || section === "actual" || section === "leave" ? section : "";
