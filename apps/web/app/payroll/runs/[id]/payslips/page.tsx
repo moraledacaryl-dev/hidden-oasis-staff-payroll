@@ -4,6 +4,7 @@ import { PrintButton } from "@/components/PrintButton";
 import { Shell } from "@/components/Shell";
 import { getPayrollRunReview, numberText, peso } from "@/lib/api";
 import { currentSession } from "@/lib/session";
+import "./print.css";
 
 function mandatoryDeductions(item: { sss_ee: number; philhealth_ee: number; pagibig_ee: number }) {
   return Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0);
