@@ -52,12 +52,12 @@ async function markDistributed(formData: FormData) {
   revalidatePath("/payslips");
 }
 
-function PayslipCard({ item, run, copyLabel, companyCopy = false }: { item: SlipItem; run: SlipRun; copyLabel: string; companyCopy?: boolean }) {
+function PayslipCopy({ item, run, copyLabel, companyCopy = false }: { item: SlipItem; run: SlipRun; copyLabel: string; companyCopy?: boolean }) {
   const mandatory = Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0);
   const other = Number(item.tax || 0) + Number(item.cash_advance_deduction || 0) + Number(item.other_deductions || 0);
 
   return (
-    <article className={`card payslip-card${companyCopy ? " company-copy" : ""}`}>
+    <div className={`payslip-copy${companyCopy ? " company-copy" : ""}`}>
       <div className="copy-label">{copyLabel}</div>
       <div className="payslip-top">
         <div>
@@ -86,7 +86,7 @@ function PayslipCard({ item, run, copyLabel, companyCopy = false }: { item: Slip
         </section>
       </div>
       <div className="payslip-signature"><span>Received by: __________________________</span><span>Date: _______________</span></div>
-    </article>
+    </div>
   );
 }
 
@@ -120,7 +120,7 @@ export default async function PayslipDistributionPage({ searchParams }: { search
           <div className="panel-title"><div><h2>Distribution list</h2><p className="muted">Mark each payslip after handoff.</p></div></div>
           <div className="table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Net pay</th><th>Status</th><th>Action</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td><strong>{item.employee_name}</strong><br /><span className="muted">{item.employee_code || "—"}</span></td><td>{item.department || "—"}</td><td>{peso(item.net_pay)}</td><td>{item.distribution?.distributed ? `Distributed · ${item.distribution.distributed_at || ""}` : "Pending"}</td><td>{item.distribution?.distributed ? <span className="muted">{item.distribution.distributed_by || "Recorded"}</span> : <form action={markDistributed}><input type="hidden" name="run_id" value={selectedRunId} /><input type="hidden" name="employee_id" value={item.employee_id} /><button className="button small" type="submit">Mark distributed</button></form>}</td></tr>)}{items.length === 0 ? <tr><td colSpan={5}>No approved payslips available.</td></tr> : null}</tbody></table></div>
         </section>
-        {run ? <section className="payslip-grid">{items.map((item) => <div className="payslip-pair" key={`pair-${item.id}`}><PayslipCard item={item} run={run} copyLabel="Employee Copy" /><PayslipCard item={item} run={run} copyLabel="Company Copy" companyCopy /></div>)}</section> : null}
+        {run ? <section className="payslip-grid">{items.map((item) => <article className="payslip-sheet" key={`sheet-${item.id}`}><PayslipCopy item={item} run={run} copyLabel="Employee Copy" /><PayslipCopy item={item} run={run} copyLabel="Company Copy" companyCopy /></article>)}</section> : null}
       </div>
     </Shell>
   );
