@@ -1,3 +1,22 @@
+.payslip-sheet {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.payslip-copy {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid #d7d2c8;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.payslip-copy.company-copy {
+  border-top: 2px dashed #888;
+}
+
 @media print {
   @page {
     size: A4 portrait;
@@ -11,6 +30,15 @@
     background: #fff !important;
   }
 
+  body * {
+    visibility: hidden !important;
+  }
+
+  .payslip-grid,
+  .payslip-grid * {
+    visibility: visible !important;
+  }
+
   .payslip-page .payslip-grid {
     display: block !important;
     grid-template-columns: none !important;
@@ -21,10 +49,9 @@
     padding: 0 !important;
   }
 
-  .payslip-page .payslip-pair {
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: flex-start !important;
+  .payslip-page .payslip-sheet {
+    display: grid !important;
+    grid-template-rows: 1fr 1fr !important;
     gap: 4mm !important;
     width: 100% !important;
     height: 210mm !important;
@@ -35,20 +62,16 @@
     page-break-inside: avoid !important;
     break-after: page !important;
     page-break-after: always !important;
-    contain: layout !important;
   }
 
-  .payslip-page .payslip-pair:last-child {
+  .payslip-page .payslip-sheet:last-child {
     break-after: auto !important;
     page-break-after: auto !important;
   }
 
-  .payslip-page .payslip-card {
+  .payslip-page .payslip-copy {
     display: block !important;
-    flex: 0 0 101mm !important;
     width: 100% !important;
-    height: 101mm !important;
-    max-width: none !important;
     min-height: 0 !important;
     margin: 0 !important;
     padding: 2.5mm !important;
@@ -56,27 +79,22 @@
     overflow: hidden !important;
     box-shadow: none !important;
     border: 1px solid #777 !important;
+    border-radius: 0 !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
     break-after: auto !important;
     page-break-after: auto !important;
     font-size: 7px !important;
     line-height: 1.03 !important;
-    gap: 1px !important;
   }
 
   .payslip-page .company-copy {
-    display: block !important;
-    flex-basis: 101mm !important;
-    height: 101mm !important;
-    margin: 0 !important;
-    padding-top: 2.5mm !important;
     border-top: 1px dashed #777 !important;
   }
 
-  .payslip-page .payslip-card h2,
-  .payslip-page .payslip-card h3,
-  .payslip-page .payslip-card p {
+  .payslip-page .payslip-copy h2,
+  .payslip-page .payslip-copy h3,
+  .payslip-page .payslip-copy p {
     margin: 0 0 1px !important;
   }
 
@@ -97,5 +115,14 @@
   .payslip-page .copy-label {
     margin-bottom: 1px !important;
     font-size: 7px !important;
+  }
+
+  .page-header,
+  .print-actions,
+  nav,
+  aside,
+  footer,
+  .payslip-page > section:not(.payslip-grid) {
+    display: none !important;
   }
 }
