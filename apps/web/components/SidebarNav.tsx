@@ -6,6 +6,27 @@ import { navGroups } from "@/lib/navigation";
 import type { RoleKey } from "@/lib/types";
 import styles from "./SidebarNav.module.css";
 
+const glyphs: Record<string, string> = {
+  "/": "DB",
+  "/me": "ME",
+  "/schedule": "SC",
+  "/attendance": "AT",
+  "/staff": "ST",
+  "/performance-reviews": "PF",
+  "/hr": "HR",
+  "/cash-advances": "CA",
+  "/cutoff": "CO",
+  "/payroll": "PV",
+  "/payroll/runs": "PR",
+  "/payslips": "PS",
+  "/reports/operations": "RO",
+  "/reports": "RP",
+  "/controls": "CT",
+  "/backup": "BK",
+  "/settings": "SE",
+  "/settings/password": "AC",
+};
+
 function routeMatches(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -17,6 +38,29 @@ function activeHrefFor(pathname: string, hrefs: string[]): string | null {
     .sort((a, b) => b.length - a.length)[0] || null;
 }
 
+function NavLink({ href, label, description, active, subcard = false }: {
+  href: string;
+  label: string;
+  description: string;
+  active: boolean;
+  subcard?: boolean;
+}) {
+  return (
+    <Link
+      className={`nav-card ${styles.link} ${subcard ? styles.subcard : ""} ${active ? styles.activeLink : ""}`}
+      href={href}
+      title={label}
+      aria-current={active ? "page" : undefined}
+    >
+      <span className={styles.glyph} aria-hidden="true">{glyphs[href] || label.slice(0, 2).toUpperCase()}</span>
+      <span className={styles.copy}>
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+    </Link>
+  );
+}
+
 export function SidebarNav({ role }: { role: RoleKey }) {
   const pathname = usePathname();
   const visibleHrefs = navGroups
@@ -26,7 +70,7 @@ export function SidebarNav({ role }: { role: RoleKey }) {
   const activeHref = activeHrefFor(pathname, visibleHrefs);
 
   return (
-    <nav className="nav-list" aria-label="Main navigation">
+    <nav className={`nav-list ${styles.nav}`} aria-label="Main navigation">
       {navGroups.map((group, groupIndex) => {
         const items = group.items.filter((item) => item.roles.includes(role));
         if (!items.length) return null;
@@ -34,17 +78,19 @@ export function SidebarNav({ role }: { role: RoleKey }) {
         const groupActive = items.some((item) => item.href === activeHref);
 
         if (!group.label) {
-          return items.map((item) => (
-            <Link
-              className={`nav-card ${item.href === activeHref ? styles.activeLink : ""}`}
-              href={item.href}
-              key={`${groupIndex}-${item.href}`}
-              title={item.label}
-            >
-              <strong>{item.label}</strong>
-              <span>{item.description}</span>
-            </Link>
-          ));
+          return (
+            <div className={styles.standalone} key={`standalone-${groupIndex}`}>
+              {items.map((item) => (
+                <NavLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  description={item.description}
+                  active={item.href === activeHref}
+                />
+              ))}
+            </div>
+          );
         }
 
         return (
@@ -53,21 +99,20 @@ export function SidebarNav({ role }: { role: RoleKey }) {
             open={groupActive || undefined}
             key={`${group.label}-${pathname}`}
           >
-            <summary className={groupActive ? styles.active : ""}>
+            <summary className={groupActive ? styles.active : ""} title={group.label}>
               <strong>{group.label}</strong>
               <span className={styles.chevron} aria-hidden="true">›</span>
             </summary>
             <div className={styles.sublist}>
               {items.map((item) => (
-                <Link
-                  className={`nav-card ${styles.subcard} ${item.href === activeHref ? styles.activeLink : ""}`}
-                  href={item.href}
+                <NavLink
                   key={item.href}
-                  title={item.label}
-                >
-                  <strong>{item.label}</strong>
-                  <span>{item.description}</span>
-                </Link>
+                  href={item.href}
+                  label={item.label}
+                  description={item.description}
+                  active={item.href === activeHref}
+                  subcard
+                />
               ))}
             </div>
           </details>
