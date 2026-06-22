@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { moveScheduledShift } from "@/app/schedule/actions";
 import { ScheduleDayEditorModal } from "@/components/ScheduleDayEditorModal";
 import styles from "@/app/schedule/page.module.css";
@@ -81,9 +81,9 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   const [leaveStatuses, setLeaveStatuses] = useState<LeaveStatus[]>([]);
   const [isPending, startTransition] = useTransition();
 
-  useEffect(() => {
-    if (!days[0]) return;
-    Promise.all([
+  const loadDayStates = useCallback(() => {
+    if (!days[0]) return Promise.resolve();
+    return Promise.all([
       fetch(`/api/schedule/rest-days?week_start=${encodeURIComponent(days[0])}`, { cache: "no-store" }).then((response) => response.json()),
       fetch(`/api/schedule/leave-statuses?week_start=${encodeURIComponent(days[0])}`, { cache: "no-store" }).then((response) => response.json()),
     ]).then(([restData, leaveData]) => {
@@ -94,6 +94,10 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
       setLeaveStatuses([]);
     });
   }, [days]);
+
+  useEffect(() => {
+    void loadDayStates();
+  }, [loadDayStates]);
 
   const visibleShifts = useMemo(() => {
     const plannedKeys = new Set(shifts.filter((shift) => shift.id > 0).map(shiftIdentity));
@@ -155,6 +159,28 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
     });
   }
 
+  function clearDay(employeeId: number, workDate: string) {
+    if (!window.confirm("Clear this entire day and choose Add shift, Rest day, or Leave again?")) return;
+    startTransition(async () => {
+      setMessage("");
+      const response = await fetch("/api/schedule/day", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: "reset", employee_id: employeeId, work_date: workDate }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        setMessage(typeof data.detail === "string" ? data.detail : data.message || "Day was not cleared.");
+        return;
+      }
+      setLeaveStatuses((current) => current.filter((item) => !(item.employee_id === employeeId && item.work_date === workDate)));
+      setRestDays((current) => current.filter((item) => !(item.employee_id === employeeId && item.work_date === workDate)));
+      setMessage("Day cleared.");
+      router.refresh();
+      await loadDayStates();
+    });
+  }
+
   return (
     <>
       {(isPending || message) ? <div className={styles.boardHint}>{isPending ? "Saving…" : message}</div> : null}
@@ -187,7 +213,14 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
                   onDrop={() => !isUnavailable && onDrop(day)}
                 >
                   <div className={styles.scheduleStack}>
-                    {cellShifts.map((shift) => (
+                    {leave ? (
+                      <div className={restStyles.leaveCard}>
+                        <strong>{leave.leave_type_name}</strong>
+                        {canEdit && row.id !== null ? <button className={restStyles.clearRestDay} type="button" onClick={() => clearDay(row.id as number, day)}>Clear</button> : null}
+                      </div>
+                    ) : null}
+
+                    {!leave ? cellShifts.map((shift) => (
                       <button
                         type="button"
                         className={`${styles.shiftCard} ${dragId === shift.id ? styles.dragging : ""}`}
@@ -204,24 +237,16 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
                         {shift.source === "imported" ? <span className={styles.legacyNote}>Legacy imported row</span> : null}
                         {shift.notes ? <p className="muted">{shift.notes}</p> : null}
                       </button>
-                    ))}
+                    )) : null}
 
-                    {cellShifts.length === 0 && leave ? (
-                      <button type="button" className={restStyles.leaveCard} onClick={() => setEditor({ day, shift: null, employeeId: row.id, initialTab: "leave" })}>
-                        <strong>{leave.leave_type_name}</strong>
-                        <span>{leave.paid ? "Paid leave" : "Unpaid leave"} · {leave.status}</span>
-                        {leave.reason ? <small>{leave.reason}</small> : null}
-                      </button>
-                    ) : null}
-
-                    {cellShifts.length === 0 && !leave && isRestDay ? (
+                    {!leave && cellShifts.length === 0 && isRestDay ? (
                       <div className={restStyles.restDayCard}>
-                        <strong>Rest Day</strong><span>No scheduled shift</span>
+                        <strong>Rest Day</strong>
                         {canEdit && row.id !== null ? <button className={restStyles.clearRestDay} type="button" onClick={() => setRestDay(row.id as number, day, false)}>Clear</button> : null}
                       </div>
                     ) : null}
 
-                    {cellShifts.length === 0 && !isRestDay && !leave ? (
+                    {!leave && cellShifts.length === 0 && !isRestDay ? (
                       <div className={restStyles.emptyDayActions}>
                         <button className={styles.emptyDay} type="button" onClick={() => canEdit && setEditor({ day, shift: null, employeeId: row.id, initialTab: "scheduled" })}>{canEdit ? "Add shift" : "—"}</button>
                         {canEdit && row.id !== null ? <button className={restStyles.markRestDay} type="button" onClick={() => setRestDay(row.id as number, day, true)}>Rest day</button> : null}
@@ -243,7 +268,10 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
         initialTab={editor?.initialTab || "scheduled"}
         employees={employees}
         canEdit={canEdit}
-        onClose={() => setEditor(null)}
+        onClose={() => {
+          setEditor(null);
+          void loadDayStates();
+        }}
       />
     </>
   );
