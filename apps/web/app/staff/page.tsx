@@ -27,7 +27,12 @@ export default async function StaffPage() {
             <span className="eyebrow">Staff</span>
             <h1>Staff directory</h1>
             <p className="muted">Current employee records.</p>
-            {canEdit ? <div className="action-row"><Link className="primary-button" href="/staff/manage">Add or edit employees</Link></div> : null}
+            {canEdit ? (
+              <div className="action-row">
+                <Link className="primary-button" href="/staff/manage#add-employee">Add employee</Link>
+                <Link className="button ghost" href="/staff/manage">Manage employees</Link>
+              </div>
+            ) : null}
           </div>
           <StatusBadge label={canEdit ? "editable" : "view only"} tone={canEdit ? "ok" : "warning"} />
         </header>
@@ -40,7 +45,7 @@ export default async function StaffPage() {
           <div className="panel-title"><div><h2>Employees</h2><p className="muted">{employees.length} records</p></div></div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Position</th><th>Type</th><th>Status</th><th>Default shift</th>{showPrivate ? <th>Benefits</th> : null}</tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Position</th><th>Type</th><th>Status</th><th>Default shift</th>{showPrivate ? <th>Benefits</th> : null}{canEdit ? <th>Action</th> : null}</tr></thead>
               <tbody>
                 {employees.map((employee) => (
                   <tr key={employee.id}>
@@ -52,6 +57,7 @@ export default async function StaffPage() {
                     <td>{employee.status}</td>
                     <td>{employee.default_shift_start || "—"}–{employee.default_shift_end || "—"}</td>
                     {showPrivate ? <td><div className="badge-row">{employee.benefits_sss ? <span className="badge">SSS</span> : null}{employee.benefits_philhealth ? <span className="badge">PhilHealth</span> : null}{employee.benefits_pagibig ? <span className="badge">Pag-IBIG</span> : null}{employee.benefits_tax ? <span className="badge">Tax</span> : null}</div></td> : null}
+                    {canEdit ? <td><Link className="button small ghost" href={`/staff/manage#employee-${employee.id}`}>Edit</Link></td> : null}
                   </tr>
                 ))}
               </tbody>
