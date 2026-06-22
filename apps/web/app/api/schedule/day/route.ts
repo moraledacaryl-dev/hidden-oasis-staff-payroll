@@ -15,6 +15,16 @@ async function apiHeaders(json = false): Promise<HeadersInit> {
   };
 }
 
+function isSil(value: unknown): boolean {
+  const normalized = String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return [
+    "sil",
+    "service incentive leave",
+    "service incentive leave (sil)",
+    "sil (service incentive leave)",
+  ].includes(normalized);
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day?${url.searchParams.toString()}`, {
@@ -39,8 +49,14 @@ export async function POST(request: Request) {
     const data = await response.json().catch(() => ({}));
     return NextResponse.json(data, { status: response.status });
   }
-  const route = section === "scheduled" || section === "actual" || section === "leave" ? section : "";
+
+  let route = section === "scheduled" || section === "actual" || section === "leave" ? section : "";
+  if (section === "leave" && isSil(body.leave_kind)) {
+    route = "sil";
+    body.leave_kind = "SIL";
+  }
   if (!route) return NextResponse.json({ ok: false, message: "Invalid schedule day section." }, { status: 422 });
+
   const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day/${route}`, {
     method: "POST",
     headers: await apiHeaders(true),
