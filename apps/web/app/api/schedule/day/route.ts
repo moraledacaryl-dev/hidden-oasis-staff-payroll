@@ -15,14 +15,24 @@ async function apiHeaders(json = false): Promise<HeadersInit> {
   };
 }
 
-function isSil(value: unknown): boolean {
-  const normalized = String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+function normalized(value: unknown): string {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isApprovedLeave(value: unknown): boolean {
   return [
+    "none",
     "sil",
     "service incentive leave",
     "service incentive leave (sil)",
     "sil (service incentive leave)",
-  ].includes(normalized);
+    "sick leave",
+    "vacation leave",
+    "emergency leave",
+    "bereavement leave",
+    "official business",
+    "other approved absence",
+  ].includes(normalized(value));
 }
 
 export async function GET(request: Request) {
@@ -51,9 +61,11 @@ export async function POST(request: Request) {
   }
 
   let route = section === "scheduled" || section === "actual" || section === "leave" ? section : "";
-  if (section === "leave" && isSil(body.leave_kind)) {
-    route = "sil";
-    body.leave_kind = "SIL";
+  if (section === "leave" && isApprovedLeave(body.leave_kind)) {
+    route = "approved-leave";
+    if (["service incentive leave", "service incentive leave (sil)", "sil (service incentive leave)"].includes(normalized(body.leave_kind))) {
+      body.leave_kind = "SIL";
+    }
   }
   if (!route) return NextResponse.json({ ok: false, message: "Invalid schedule day section." }, { status: 422 });
 
