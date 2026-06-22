@@ -1,7 +1,20 @@
+.company-copy {
+  display: none;
+}
+
+.copy-label {
+  display: inline-block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 @media print {
   @page {
-    size: auto;
-    margin: 10mm;
+    size: A4 portrait;
+    margin: 8mm;
   }
 
   body * {
@@ -22,27 +35,81 @@
     padding: 0 !important;
   }
 
-  .payslip-card {
-    display: block !important;
+  .payslip-pair {
+    display: grid !important;
+    grid-template-rows: 1fr 1fr !important;
+    gap: 5mm !important;
     width: 100% !important;
-    max-width: none !important;
-    margin: 0 !important;
-    box-shadow: none !important;
+    height: 281mm !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
     page-break-after: always !important;
   }
 
-  .payslip-card:last-child {
+  .payslip-pair:last-child {
     page-break-after: auto !important;
+  }
+
+  .company-copy {
+    display: block !important;
+  }
+
+  .payslip-card {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 5mm !important;
+    box-sizing: border-box !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+    font-size: 9.5px !important;
+    line-height: 1.2 !important;
+  }
+
+  .payslip-card h2,
+  .payslip-card h3,
+  .payslip-card p {
+    margin-top: 0 !important;
+    margin-bottom: 2px !important;
+  }
+
+  .payslip-top,
+  .payslip-employee,
+  .payslip-summary,
+  .payslip-columns,
+  .payslip-signature {
+    margin-top: 3px !important;
+    margin-bottom: 3px !important;
+    gap: 5px !important;
+  }
+
+  .payslip-summary > div,
+  .payslip-columns > section {
+    padding: 3px !important;
+  }
+
+  .leave-lines {
+    margin-top: 2px !important;
+    gap: 1px !important;
+  }
+
+  .copy-label {
+    margin-bottom: 3px !important;
+    font-size: 9px !important;
   }
 
   .page-header,
   .print-actions,
   nav,
   aside,
-  header:not(.payslip-card header),
-  footer {
+  footer,
+  .payslip-page > section:not(.payslip-grid) {
     display: none !important;
   }
 }
