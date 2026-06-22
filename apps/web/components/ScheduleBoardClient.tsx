@@ -151,7 +151,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
 
   return (
     <>
-      <div className={styles.boardHint}>{isPending ? "Saving…" : message || (canEdit ? "Click an empty cell to add a shift or mark a rest day. Drag planned shifts to move days." : "Supervisor view is read-only.")}</div>
+      {(isPending || message) ? <div className={styles.boardHint}>{isPending ? "Saving…" : message}</div> : null}
       <div className={styles.matrixGrid}>
         <div className={styles.matrixCorner}>Staff</div>
         {days.map((day) => <div className={styles.matrixHeader} key={day}>{dayLabel(day)}</div>)}
