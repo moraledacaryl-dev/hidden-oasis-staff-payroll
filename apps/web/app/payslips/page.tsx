@@ -52,6 +52,44 @@ async function markDistributed(formData: FormData) {
   revalidatePath("/payslips");
 }
 
+function PayslipCard({ item, run, copyLabel, companyCopy = false }: { item: SlipItem; run: SlipRun; copyLabel: string; companyCopy?: boolean }) {
+  const mandatory = Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0);
+  const other = Number(item.tax || 0) + Number(item.cash_advance_deduction || 0) + Number(item.other_deductions || 0);
+
+  return (
+    <article className={`card payslip-card${companyCopy ? " company-copy" : ""}`}>
+      <div className="copy-label">{copyLabel}</div>
+      <div className="payslip-top">
+        <div>
+          <span className="eyebrow">Hidden Oasis</span>
+          <h2>Employee Payslip</h2>
+          <div className="payslip-meta">
+            <p className="muted">Period: {run.period_start} to {run.period_end}</p>
+            <p className="muted">Run #{run.id}</p>
+          </div>
+        </div>
+        <div className="payslip-net"><span>Net Pay</span><strong>{peso(item.net_pay)}</strong></div>
+      </div>
+      <div className="payslip-employee"><h3>{item.employee_name}</h3><p className="muted">Department: {item.department}</p></div>
+      <div className="payslip-summary">
+        <div><span>Regular</span><strong>{numberText(item.regular_hours)} hrs</strong></div>
+        <div><span>OT</span><strong>{numberText(item.approved_ot_hours)} hrs</strong></div>
+        <div><span>Gross</span><strong>{peso(item.gross_pay)}</strong></div>
+      </div>
+      <div className="payslip-columns">
+        <section><h3>Earnings</h3><p><span>Gross pay</span><strong>{peso(item.gross_pay)}</strong></p></section>
+        <section>
+          <h3>Deductions</h3>
+          <p><span>Mandatory</span><strong>{peso(mandatory)}</strong></p>
+          <p><span>Tax / advances / other</span><strong>{peso(other)}</strong></p>
+          <p className="total-line"><span>Total deductions</span><strong>{peso(item.total_deductions)}</strong></p>
+        </section>
+      </div>
+      <div className="payslip-signature"><span>Received by: __________________________</span><span>Date: _______________</span></div>
+    </article>
+  );
+}
+
 export default async function PayslipDistributionPage({ searchParams }: { searchParams: Promise<{ run_id?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
@@ -70,11 +108,7 @@ export default async function PayslipDistributionPage({ searchParams }: { search
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className="page payslip-page">
         <header className="page-header">
-          <div className="grid">
-            <span className="eyebrow">Payslip Distribution</span>
-            <h1>Approved payslips</h1>
-            <p className="muted">View, print, and record distribution.</p>
-          </div>
+          <div className="grid"><span className="eyebrow">Payslip Distribution</span><h1>Approved payslips</h1><p className="muted">View, print, and record distribution.</p></div>
           <StatusBadge label={pending ? `${pending} pending` : "complete"} tone={pending ? "warning" : "ok"} />
         </header>
         <section className="card">
@@ -86,7 +120,7 @@ export default async function PayslipDistributionPage({ searchParams }: { search
           <div className="panel-title"><div><h2>Distribution list</h2><p className="muted">Mark each payslip after handoff.</p></div></div>
           <div className="table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Net pay</th><th>Status</th><th>Action</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td><strong>{item.employee_name}</strong><br /><span className="muted">{item.employee_code || "—"}</span></td><td>{item.department || "—"}</td><td>{peso(item.net_pay)}</td><td>{item.distribution?.distributed ? `Distributed · ${item.distribution.distributed_at || ""}` : "Pending"}</td><td>{item.distribution?.distributed ? <span className="muted">{item.distribution.distributed_by || "Recorded"}</span> : <form action={markDistributed}><input type="hidden" name="run_id" value={selectedRunId} /><input type="hidden" name="employee_id" value={item.employee_id} /><button className="button small" type="submit">Mark distributed</button></form>}</td></tr>)}{items.length === 0 ? <tr><td colSpan={5}>No approved payslips available.</td></tr> : null}</tbody></table></div>
         </section>
-        <section className="payslip-grid">{items.map((item) => <article className="card payslip-card" key={`card-${item.id}`}><div className="payslip-top"><div><span className="eyebrow">Hidden Oasis</span><h2>Employee Payslip</h2><div className="payslip-meta"><p className="muted">Period: {run?.period_start} to {run?.period_end}</p><p className="muted">Run #{run?.id}</p></div></div><div className="payslip-net"><span>Net Pay</span><strong>{peso(item.net_pay)}</strong></div></div><div className="payslip-employee"><h3>{item.employee_name}</h3><p className="muted">Department: {item.department}</p></div><div className="payslip-summary"><div><span>Regular</span><strong>{numberText(item.regular_hours)} hrs</strong></div><div><span>OT</span><strong>{numberText(item.approved_ot_hours)} hrs</strong></div><div><span>Gross</span><strong>{peso(item.gross_pay)}</strong></div></div><div className="payslip-columns"><section><h3>Earnings</h3><p><span>Gross pay</span><strong>{peso(item.gross_pay)}</strong></p></section><section><h3>Deductions</h3><p><span>Mandatory</span><strong>{peso(Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0))}</strong></p><p><span>Tax / advances / other</span><strong>{peso(Number(item.tax || 0) + Number(item.cash_advance_deduction || 0) + Number(item.other_deductions || 0))}</strong></p><p className="total-line"><span>Total deductions</span><strong>{peso(item.total_deductions)}</strong></p></section></div><div className="payslip-signature"><span>Received by: __________________________</span><span>Date: _______________</span></div></article>)}</section>
+        {run ? <section className="payslip-grid">{items.map((item) => <div className="payslip-pair" key={`pair-${item.id}`}><PayslipCard item={item} run={run} copyLabel="Employee Copy" /><PayslipCard item={item} run={run} copyLabel="Company Copy" companyCopy /></div>)}</section> : null}
       </div>
     </Shell>
   );
