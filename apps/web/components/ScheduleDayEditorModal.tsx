@@ -98,7 +98,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
 
   async function save(section: TabKey, payload: Record<string, unknown>) {
     if (hasLeave && section !== "leave") {
-      setMessage("Clear the leave first before adding a shift or actual attendance.");
+      setMessage("Clear the day first before adding a shift or actual attendance.");
       setTab("leave");
       return;
     }
@@ -121,34 +121,27 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
     router.refresh();
   }
 
-  async function clearLeave() {
-    if (!employeeId || !hasLeave) return;
-    if (!window.confirm("Clear this leave and return the day to Add shift / Rest day / Leave choices?")) return;
+  async function clearDay() {
+    if (!employeeId) return;
+    if (!window.confirm("Clear this entire day? This removes the shift, actual attendance, leave or absence, and rest-day marker so you can choose again.")) return;
     setBusy(true);
     setMessage("");
     const response = await fetch("/api/schedule/day", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        section: "leave",
+        section: "reset",
         employee_id: Number(employeeId),
-        shift_date: shiftDate,
-        leave_kind: "None",
-        leave_days: 0,
-        leave_hours: null,
-        reason: null,
-        notice_given_at: null,
-        notice_timing: null,
-        evidence_ref: null,
+        work_date: shiftDate,
       }),
     });
     const data = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok || !data.ok) {
-      setMessage(typeof data.detail === "string" ? data.detail : data.message || "Leave was not cleared.");
+      setMessage(typeof data.detail === "string" ? data.detail : data.message || "Day was not cleared.");
       return;
     }
-    setBundle(data);
+    setBundle(emptyBundle());
     router.refresh();
     onClose();
   }
@@ -228,7 +221,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
           <div>
             <span className="eyebrow">Employee day</span>
             <h2>{selectedEmployee?.full_name || currentShift?.employee_name || "Schedule day"} · {shiftDate}</h2>
-            {hasLeave ? <p className="muted">This day is marked as leave. Clear the leave before scheduling work or recording actual attendance.</p> : null}
+            {hasLeave ? <p className="muted">This day is marked as leave. Clear the entire day to choose Add shift, Rest day, or Leave again.</p> : null}
             {lockedSnapshot ? <p className="muted">This date belongs to saved payroll run #{bundle.paid_run?.id}. You can edit it here; the saved payroll run will stay unchanged until you save a revised run.</p> : null}
             {bundle.message ? <p className="muted">{bundle.message}</p> : null}
           </div>
@@ -278,7 +271,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
             <label>Notice timing<select name="notice_timing" defaultValue={bundle.actual?.notice_timing || ""} disabled={readOnly || lockedSnapshot}><option value="">Select notice timing</option>{noticeTimings.map((timing) => <option key={timing}>{timing}</option>)}</select></label>
             <label>Evidence / reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Medical certificate, chat screenshot, approval note, etc." disabled={readOnly || lockedSnapshot} /></label>
             <label>Reason / notes<input name="reason" defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || lockedSnapshot} /></label>
-            {canEdit && !lockedSnapshot ? <div className="action-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : hasLeave ? "Update leave" : "Save leave / absence"}</button>{hasLeave ? <button className="button ghost" type="button" disabled={busy} onClick={clearLeave}>Clear leave</button> : null}</div> : null}
+            {canEdit && !lockedSnapshot ? <div className="action-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : hasLeave ? "Update leave" : "Save leave / absence"}</button>{hasLeave ? <button className="button ghost" type="button" disabled={busy} onClick={clearDay}>Clear day</button> : null}</div> : null}
           </form>
         ) : null}
 
