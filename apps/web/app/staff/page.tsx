@@ -29,7 +29,7 @@ export default async function StaffPage() {
             <p className="muted">Current employee records.</p>
             {canEdit ? (
               <div className="action-row">
-                <Link className="primary-button" href="/staff/manage#add-employee">Add employee</Link>
+                <Link className="primary-button" href="/staff/manage?add=1#add-employee">Add employee</Link>
                 <Link className="button ghost" href="/staff/manage">Manage employees</Link>
               </div>
             ) : null}
@@ -57,7 +57,7 @@ export default async function StaffPage() {
                     <td>{employee.status}</td>
                     <td>{employee.default_shift_start || "—"}–{employee.default_shift_end || "—"}</td>
                     {showPrivate ? <td><div className="badge-row">{employee.benefits_sss ? <span className="badge">SSS</span> : null}{employee.benefits_philhealth ? <span className="badge">PhilHealth</span> : null}{employee.benefits_pagibig ? <span className="badge">Pag-IBIG</span> : null}{employee.benefits_tax ? <span className="badge">Tax</span> : null}</div></td> : null}
-                    {canEdit ? <td><Link className="button small ghost" href={`/staff/manage#employee-${employee.id}`}>Edit</Link></td> : null}
+                    {canEdit ? <td><Link className="button small ghost" href={`/staff/manage?employee=${employee.id}#employee-${employee.id}`}>Edit</Link></td> : null}
                   </tr>
                 ))}
               </tbody>
