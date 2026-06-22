@@ -22,9 +22,12 @@
   }
 
   .payslip-page .payslip-pair {
-    display: block !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    gap: 4mm !important;
     width: 100% !important;
-    height: 230mm !important;
+    height: 210mm !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: hidden !important;
@@ -32,6 +35,7 @@
     page-break-inside: avoid !important;
     break-after: page !important;
     page-break-after: always !important;
+    contain: layout !important;
   }
 
   .payslip-page .payslip-pair:last-child {
@@ -41,12 +45,13 @@
 
   .payslip-page .payslip-card {
     display: block !important;
+    flex: 0 0 101mm !important;
     width: 100% !important;
-    height: 110mm !important;
+    height: 101mm !important;
     max-width: none !important;
     min-height: 0 !important;
     margin: 0 !important;
-    padding: 3mm !important;
+    padding: 2.5mm !important;
     box-sizing: border-box !important;
     overflow: hidden !important;
     box-shadow: none !important;
@@ -55,16 +60,17 @@
     page-break-inside: avoid !important;
     break-after: auto !important;
     page-break-after: auto !important;
-    font-size: 7.5px !important;
-    line-height: 1.05 !important;
-    gap: 2px !important;
+    font-size: 7px !important;
+    line-height: 1.03 !important;
+    gap: 1px !important;
   }
 
   .payslip-page .company-copy {
     display: block !important;
-    height: 110mm !important;
-    margin-top: 6mm !important;
-    padding-top: 3mm !important;
+    flex-basis: 101mm !important;
+    height: 101mm !important;
+    margin: 0 !important;
+    padding-top: 2.5mm !important;
     border-top: 1px dashed #777 !important;
   }
 
@@ -79,12 +85,17 @@
   .payslip-page .payslip-summary,
   .payslip-page .payslip-columns,
   .payslip-page .payslip-signature {
-    margin: 2px 0 !important;
-    gap: 3px !important;
+    margin: 1px 0 !important;
+    gap: 2px !important;
   }
 
   .payslip-page .payslip-summary > div,
   .payslip-page .payslip-columns > section {
-    padding: 2px !important;
+    padding: 1px !important;
+  }
+
+  .payslip-page .copy-label {
+    margin-bottom: 1px !important;
+    font-size: 7px !important;
   }
 }
