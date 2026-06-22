@@ -42,7 +42,7 @@
 .restDayCard,
 .leaveCard {
   display: grid;
-  gap: 5px;
+  gap: 8px;
   min-height: 92px;
   align-content: center;
   justify-items: center;
@@ -62,32 +62,11 @@
   border: 1px solid #b8c9df;
   background: #edf4fb;
   color: #315d88;
-  cursor: pointer;
-}
-
-.leaveCard:hover {
-  border-color: #315d88;
-  background: #e2eef9;
 }
 
 .restDayCard strong,
 .leaveCard strong {
   font-size: 0.92rem;
-}
-
-.restDayCard span,
-.leaveCard span {
-  color: var(--muted);
-  font-size: 0.74rem;
-}
-
-.leaveCard small {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  font-size: 0.7rem;
-  line-height: 1.25;
 }
 
 .clearRestDay {
