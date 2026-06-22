@@ -60,6 +60,23 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const body = await request.json();
   const section = String(body.section || "");
+
+  if (section === "reset") {
+    const employeeId = Number(body.employee_id || 0);
+    const workDate = String(body.work_date || body.shift_date || "");
+    if (!employeeId || !workDate) {
+      return NextResponse.json({ ok: false, message: "Employee and date are required to clear the day." }, { status: 422 });
+    }
+    const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day/reset`, {
+      method: "POST",
+      headers: await apiHeaders(true),
+      body: JSON.stringify({ employee_id: employeeId, work_date: workDate }),
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    return NextResponse.json(data, { status: response.status });
+  }
+
   if (section === "remove") {
     const shiftId = Number(body.shift_id || 0);
     if (!shiftId) return NextResponse.json({ ok: false, message: "Missing schedule shift." }, { status: 422 });
@@ -79,7 +96,7 @@ export async function POST(request: Request) {
     if (leave) {
       return NextResponse.json({
         ok: false,
-        detail: `This day is marked as ${leave.leave_type_name || "leave"}. Clear the leave first before scheduling work or recording actual attendance.`,
+        detail: `This day is marked as ${leave.leave_type_name || "leave"}. Clear the day first before scheduling work or recording actual attendance.`,
       }, { status: 409 });
     }
   }
