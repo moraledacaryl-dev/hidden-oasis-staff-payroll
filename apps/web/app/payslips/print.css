@@ -7,14 +7,69 @@
   html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
   body * { visibility: hidden !important; }
   .payslip-grid, .payslip-grid * { visibility: visible !important; }
-  .payslip-page, .payslip-grid { display: block !important; position: static !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
-  .payslip-pair { display: block !important; width: 100% !important; height: 268mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; page-break-inside: avoid !important; }
-  .payslip-pair + .payslip-pair { page-break-before: always !important; }
-  .payslip-card { display: block !important; width: 100% !important; height: 130mm !important; max-width: none !important; min-height: 0 !important; margin: 0 !important; padding: 4mm !important; box-sizing: border-box !important; overflow: hidden !important; box-shadow: none !important; border: 1px solid #777 !important; page-break-inside: avoid !important; page-break-after: auto !important; font-size: 9px !important; line-height: 1.15 !important; }
-  .company-copy { display: block !important; height: 130mm !important; margin-top: 8mm !important; padding-top: 4mm !important; border-top: 1px dashed #777 !important; }
-  .payslip-card h2, .payslip-card h3, .payslip-card p { margin-top: 0 !important; margin-bottom: 2px !important; }
-  .payslip-top, .payslip-employee, .payslip-summary, .payslip-columns, .payslip-signature { margin-top: 3px !important; margin-bottom: 3px !important; gap: 5px !important; }
-  .payslip-summary > div, .payslip-columns > section { padding: 3px !important; }
-  .copy-label { margin-bottom: 3px !important; font-size: 8.5px !important; }
+
+  .payslip-page,
+  .payslip-page .payslip-grid {
+    display: block !important;
+    grid-template-columns: none !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+
+  .payslip-page .payslip-pair {
+    display: block !important;
+    width: 100% !important;
+    height: 236mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    break-inside: avoid-page !important;
+    page-break-inside: avoid !important;
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+
+  .payslip-page .payslip-pair:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+
+  .payslip-page .payslip-card {
+    display: block !important;
+    width: 100% !important;
+    height: 114mm !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 3mm !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    box-shadow: none !important;
+    border: 1px solid #777 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+    font-size: 7.8px !important;
+    line-height: 1.08 !important;
+    gap: 3px !important;
+  }
+
+  .payslip-page .company-copy {
+    display: block !important;
+    height: 114mm !important;
+    margin-top: 6mm !important;
+    padding-top: 3mm !important;
+    border-top: 1px dashed #777 !important;
+  }
+
+  .payslip-card h2, .payslip-card h3, .payslip-card p { margin: 0 0 1px !important; }
+  .payslip-top, .payslip-employee, .payslip-summary, .payslip-columns, .payslip-signature { margin: 2px 0 !important; gap: 3px !important; }
+  .payslip-summary > div, .payslip-columns > section { padding: 2px !important; }
+  .copy-label { margin-bottom: 2px !important; font-size: 7.5px !important; }
   .page-header, .print-actions, nav, aside, footer, .payslip-page > section:not(.payslip-grid) { display: none !important; }
 }
