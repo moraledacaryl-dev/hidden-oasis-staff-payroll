@@ -35,7 +35,9 @@ type Shift = {
 };
 
 type RestDay = { id: number; employee_id: number; work_date: string; notes?: string | null };
+type LeaveStatus = { id: number; employee_id: number; work_date: string; leave_type_name: string; paid: number; status: string; reason?: string | null };
 type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
+type EditorState = { day: string; shift: Shift | null; employeeId?: number | null; initialTab?: "scheduled" | "actual" | "leave" };
 
 type Props = {
   days: string[];
@@ -74,16 +76,23 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   const [dragId, setDragId] = useState<number | null>(null);
   const [overDay, setOverDay] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  const [editor, setEditor] = useState<{ day: string; shift: Shift | null; employeeId?: number | null } | null>(null);
+  const [editor, setEditor] = useState<EditorState | null>(null);
   const [restDays, setRestDays] = useState<RestDay[]>([]);
+  const [leaveStatuses, setLeaveStatuses] = useState<LeaveStatus[]>([]);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     if (!days[0]) return;
-    fetch(`/api/schedule/rest-days?week_start=${encodeURIComponent(days[0])}`, { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data) => setRestDays(data.ok ? data.items || [] : []))
-      .catch(() => setRestDays([]));
+    Promise.all([
+      fetch(`/api/schedule/rest-days?week_start=${encodeURIComponent(days[0])}`, { cache: "no-store" }).then((response) => response.json()),
+      fetch(`/api/schedule/leave-statuses?week_start=${encodeURIComponent(days[0])}`, { cache: "no-store" }).then((response) => response.json()),
+    ]).then(([restData, leaveData]) => {
+      setRestDays(restData.ok ? restData.items || [] : []);
+      setLeaveStatuses(leaveData.ok ? leaveData.items || [] : []);
+    }).catch(() => {
+      setRestDays([]);
+      setLeaveStatuses([]);
+    });
   }, [days]);
 
   const visibleShifts = useMemo(() => {
@@ -105,6 +114,10 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   }, {}), [visibleShifts]);
 
   const restDayKeys = useMemo(() => new Set(restDays.map((item) => `${item.employee_id}:${item.work_date}`)), [restDays]);
+  const leaveByCell = useMemo(() => leaveStatuses.reduce<Record<string, LeaveStatus>>((acc, item) => {
+    acc[`${item.employee_id}:${item.work_date}`] = item;
+    return acc;
+  }, {}), [leaveStatuses]);
 
   function cellKey(employeeId: number | null, day: string) {
     return `${employeeId || "unassigned"}:${day}`;
@@ -116,13 +129,9 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
     setOverDay(null);
     setDragId(null);
     if (!source || source.shift_date === day) return;
-
     startTransition(async () => {
       const result = await moveScheduledShift(source.id, day);
-      if (!result?.ok) {
-        setMessage(result?.message || "Could not move shift.");
-        return;
-      }
+      if (!result?.ok) { setMessage(result?.message || "Could not move shift."); return; }
       setMessage("Shift moved.");
       router.refresh();
     });
@@ -137,10 +146,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
         body: JSON.stringify({ employee_id: employeeId, work_date: workDate, active }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.ok) {
-        setMessage(typeof data.detail === "string" ? data.detail : data.message || "Rest day was not saved.");
-        return;
-      }
+      if (!response.ok || !data.ok) { setMessage(typeof data.detail === "string" ? data.detail : data.message || "Rest day was not saved."); return; }
       setRestDays((current) => active
         ? [...current.filter((item) => !(item.employee_id === employeeId && item.work_date === workDate)), data.item]
         : current.filter((item) => !(item.employee_id === employeeId && item.work_date === workDate)));
@@ -165,18 +171,20 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
               const key = cellKey(row.id, day);
               const cellShifts = shiftsByCell[key] || [];
               const isRestDay = row.id !== null && restDayKeys.has(`${row.id}:${day}`);
+              const leave = row.id !== null ? leaveByCell[`${row.id}:${day}`] : undefined;
+              const isUnavailable = isRestDay || Boolean(leave);
               const isOver = overDay === `${row.id || "unassigned"}:${day}`;
               return (
                 <div
-                  className={`${styles.scheduleCell} ${isOver ? styles.dropTarget : ""} ${isRestDay ? restStyles.restDayCell : ""}`}
+                  className={`${styles.scheduleCell} ${isOver ? styles.dropTarget : ""} ${isUnavailable ? restStyles.restDayCell : ""}`}
                   key={`${row.id || "unassigned"}-${day}`}
                   onDragOver={(event) => {
-                    if (!canEdit || isRestDay) return;
+                    if (!canEdit || isUnavailable) return;
                     event.preventDefault();
                     setOverDay(`${row.id || "unassigned"}:${day}`);
                   }}
                   onDragLeave={() => setOverDay(null)}
-                  onDrop={() => !isRestDay && onDrop(day)}
+                  onDrop={() => !isUnavailable && onDrop(day)}
                 >
                   <div className={styles.scheduleStack}>
                     {cellShifts.map((shift) => (
@@ -186,42 +194,38 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
                         draggable={canEdit && shift.id > 0 && shift.movable !== false}
                         key={shift.id}
                         onClick={() => setEditor({ day, shift })}
-                        onDragStart={() => {
-                          if (!canEdit || shift.id < 0 || shift.movable === false) return;
-                          setDragId(shift.id);
-                        }}
-                        onDragEnd={() => {
-                          setDragId(null);
-                          setOverDay(null);
-                        }}
+                        onDragStart={() => { if (canEdit && shift.id > 0 && shift.movable !== false) setDragId(shift.id); }}
+                        onDragEnd={() => { setDragId(null); setOverDay(null); }}
                       >
-                        <div className={styles.shiftTop}>
-                          <strong>Sched {shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</strong>
-                          <span>{shift.position}</span>
-                        </div>
+                        <div className={styles.shiftTop}><strong>Sched {shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</strong><span>{shift.position}</span></div>
                         <span>{numberText(shift.planned_paid_hours)} hrs scheduled · break {shift.break_minutes}m</span>
-                        <div className={`${styles.actualLine} ${actualTone(shift)}`}>
-                          <strong>Actual</strong>
-                          <span>{actualText(shift)}</span>
-                        </div>
+                        <div className={`${styles.actualLine} ${actualTone(shift)}`}><strong>Actual</strong><span>{actualText(shift)}</span></div>
                         {shift.actual_status ? <span className={styles.actualStatus}>{shift.actual_status}{shift.actual_source === "legacy_schedule" ? " · legacy" : ""}</span> : null}
                         {shift.source === "imported" ? <span className={styles.legacyNote}>Legacy imported row</span> : null}
                         {shift.notes ? <p className="muted">{shift.notes}</p> : null}
                       </button>
                     ))}
 
-                    {cellShifts.length === 0 && isRestDay ? (
+                    {cellShifts.length === 0 && leave ? (
+                      <button type="button" className={restStyles.leaveCard} onClick={() => setEditor({ day, shift: null, employeeId: row.id, initialTab: "leave" })}>
+                        <strong>{leave.leave_type_name}</strong>
+                        <span>{leave.paid ? "Paid leave" : "Unpaid leave"} · {leave.status}</span>
+                        {leave.reason ? <small>{leave.reason}</small> : null}
+                      </button>
+                    ) : null}
+
+                    {cellShifts.length === 0 && !leave && isRestDay ? (
                       <div className={restStyles.restDayCard}>
-                        <strong>Rest Day</strong>
-                        <span>No scheduled shift</span>
+                        <strong>Rest Day</strong><span>No scheduled shift</span>
                         {canEdit && row.id !== null ? <button className={restStyles.clearRestDay} type="button" onClick={() => setRestDay(row.id as number, day, false)}>Clear</button> : null}
                       </div>
                     ) : null}
 
-                    {cellShifts.length === 0 && !isRestDay ? (
+                    {cellShifts.length === 0 && !isRestDay && !leave ? (
                       <div className={restStyles.emptyDayActions}>
-                        <button className={styles.emptyDay} type="button" onClick={() => canEdit && setEditor({ day, shift: null, employeeId: row.id })}>{canEdit ? "Add shift" : "—"}</button>
+                        <button className={styles.emptyDay} type="button" onClick={() => canEdit && setEditor({ day, shift: null, employeeId: row.id, initialTab: "scheduled" })}>{canEdit ? "Add shift" : "—"}</button>
                         {canEdit && row.id !== null ? <button className={restStyles.markRestDay} type="button" onClick={() => setRestDay(row.id as number, day, true)}>Rest day</button> : null}
+                        {canEdit && row.id !== null ? <button className={restStyles.markLeave} type="button" onClick={() => setEditor({ day, shift: null, employeeId: row.id, initialTab: "leave" })}>Leave</button> : null}
                       </div>
                     ) : null}
                   </div>
@@ -236,6 +240,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
         day={editor?.day || days[0]}
         shift={editor?.shift || null}
         initialEmployeeId={editor?.employeeId || null}
+        initialTab={editor?.initialTab || "scheduled"}
         employees={employees}
         canEdit={canEdit}
         onClose={() => setEditor(null)}
