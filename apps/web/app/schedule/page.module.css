@@ -1,8 +1,11 @@
 .boardScroll {
   width: 100%;
   max-width: 100%;
-  overflow-x: auto;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  overscroll-behavior: contain;
   padding-bottom: 6px;
+  position: relative;
 }
 
 .scheduleGrid {
@@ -36,28 +39,32 @@
 .matrixHeader {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 4;
   padding: 10px 12px;
   border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(31, 35, 32, 0.08);
   font-size: 0.82rem;
   font-weight: 800;
   white-space: nowrap;
 }
 
-.matrixCorner,
-.employeeCell {
-  position: sticky;
+.matrixCorner {
   left: 0;
-  z-index: 2;
+  z-index: 6;
 }
 
 .employeeCell {
+  position: sticky;
+  left: 0;
+  z-index: 3;
   display: grid;
   align-content: start;
   gap: 4px;
   min-height: 108px;
   border-radius: 10px;
   padding: 12px;
+  background: var(--surface-soft);
 }
 
 .employeeCell strong {
@@ -265,6 +272,9 @@
 .printTable span { color: #555; font-size: 8px; }
 
 @media (max-width: 1100px) {
+  .boardScroll {
+    max-height: calc(100vh - 180px);
+  }
   .scheduleGrid { grid-template-columns: repeat(7, 210px); }
   .matrixGrid { grid-template-columns: 175px repeat(7, 185px); min-width: 1490px; }
   .filterGrid { grid-template-columns: 1fr; }
