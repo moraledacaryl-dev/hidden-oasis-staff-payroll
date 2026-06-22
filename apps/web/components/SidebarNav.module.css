@@ -171,6 +171,11 @@
   border-radius: 12px !important;
 }
 
+:global(html[data-sidebar="collapsed"]) .link::before {
+  content: none !important;
+  display: none !important;
+}
+
 :global(html[data-sidebar="collapsed"]) .copy {
   display: none !important;
 }
