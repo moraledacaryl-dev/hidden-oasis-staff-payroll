@@ -6,6 +6,7 @@ import { SidebarToggle } from "@/components/SidebarToggle";
 import { roleLabels } from "@/lib/navigation";
 import { currentSession } from "@/lib/session";
 import type { RoleKey } from "@/lib/types";
+import styles from "./SidebarChrome.module.css";
 
 function AccessRestricted({ role, allowedRoles }: { role: RoleKey; allowedRoles: RoleKey[] }) {
   return (
@@ -29,10 +30,17 @@ export async function Shell({ children, allowedRoles = ["owner"] }: { children: 
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">HO</div><div className="brand-text"><div className="brand-title">Hidden Oasis</div><div className="brand-subtitle">{session.display_name} · {roleLabels[role]}</div></div><SidebarToggle /></div>
+      <aside className={`sidebar ${styles.sidebar}`}>
+        <div className={`brand ${styles.brand}`}>
+          <div className={`brand-mark ${styles.brandMark}`}>HO</div>
+          <div className={`brand-text ${styles.brandText}`}>
+            <div className="brand-title">Hidden Oasis</div>
+            <div className="brand-subtitle">{session.display_name} · {roleLabels[role]}</div>
+          </div>
+          <SidebarToggle />
+        </div>
         <SidebarNav role={role} />
-        <div className="sidebar-footer"><LogoutButton /></div>
+        <div className={`sidebar-footer ${styles.footer}`}><LogoutButton /></div>
       </aside>
       <main className="main">{allowed ? children : <AccessRestricted role={role} allowedRoles={allowedRoles} />}</main>
     </div>
