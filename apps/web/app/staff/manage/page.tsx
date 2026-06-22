@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -16,20 +17,38 @@ async function saveEmployee(id: number | null, data: FormData) {
   const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
   const numberOrNull = (key: string) => read(data, key) ? Number(read(data, key)) : null;
   const body = {
-    employee_code: read(data, "employee_code"), full_name: read(data, "full_name"),
-    department_name: read(data, "department_name") || null, position: read(data, "position") || null,
-    employment_type: read(data, "employment_type") || null, status: read(data, "status") || "Active",
-    default_shift_start: read(data, "default_shift_start") || null, default_shift_end: read(data, "default_shift_end") || null,
-    standard_paid_hours: numberOrNull("standard_paid_hours"), break_mins: numberOrNull("break_mins"),
-    benefits_sss: data.get("benefits_sss") ? 1 : 0, benefits_philhealth: data.get("benefits_philhealth") ? 1 : 0,
-    benefits_pagibig: data.get("benefits_pagibig") ? 1 : 0, benefits_tax: data.get("benefits_tax") ? 1 : 0,
+    employee_code: read(data, "employee_code"),
+    full_name: read(data, "full_name"),
+    department_name: read(data, "department_name") || null,
+    position: read(data, "position") || null,
+    employment_type: read(data, "employment_type") || null,
+    status: read(data, "status") || "Active",
+    default_shift_start: read(data, "default_shift_start") || null,
+    default_shift_end: read(data, "default_shift_end") || null,
+    standard_paid_hours: numberOrNull("standard_paid_hours"),
+    break_mins: numberOrNull("break_mins"),
+    benefits_sss: data.get("benefits_sss") ? 1 : 0,
+    benefits_philhealth: data.get("benefits_philhealth") ? 1 : 0,
+    benefits_pagibig: data.get("benefits_pagibig") ? 1 : 0,
+    benefits_tax: data.get("benefits_tax") ? 1 : 0,
   };
   const response = await fetch(`${API}/api/v1/staff/employees${id ? `/${id}` : ""}`, {
-    method: "POST", cache: "no-store", body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}) },
+    method: "POST",
+    cache: "no-store",
+    body: JSON.stringify(body),
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
+    },
   });
-  if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.detail || "Unable to save employee."); }
-  revalidatePath("/staff"); revalidatePath("/staff/manage");
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(typeof error.detail === "string" ? error.detail : "Unable to save employee.");
+  }
+  revalidatePath("/staff");
+  revalidatePath("/staff/manage");
+  redirect("/staff");
 }
 
 function Fields({ item }: { item?: any }) {
@@ -51,13 +70,18 @@ function Fields({ item }: { item?: any }) {
   </div>;
 }
 
-export default async function ManageStaffPage() {
-  const session = await currentSession(); if (!session) redirect("/login");
+export default async function ManageStaffPage({ searchParams }: { searchParams: Promise<{ employee?: string; add?: string }> }) {
+  const session = await currentSession();
+  if (!session) redirect("/login");
   if (!["owner", "payroll"].includes(session.role_key)) redirect("/staff");
+  const params = await searchParams;
+  const selectedEmployeeId = Number(params.employee || 0) || null;
+  const addOpen = params.add === "1";
   const employees = await getEmployees();
+
   return <Shell allowedRoles={["owner", "payroll"]}><div className="page">
-    <header className="page-header"><div className="grid"><span className="eyebrow">Staff</span><h1>Manage employees</h1><p className="muted">Add, edit, or deactivate employee records without removing their history.</p></div></header>
-    <details className="card"><summary><strong>Add employee</strong></summary><form action={saveEmployee.bind(null, null)} className="grid" style={{marginTop:14}}><Fields /><button className="primary-button" type="submit">Add employee</button></form></details>
-    <section className="grid">{employees.map(item => <details className="card" key={item.id}><summary><strong>{item.full_name}</strong> · {item.employee_code} · {item.status}</summary><form action={saveEmployee.bind(null, item.id)} className="grid" style={{marginTop:14}}><Fields item={item} /><button className="primary-button" type="submit">Save changes</button></form></details>)}</section>
+    <header className="page-header"><div className="grid"><span className="eyebrow">Staff</span><h1>Manage employees</h1><p className="muted">Add, edit, or deactivate employee records without removing their history.</p><div className="action-row"><Link className="button ghost" href="/staff">Back to staff directory</Link></div></div></header>
+    <details id="add-employee" className="card" open={addOpen}><summary><strong>Add employee</strong></summary><form action={saveEmployee.bind(null, null)} className="grid" style={{marginTop:14}}><Fields /><button className="primary-button" type="submit">Add employee</button></form></details>
+    <section className="grid">{employees.map(item => <details id={`employee-${item.id}`} className="card" key={item.id} open={selectedEmployeeId === item.id}><summary><strong>{item.full_name}</strong> · {item.employee_code} · {item.status}</summary><form action={saveEmployee.bind(null, item.id)} className="grid" style={{marginTop:14}}><Fields item={item} /><div className="action-row"><button className="primary-button" type="submit">Save changes</button><Link className="button ghost" href="/staff">Cancel</Link></div></form></details>)}</section>
   </div></Shell>;
 }
