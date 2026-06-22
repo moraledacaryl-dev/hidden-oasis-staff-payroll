@@ -6,7 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 
 from api.schedules import DayLeavePayload, day_bundle, employee_exists, ensure_leave_type, ensure_schema, fetch_leave, fetch_time_log, now_iso, require_schedule_editor
 from api.schedule_change_log import log_schedule_change
-from core.db import DB_PATH, fetchone, get_conn
+from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
 
@@ -35,9 +35,15 @@ def save_approved_leave(
         timestamp = now_iso()
         existing_log = fetch_time_log(conn, payload.employee_id, shift_date)
         existing_leave = fetch_leave(conn, payload.employee_id, shift_date)
+        existing_shifts = fetchall(
+            conn,
+            "SELECT * FROM scheduled_shifts WHERE employee_id=? AND date(shift_date)=date(?)",
+            (payload.employee_id, shift_date),
+        )
         before = {
             "time_log": dict(existing_log) if existing_log else None,
             "leave": dict(existing_leave) if existing_leave else None,
+            "scheduled_shifts": existing_shifts,
         }
 
         if leave_kind == "None":
@@ -52,6 +58,12 @@ def save_approved_leave(
             log_schedule_change(conn, change_type="clear_leave", entity_type="leave_request", entity_id=int(existing_leave["id"]) if existing_leave else None, employee_id=payload.employee_id, work_date=shift_date, before=before, after=after, changed_by=user.get("display_name"))
             conn.commit()
             return day_bundle(conn, shift_date, payload.employee_id) | {"message": "Leave cleared."}
+
+        # Leave is an exclusive employee-day state. It replaces any scheduled shift.
+        conn.execute(
+            "DELETE FROM scheduled_shifts WHERE employee_id=? AND date(shift_date)=date(?)",
+            (payload.employee_id, shift_date),
+        )
 
         paid = 1 if leave_kind in PAID_LEAVE_TYPES else 0
         leave_type_id = ensure_leave_type(conn, leave_kind, paid)
@@ -82,7 +94,9 @@ def save_approved_leave(
             conn.execute(
                 """
                 UPDATE time_logs
-                SET is_absent=0, absence_type=NULL, attendance_status='Approved', reviewed_by=?, reviewed_at=?,
+                SET actual_in=NULL, actual_out=NULL, is_absent=0, absence_type=NULL,
+                    detected_ot_hours=0, approved_ot_hours=0, ot_status='None',
+                    attendance_status='Approved', reviewed_by=?, reviewed_at=?,
                     notes=?, notice_given_at=?, notice_timing=?, evidence_ref=?, updated_at=?
                 WHERE id=?
                 """,
@@ -104,6 +118,7 @@ def save_approved_leave(
         after = {
             "time_log": dict(fetchone(conn, "SELECT * FROM time_logs WHERE id=?", (log_id,)) or {}),
             "leave": dict(fetchone(conn, "SELECT * FROM leave_requests WHERE id=?", (leave_id,)) or {}),
+            "scheduled_shifts": [],
         }
         log_schedule_change(conn, change_type="update_leave" if existing_leave else "create_leave", entity_type="leave_request", entity_id=leave_id, employee_id=payload.employee_id, work_date=shift_date, before=before, after=after, changed_by=user.get("display_name"))
         conn.commit()
