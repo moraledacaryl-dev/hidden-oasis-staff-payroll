@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { PrintButton } from "@/components/PrintButton";
 import { Shell } from "@/components/Shell";
 import { getPayrollRunReview, numberText, peso } from "@/lib/api";
+import type { PayrollReviewItem, PayrollRun } from "@/lib/api";
 import { currentSession } from "@/lib/session";
 import "./print.css";
 
@@ -20,6 +21,48 @@ function lineAmount(...values: Array<number | null | undefined>): number {
 
 function hasValue(value: number | null | undefined) {
   return Number(value || 0) > 0;
+}
+
+function PayslipCard({ item, run, copyLabel, companyCopy = false }: { item: PayrollReviewItem; run: PayrollRun; copyLabel: string; companyCopy?: boolean }) {
+  return (
+    <article className={`card payslip-card${companyCopy ? " company-copy" : ""}`}>
+      <div className="copy-label">{copyLabel}</div>
+      <div className="payslip-top">
+        <div><span className="eyebrow">Hidden Oasis</span><h2>Employee Payslip</h2><div className="payslip-meta"><p className="muted">Period: {run.period_start} to {run.period_end}</p><p className="muted">Payout: {run.payout_date} · Run #{run.id}</p></div></div>
+        <div className="payslip-net"><span>Net Pay</span><strong>{peso(item.net_pay)}</strong></div>
+      </div>
+      <div className="payslip-employee"><div><h3>{item.employee_name}</h3><p className="muted">Department: {item.department}</p></div></div>
+      <div className="payslip-summary">
+        <div><span>Regular hours</span><strong>{numberText(item.regular_hours)} hrs</strong></div>
+        <div><span>Overtime hours</span><strong>{hasValue(item.approved_ot_hours) ? `${numberText(item.approved_ot_hours)} hrs` : "—"}</strong></div>
+        <div><span>Night diff hours</span><strong>{hasValue(item.night_diff_hours) ? `${numberText(item.night_diff_hours)} hrs` : "—"}</strong></div>
+      </div>
+      <div className="payslip-columns">
+        <section>
+          <h3>Earnings</h3>
+          <p><span>Regular pay</span><strong>{peso(item.regular_pay)}</strong></p>
+          {hasValue(item.ot_pay) ? <p><span>Overtime pay</span><strong>{peso(item.ot_pay)}</strong></p> : null}
+          {hasValue(item.night_diff_pay) ? <p><span>Night differential</span><strong>{peso(item.night_diff_pay)}</strong></p> : null}
+          {hasValue(item.holiday_pay) ? <p><span>Holiday pay</span><strong>{peso(item.holiday_pay)}</strong></p> : null}
+          {hasValue(lineAmount(item.paid_leave_pay, item.freelance_pay, item.other_earnings)) ? <p><span>Leave / other earnings</span><strong>{peso(lineAmount(item.paid_leave_pay, item.freelance_pay, item.other_earnings))}</strong></p> : null}
+          {item.leave_summary?.length ? <div className="leave-lines"><strong>Paid leave details</strong>{item.leave_summary.map((line) => (<span key={line}>{line}</span>))}</div> : null}
+          <p className="total-line"><span>Gross pay</span><strong>{peso(item.gross_pay)}</strong></p>
+        </section>
+        <section>
+          <h3>Deductions</h3>
+          <p><span>SSS</span><strong>{peso(item.sss_ee)}</strong></p>
+          <p><span>PhilHealth</span><strong>{peso(item.philhealth_ee)}</strong></p>
+          <p><span>Pag-IBIG</span><strong>{peso(item.pagibig_ee)}</strong></p>
+          <p><span>Withholding tax</span><strong>{peso(item.tax)}</strong></p>
+          <p><span>Cash advance</span><strong>{peso(item.cash_advance_deduction)}</strong></p>
+          <p><span>Other deductions</span><strong>{peso(item.other_deductions)}</strong></p>
+          <p className="total-line"><span>Total deductions</span><strong>{peso(item.total_deductions)}</strong></p>
+        </section>
+      </div>
+      <div className="payslip-summary"><div><span>Mandatory deductions</span><strong>{peso(mandatoryDeductions(item))}</strong></div><div><span>Tax / advances / other</span><strong>{peso(taxAdvanceOther(item))}</strong></div><div><span>Net pay</span><strong>{peso(item.net_pay)}</strong></div></div>
+      <div className="payslip-signature"><span>Received by: __________________________</span><span>Date: _______________</span></div>
+    </article>
+  );
 }
 
 export default async function PayslipPreviewPage({ params }: { params: Promise<{ id: string }> }) {
@@ -73,42 +116,10 @@ export default async function PayslipPreviewPage({ params }: { params: Promise<{
         {items.length === 0 ? <section className="card"><h2>No payroll items</h2><p className="muted">This run has no saved employee payroll lines yet.</p></section> : null}
         <section className="payslip-grid">
           {items.map((item) => (
-            <article className="card payslip-card" key={item.id}>
-              <div className="payslip-top">
-                <div><span className="eyebrow">Hidden Oasis</span><h2>Employee Payslip</h2><div className="payslip-meta"><p className="muted">Period: {run.period_start} to {run.period_end}</p><p className="muted">Payout: {run.payout_date} · Run #{run.id}</p></div></div>
-                <div className="payslip-net"><span>Net Pay</span><strong>{peso(item.net_pay)}</strong></div>
-              </div>
-              <div className="payslip-employee"><div><h3>{item.employee_name}</h3><p className="muted">Department: {item.department}</p></div></div>
-              <div className="payslip-summary">
-                <div><span>Regular hours</span><strong>{numberText(item.regular_hours)} hrs</strong></div>
-                <div><span>Overtime hours</span><strong>{hasValue(item.approved_ot_hours) ? `${numberText(item.approved_ot_hours)} hrs` : "—"}</strong></div>
-                <div><span>Night diff hours</span><strong>{hasValue(item.night_diff_hours) ? `${numberText(item.night_diff_hours)} hrs` : "—"}</strong></div>
-              </div>
-              <div className="payslip-columns">
-                <section>
-                  <h3>Earnings</h3>
-                  <p><span>Regular pay</span><strong>{peso(item.regular_pay)}</strong></p>
-                  {hasValue(item.ot_pay) ? <p><span>Overtime pay</span><strong>{peso(item.ot_pay)}</strong></p> : null}
-                  {hasValue(item.night_diff_pay) ? <p><span>Night differential</span><strong>{peso(item.night_diff_pay)}</strong></p> : null}
-                  {hasValue(item.holiday_pay) ? <p><span>Holiday pay</span><strong>{peso(item.holiday_pay)}</strong></p> : null}
-                  {hasValue(lineAmount(item.paid_leave_pay, item.freelance_pay, item.other_earnings)) ? <p><span>Leave / other earnings</span><strong>{peso(lineAmount(item.paid_leave_pay, item.freelance_pay, item.other_earnings))}</strong></p> : null}
-                  {item.leave_summary?.length ? <div className="leave-lines"><strong>Paid leave details</strong>{item.leave_summary.map((line) => (<span key={line}>{line}</span>))}</div> : null}
-                  <p className="total-line"><span>Gross pay</span><strong>{peso(item.gross_pay)}</strong></p>
-                </section>
-                <section>
-                  <h3>Deductions</h3>
-                  <p><span>SSS</span><strong>{peso(item.sss_ee)}</strong></p>
-                  <p><span>PhilHealth</span><strong>{peso(item.philhealth_ee)}</strong></p>
-                  <p><span>Pag-IBIG</span><strong>{peso(item.pagibig_ee)}</strong></p>
-                  <p><span>Withholding tax</span><strong>{peso(item.tax)}</strong></p>
-                  <p><span>Cash advance</span><strong>{peso(item.cash_advance_deduction)}</strong></p>
-                  <p><span>Other deductions</span><strong>{peso(item.other_deductions)}</strong></p>
-                  <p className="total-line"><span>Total deductions</span><strong>{peso(item.total_deductions)}</strong></p>
-                </section>
-              </div>
-              <div className="payslip-summary"><div><span>Mandatory deductions</span><strong>{peso(mandatoryDeductions(item))}</strong></div><div><span>Tax / advances / other</span><strong>{peso(taxAdvanceOther(item))}</strong></div><div><span>Net pay</span><strong>{peso(item.net_pay)}</strong></div></div>
-              <div className="payslip-signature"><span>Received by: __________________________</span><span>Date: _______________</span></div>
-            </article>
+            <div className="payslip-pair" key={item.id}>
+              <PayslipCard item={item} run={run} copyLabel="Employee Copy" />
+              <PayslipCard item={item} run={run} copyLabel="Company Copy" companyCopy />
+            </div>
           ))}
         </section>
       </div>
