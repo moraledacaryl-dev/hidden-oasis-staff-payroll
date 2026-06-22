@@ -121,6 +121,38 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
     router.refresh();
   }
 
+  async function clearLeave() {
+    if (!employeeId || !hasLeave) return;
+    if (!window.confirm("Clear this leave and return the day to Add shift / Rest day / Leave choices?")) return;
+    setBusy(true);
+    setMessage("");
+    const response = await fetch("/api/schedule/day", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        section: "leave",
+        employee_id: Number(employeeId),
+        shift_date: shiftDate,
+        leave_kind: "None",
+        leave_days: 0,
+        leave_hours: null,
+        reason: null,
+        notice_given_at: null,
+        notice_timing: null,
+        evidence_ref: null,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok || !data.ok) {
+      setMessage(typeof data.detail === "string" ? data.detail : data.message || "Leave was not cleared.");
+      return;
+    }
+    setBundle(data);
+    router.refresh();
+    onClose();
+  }
+
   async function deleteShift() {
     if (!currentShift?.id) return;
     if (!window.confirm("Delete this scheduled shift? Existing saved payroll runs will not change unless you save a revision.")) return;
@@ -246,7 +278,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
             <label>Notice timing<select name="notice_timing" defaultValue={bundle.actual?.notice_timing || ""} disabled={readOnly || lockedSnapshot}><option value="">Select notice timing</option>{noticeTimings.map((timing) => <option key={timing}>{timing}</option>)}</select></label>
             <label>Evidence / reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Medical certificate, chat screenshot, approval note, etc." disabled={readOnly || lockedSnapshot} /></label>
             <label>Reason / notes<input name="reason" defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || lockedSnapshot} /></label>
-            {canEdit && !lockedSnapshot ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : hasLeave ? "Update or clear leave" : "Save leave / absence"}</button> : null}
+            {canEdit && !lockedSnapshot ? <div className="action-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : hasLeave ? "Update leave" : "Save leave / absence"}</button>{hasLeave ? <button className="button ghost" type="button" disabled={busy} onClick={clearLeave}>Clear leave</button> : null}</div> : null}
           </form>
         ) : null}
 
