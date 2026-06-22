@@ -41,19 +41,12 @@ def reset_day(
         stamp = now_iso()
 
         conn.execute(
-            "UPDATE scheduled_shifts SET status='Cleared', updated_at=? WHERE employee_id=? AND date(shift_date)=date(?)",
-            (stamp, payload.employee_id, work_date),
+            "DELETE FROM scheduled_shifts WHERE employee_id=? AND date(shift_date)=date(?)",
+            (payload.employee_id, work_date),
         )
         conn.execute(
-            """
-            UPDATE time_logs
-            SET actual_in=NULL, actual_out=NULL, is_absent=0, absence_type=NULL,
-                detected_ot_hours=0, approved_ot_hours=0, ot_status='None',
-                attendance_status='Cleared', notes=NULL, notice_given_at=NULL,
-                notice_timing=NULL, evidence_ref=NULL, updated_at=?
-            WHERE employee_id=? AND date(work_date)=date(?)
-            """,
-            (stamp, payload.employee_id, work_date),
+            "DELETE FROM time_logs WHERE employee_id=? AND date(work_date)=date(?)",
+            (payload.employee_id, work_date),
         )
         conn.execute(
             """
