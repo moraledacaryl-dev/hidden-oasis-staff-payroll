@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { MetricCard } from "@/components/MetricCard";
 import { Shell } from "@/components/Shell";
@@ -12,7 +13,8 @@ export default async function StaffPage() {
     return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div /></Shell>;
   }
   const employees = await getEmployees();
-  const showPrivate = session?.role_key === "owner" || session?.role_key === "payroll";
+  const canEdit = session.role_key === "owner" || session.role_key === "payroll";
+  const showPrivate = canEdit;
   const active = employees.filter((employee) => employee.status === "Active");
   const freelance = employees.filter((employee) => employee.employment_type === "Freelance");
   const departments = new Set(employees.map((employee) => employee.department_name || "Unassigned"));
@@ -25,8 +27,9 @@ export default async function StaffPage() {
             <span className="eyebrow">Staff</span>
             <h1>Staff directory</h1>
             <p className="muted">Current employee records.</p>
+            {canEdit ? <div className="action-row"><Link className="primary-button" href="/staff/manage">Add or edit employees</Link></div> : null}
           </div>
-          <StatusBadge label="read only" tone="warning" />
+          <StatusBadge label={canEdit ? "editable" : "view only"} tone={canEdit ? "ok" : "warning"} />
         </header>
         <section className="grid cols-3">
           <MetricCard label="Active staff" value={active.length} detail="Status = Active" />
