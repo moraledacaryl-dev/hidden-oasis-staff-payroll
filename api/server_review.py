@@ -22,6 +22,7 @@ from api.payslip_distribution import router as payslip_distribution_router
 from api.schedules import router as schedules_router
 from api.schedule_actuals import router as schedule_actuals_router
 from api.schedule_rest_days import router as schedule_rest_days_router
+from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.sil_leave import router as sil_leave_router
 from api.schedule_migration import router as schedule_migration_router
 from api.schedule_publication import router as schedule_publication_router
@@ -183,6 +184,7 @@ app.include_router(payslip_distribution_router)
 app.include_router(schedules_router)
 app.include_router(schedule_actuals_router)
 app.include_router(schedule_rest_days_router)
+app.include_router(schedule_leave_statuses_router)
 app.include_router(sil_leave_router)
 app.include_router(users_router)
 app.include_router(schedule_publication_router)
