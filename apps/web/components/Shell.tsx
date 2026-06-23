@@ -21,6 +21,29 @@ function AccessRestricted({ role, allowedRoles }: { role: RoleKey; allowedRoles:
   );
 }
 
+function AppLinks() {
+  const apps = [
+    { label: "Operations", href: process.env.NEXT_PUBLIC_OPERATIONS_APP_URL },
+    { label: "POS", href: process.env.NEXT_PUBLIC_POS_APP_URL },
+    { label: "Accounting", href: process.env.NEXT_PUBLIC_ACCOUNTING_APP_URL },
+  ].filter((item): item is { label: string; href: string } => Boolean(item.href));
+
+  if (!apps.length) return null;
+
+  return (
+    <div className="grid" style={{ gap: 6, marginBottom: 10 }}>
+      <span className="eyebrow">Other apps</span>
+      <div className="badge-row">
+        {apps.map((app) => (
+          <a className="primary-link" href={app.href} key={app.label} rel="noreferrer">
+            {app.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export async function Shell({ children, allowedRoles = ["owner"] }: { children: React.ReactNode; allowedRoles?: RoleKey[] }) {
   const session = await currentSession();
   if (!session) redirect("/login");
@@ -40,7 +63,7 @@ export async function Shell({ children, allowedRoles = ["owner"] }: { children: 
           <SidebarToggle />
         </div>
         <SidebarNav role={role} />
-        <div className={`sidebar-footer ${styles.footer}`}><LogoutButton /></div>
+        <div className={`sidebar-footer ${styles.footer}`}><AppLinks /><LogoutButton /></div>
       </aside>
       <main className="main">{allowed ? children : <AccessRestricted role={role} allowedRoles={allowedRoles} />}</main>
     </div>
