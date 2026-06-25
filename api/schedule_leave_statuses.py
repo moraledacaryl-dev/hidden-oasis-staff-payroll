@@ -4,10 +4,20 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Header, Query
 
+from api.schedule_day_reset import ResetDayPayload, reset_day
 from api.schedules import require_schedule_viewer
 from core.db import DB_PATH, fetchall, get_conn
 
 router = APIRouter(prefix="/api/v1")
+
+
+@router.post("/schedules/day/reset")
+def reset_schedule_day(
+    payload: ResetDayPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    return reset_day(payload, authorization, x_api_key)
 
 
 @router.get("/schedules/leave-statuses")
