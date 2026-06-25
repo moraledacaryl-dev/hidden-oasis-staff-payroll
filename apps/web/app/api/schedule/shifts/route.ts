@@ -64,6 +64,9 @@ export async function POST(request: Request) {
   } else if (body.operation === "confirm_swap") {
     target = `/api/v1/me/shift-change-requests/${Number(body.request_id)}/confirm-swap`;
     payload = {};
+  } else if (body.operation === "acknowledge_schedule") {
+    target = `/api/v1/schedules/week/${String(body.week_start)}/acknowledge`;
+    payload = { notes: body.notes || null };
   } else if (body.operation === "review_requests") {
     target = "/api/v1/schedule/change-requests";
     method = "GET";
