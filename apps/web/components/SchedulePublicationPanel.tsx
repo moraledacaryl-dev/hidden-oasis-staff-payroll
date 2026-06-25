@@ -106,3 +106,5 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
     </section>
   );
 }
+
+export const SchedulePublishControl = SchedulePublicationPanel;
