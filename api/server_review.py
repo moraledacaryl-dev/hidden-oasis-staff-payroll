@@ -40,6 +40,12 @@ from api.payroll_recalculate import router as payroll_recalculate_router
 from core.db import DB_PATH, fetchone, get_conn
 
 
+class CreateAppUserPayload(BaseModel):
+    display_name: str = Field(..., min_length=2, max_length=120)
+    role: str = Field(default="Staff", min_length=2, max_length=40)
+    employee_id: int | None = None
+
+
 class EmployeeEditorPayload(BaseModel):
     employee_code: str = Field(..., min_length=1)
     full_name: str = Field(..., min_length=1)
@@ -55,6 +61,14 @@ class EmployeeEditorPayload(BaseModel):
     benefits_philhealth: int = 0
     benefits_pagibig: int = 0
     benefits_tax: int = 0
+
+
+def _owner_user(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    require_api_key(x_api_key)
+    user = current_user_from_token(authorization)
+    if user.get("role_key") != "owner":
+        raise HTTPException(status_code=403, detail="Owner access required.")
+    return user
 
 
 def _employee_editor_user(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
@@ -116,6 +130,48 @@ def _employee_values(conn: Any, payload: EmployeeEditorPayload) -> dict[str, Any
 @app.on_event("startup")
 def validate_runtime() -> None:
     validate_runtime_environment()
+
+
+@app.post("/api/v1/users")
+def create_app_user(
+    payload: CreateAppUserPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    _owner_user(authorization, x_api_key)
+    display_name = _clean(payload.display_name) or ""
+    roles = {"owner": "Owner", "payroll": "Payroll", "supervisor": "Supervisor", "staff": "Staff"}
+    role = roles.get(str(payload.role or "").strip().lower())
+    if not role:
+        raise HTTPException(status_code=422, detail="Role must be Owner, Payroll, Supervisor, or Staff.")
+    conn = get_conn(DB_PATH)
+    try:
+        user_columns = table_columns(conn, "app_users")
+        if "employee_id" not in user_columns:
+            conn.execute("ALTER TABLE app_users ADD COLUMN employee_id INTEGER")
+            conn.commit()
+        if fetchone(conn, "SELECT id FROM app_users WHERE lower(display_name)=lower(?)", (display_name,)):
+            raise HTTPException(status_code=409, detail="A user with that login name already exists.")
+        if payload.employee_id is not None:
+            if not fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,)):
+                raise HTTPException(status_code=404, detail="Employee not found.")
+            if fetchone(conn, "SELECT id FROM app_users WHERE employee_id=?", (payload.employee_id,)):
+                raise HTTPException(status_code=409, detail="That employee is already linked to another user.")
+        created_at = datetime.now().replace(microsecond=0).isoformat(sep=" ")
+        cursor = conn.execute(
+            """
+            INSERT INTO app_users(display_name, role, password_hash, active, must_change_password, created_at, employee_id)
+            VALUES (?, ?, NULL, 0, 1, ?, ?)
+            """,
+            (display_name, role, created_at, payload.employee_id),
+        )
+        conn.commit()
+        return {"ok": True, "user_id": int(cursor.lastrowid), "message": "User created."}
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 @app.post("/api/v1/staff/employees")

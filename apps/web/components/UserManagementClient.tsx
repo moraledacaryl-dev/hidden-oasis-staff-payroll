@@ -10,6 +10,27 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
   const [message, setMessage] = useState("");
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [role, setRole] = useState("Staff");
+  const [employeeId, setEmployeeId] = useState("");
+
+  async function createUser() {
+    if (!displayName.trim()) { setMessage("Enter a login name."); return; }
+    setCreating(true); setMessage(""); setTemporaryPassword("");
+    const createResponse = await fetch("/api/settings/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ display_name: displayName.trim(), role, employee_id: employeeId ? Number(employeeId) : null }) });
+    const created = await createResponse.json().catch(() => ({}));
+    if (!createResponse.ok || !created.ok || !created.user_id) { setCreating(false); setMessage(typeof created.detail === "string" ? created.detail : created.message || "User creation failed."); return; }
+    const userId = Number(created.user_id);
+    const resetResponse = await fetch(`/api/settings/users/${userId}/reset-password`, { method: "POST" });
+    const reset = await resetResponse.json().catch(() => ({}));
+    if (!resetResponse.ok || !reset.ok) { setCreating(false); setMessage(typeof reset.detail === "string" ? reset.detail : reset.message || "User was created, but password generation failed."); router.refresh(); return; }
+    const activeResponse = await fetch(`/api/settings/users/${userId}/active`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: true }) });
+    const activated = await activeResponse.json().catch(() => ({}));
+    setCreating(false); setTemporaryPassword(reset.temporary_password || "");
+    if (!activeResponse.ok || !activated.ok) { setMessage("User and temporary password were created, but the account is still inactive."); router.refresh(); return; }
+    setMessage("User created and activated. Copy the temporary password now."); setDisplayName(""); setEmployeeId(""); setRole("Staff"); router.refresh();
+  }
 
   async function resetPassword(userId: number) {
     setBusy(userId);
@@ -65,6 +86,15 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
 
   return (
     <div className="grid">
+      <section className="card soft">
+        <div className="panel-title"><div><span className="eyebrow">Owner only</span><h2>Create user</h2><p className="muted">The login name is what the user enters on the sign-in screen.</p></div></div>
+        <div className="form-grid">
+          <label><span>Login name</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Employee login name" /></label>
+          <label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value)}><option value="Staff">Staff</option><option value="Supervisor">Supervisor</option><option value="Payroll">Payroll</option><option value="Owner">Owner</option></select></label>
+          <label><span>Employee</span><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Not linked</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
+        </div>
+        <div className="action-row"><button className="button" type="button" disabled={creating} onClick={createUser}>{creating ? "Creating…" : "Create user"}</button></div>
+      </section>
       {temporaryPassword ? (
         <section className="card soft">
           <span className="eyebrow">Show once</span>
