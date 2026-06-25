@@ -56,6 +56,13 @@ export async function POST(request: Request) {
   } else if (body.operation === "acknowledge_schedule") {
     path = `/api/v1/me/schedules/week/${String(body.week_start)}/acknowledge`;
     payload = { notes: body.notes || null };
+  } else if (body.operation === "get_schedule_publication") {
+    path = `/api/v1/schedules/week/${String(body.week_start)}/publication`;
+    method = "GET";
+    payload = null;
+  } else if (body.operation === "publish_schedule") {
+    path = `/api/v1/schedules/week/${String(body.week_start)}/publish`;
+    payload = { notes: body.notes || null };
   } else if (body.operation === "review_requests") {
     path = "/api/v1/schedule/change-requests";
     method = "GET";
