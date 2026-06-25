@@ -63,7 +63,10 @@ async function clearRestDay(employeeId: number, workDate: string) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day?${url.searchParams.toString()}`, {
+  const target = url.searchParams.get("self_service") === "1"
+    ? `${apiBaseUrl()}/api/v1/me/self-service`
+    : `${apiBaseUrl()}/api/v1/schedules/day?${url.searchParams.toString()}`;
+  const response = await fetch(target, {
     headers: await apiHeaders(),
     cache: "no-store",
   });
