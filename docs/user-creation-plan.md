@@ -1,0 +1,1 @@
+Owner-only user creation should link an application user to an employee record, assign one of the existing application roles, start inactive by default, and require the existing reset-password flow before first login.
