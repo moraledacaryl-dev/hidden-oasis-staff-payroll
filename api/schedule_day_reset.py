@@ -18,6 +18,26 @@ class ResetDayPayload(BaseModel):
     work_date: date
 
 
+def ensure_marker_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schedule_day_markers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            work_date TEXT NOT NULL,
+            marker_type TEXT NOT NULL DEFAULT 'Rest Day',
+            notes TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            updated_by TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(employee_id, work_date, marker_type)
+        )
+        """
+    )
+    conn.commit()
+
+
 @router.post("/schedules/day/reset")
 def reset_day(
     payload: ResetDayPayload,
@@ -29,6 +49,7 @@ def reset_day(
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
+        ensure_marker_schema(conn)
         if not employee_exists(conn, payload.employee_id):
             raise HTTPException(status_code=404, detail="Employee not found.")
 
@@ -80,6 +101,9 @@ def reset_day(
         conn.commit()
         return {"ok": True, "message": "Day cleared. Choose Add shift, Rest day, or Leave again."}
     except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
         conn.rollback()
         raise
     finally:
