@@ -27,6 +27,7 @@ from api.sil_leave import router as sil_leave_router
 from api.schedule_migration import router as schedule_migration_router
 from api.schedule_publication import router as schedule_publication_router
 from api.users import router as users_router
+from api.staff_self_service import router as staff_self_service_router
 from core.runtime_guard import validate_runtime_environment
 from api.attendance_compliance import router as attendance_compliance_router
 from api.cash_advances_v4 import router as cash_advances_router
@@ -188,6 +189,7 @@ app.include_router(schedule_leave_statuses_router)
 app.include_router(sil_leave_router)
 app.include_router(users_router)
 app.include_router(schedule_publication_router)
+app.include_router(staff_self_service_router)
 app.include_router(attendance_compliance_router)
 app.include_router(cash_advances_router)
 app.include_router(cash_repayments_router)
