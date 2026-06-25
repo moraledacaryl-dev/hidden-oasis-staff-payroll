@@ -8,12 +8,12 @@
     visibility: hidden !important;
   }
 
-  .staff-selected-payslip,
-  .staff-selected-payslip * {
+  .staff-payslip-list,
+  .staff-payslip-list * {
     visibility: visible !important;
   }
 
-  .staff-selected-payslip {
+  .staff-payslip-list {
     position: absolute !important;
     inset: 0 auto auto 0 !important;
     width: 100% !important;
@@ -22,7 +22,7 @@
     border: 1px solid #777 !important;
   }
 
-  .staff-selected-payslip .print-actions {
+  .staff-payslip-list .print-actions {
     display: none !important;
   }
 }
