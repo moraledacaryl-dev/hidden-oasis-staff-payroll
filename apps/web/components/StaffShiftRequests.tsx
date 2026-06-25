@@ -4,9 +4,10 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { shiftRequestTypes } from "@/app/me/shift-request-types";
 
-export type StaffShift = { id: number; shift_date: string; start_time: string; end_time: string; position?: string; department?: string; status?: string; notes?: string };
+export type StaffShift = { id: number; shift_date: string; start_time: string; end_time: string; position?: string; department?: string; status?: string; notes?: string; week_start?: string };
 export type StaffCoworker = { id: number; full_name: string; department?: string };
 export type StaffShiftRequest = { id: number; request_no: string; employee_id: number; request_type: string; original_date: string; original_start_time: string; original_end_time: string; requested_date?: string | null; requested_start_time?: string | null; requested_end_time?: string | null; reason: string; proposed_swap_employee_id?: number | null; swap_employee_name?: string | null; status: string; submitted_at: string; decision_note?: string | null; attachment_path?: string | null };
+export type StaffSchedulePublication = { week_start: string; published_at?: string | null; published_by?: string | null; notes?: string | null; acknowledged: boolean; acknowledged_at?: string | null };
 
 async function post(body: Record<string, unknown>) {
   const response = await fetch("/api/schedule/shifts", {
@@ -28,7 +29,7 @@ async function uploadAttachment(requestId: number, file: File) {
   if (!response.ok) throw new Error(data.detail || data.message || "Attachment upload failed.");
 }
 
-export function StaffShiftRequests({ employeeId, schedule, requests, coworkers }: { employeeId: number; schedule: StaffShift[]; requests: StaffShiftRequest[]; coworkers: StaffCoworker[] }) {
+export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, publications }: { employeeId: number; schedule: StaffShift[]; requests: StaffShiftRequest[]; coworkers: StaffCoworker[]; publications: StaffSchedulePublication[] }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -76,10 +77,25 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers }
     }
   }
 
+  async function acknowledge(weekStart: string) {
+    setBusy(true);
+    setMessage("");
+    try {
+      await post({ operation: "acknowledge_schedule", week_start: weekStart });
+      setMessage(`Schedule for week of ${weekStart} acknowledged.`);
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Acknowledgement failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <section className="card staff-schedule-print">
         <div className="panel-title"><div><h2>My schedule</h2><p className="muted">Only published shifts linked to your employee account are shown.</p></div><button className="button secondary print-actions" type="button" onClick={() => window.print()}>Print / Save PDF</button></div>
+        {publications.length ? <div className="badge-row print-actions">{publications.map((publication) => publication.acknowledged ? <span className="badge" key={publication.week_start}>Week of {publication.week_start} acknowledged{publication.acknowledged_at ? ` · ${publication.acknowledged_at}` : ""}</span> : <button className="button small" disabled={busy} key={publication.week_start} type="button" onClick={() => acknowledge(publication.week_start)}>Acknowledge week of {publication.week_start}</button>)}</div> : null}
         <div className="table-wrap"><table><thead><tr><th>Date</th><th>Time</th><th>Position</th><th>Department</th><th>Status</th><th>Notes</th></tr></thead><tbody>
           {schedule.map((shift) => <tr key={shift.id}><td>{shift.shift_date}</td><td><strong>{shift.start_time}–{shift.end_time}</strong></td><td>{shift.position || "—"}</td><td>{shift.department || "—"}</td><td>{shift.status || "—"}</td><td>{shift.notes || "—"}</td></tr>)}
           {!schedule.length ? <tr><td colSpan={6}>No published schedule available.</td></tr> : null}
