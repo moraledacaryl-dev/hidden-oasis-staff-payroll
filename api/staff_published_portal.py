@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header
 
 from api.hr_records import ensure_schema as ensure_hr_schema
 from api.main import current_user_from_token
-from api.schedule_publication import publication_for_date, week_start_for_date
+from api.schedule_publication import ensure_schema as ensure_publication_schema
 from api.staff_schedule_ack import router as staff_schedule_ack_router
 from api.staff_self_service import my_self_service
 from core.db import DB_PATH, fetchall, fetchone, get_conn
@@ -25,31 +25,65 @@ def published_self_service(
     conn = get_conn(DB_PATH)
     try:
         ensure_hr_schema(conn)
+        ensure_publication_schema(conn)
         employee = data.get("employee") or {}
         employee_id = int(employee.get("id") or 0)
         department = str(employee.get("department") or "").strip().lower()
-        schedule: list[dict[str, Any]] = []
-        publications: dict[str, dict[str, Any]] = {}
 
-        for shift in data.get("schedule", []):
-            publication = publication_for_date(conn, str(shift.get("shift_date")))
-            if not publication:
-                continue
-            week_start = week_start_for_date(str(shift.get("shift_date")))
+        schedule = fetchall(
+            conn,
+            """
+            SELECT s.source_shift_id AS id,
+                   s.source_shift_id,
+                   s.employee_id,
+                   s.shift_date,
+                   s.start_time,
+                   s.end_time,
+                   s.position,
+                   s.department,
+                   s.break_minutes,
+                   s.status,
+                   s.notes,
+                   s.source,
+                   s.week_start,
+                   p.published_at,
+                   p.published_by,
+                   p.notes AS publication_notes
+            FROM schedule_publication_shifts s
+            JOIN schedule_publications p
+              ON p.week_start=s.week_start AND p.status='Published'
+            WHERE s.employee_id=?
+            ORDER BY date(s.shift_date), s.start_time, s.id
+            """,
+            (employee_id,),
+        ) if employee_id else []
+
+        publication_rows = fetchall(
+            conn,
+            """
+            SELECT DISTINCT p.week_start, p.published_at, p.published_by, p.notes
+            FROM schedule_publications p
+            JOIN schedule_publication_shifts s ON s.week_start=p.week_start
+            WHERE p.status='Published' AND s.employee_id=?
+            ORDER BY p.week_start
+            """,
+            (employee_id,),
+        ) if employee_id else []
+
+        publications: list[dict[str, Any]] = []
+        for publication in publication_rows:
             ack = fetchone(
                 conn,
                 "SELECT acknowledged_at FROM schedule_acknowledgements WHERE week_start=? AND employee_id=?",
-                (week_start, employee_id),
-            ) if employee_id else None
-            publications[week_start] = {
-                "week_start": week_start,
-                "published_at": publication.get("published_at"),
-                "published_by": publication.get("published_by"),
-                "notes": publication.get("notes"),
-                "acknowledged": bool(ack),
-                "acknowledged_at": ack.get("acknowledged_at") if ack else None,
-            }
-            schedule.append({**shift, "week_start": week_start})
+                (publication.get("week_start"), employee_id),
+            )
+            publications.append(
+                {
+                    **publication,
+                    "acknowledged": bool(ack),
+                    "acknowledged_at": ack.get("acknowledged_at") if ack else None,
+                }
+            )
 
         year = date.today().year
         leave = fetchall(
@@ -72,7 +106,7 @@ def published_self_service(
         ) if employee_id else []
 
         data["schedule"] = schedule
-        data["publications"] = list(publications.values())
+        data["publications"] = publications
         data["coworkers"] = [c for c in data.get("coworkers", []) if str(c.get("department") or "").strip().lower() == department]
         data["leave_balances"] = leave_balances
         data["hr_records"] = hr_records
