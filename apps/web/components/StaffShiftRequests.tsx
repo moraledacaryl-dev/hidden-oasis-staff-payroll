@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { shiftRequestTypes } from "@/app/me/shift-request-types";
 
@@ -29,10 +29,45 @@ async function uploadAttachment(requestId: number, file: File) {
   if (!response.ok) throw new Error(data.detail || data.message || "Attachment upload failed.");
 }
 
+function todayIso() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function sortAscending(a: StaffShift, b: StaffShift) {
+  return `${a.shift_date} ${a.start_time}`.localeCompare(`${b.shift_date} ${b.start_time}`);
+}
+
+function ScheduleTable({ items, emptyText }: { items: StaffShift[]; emptyText: string }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead><tr><th>Date</th><th>Time</th><th>Position</th><th>Department</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody>
+          {items.map((shift) => <tr key={`${shift.id}-${shift.shift_date}-${shift.start_time}`}><td>{shift.shift_date}</td><td><strong>{shift.start_time}–{shift.end_time}</strong></td><td>{shift.position || "—"}</td><td>{shift.department || "—"}</td><td>{shift.status || "—"}</td><td>{shift.notes || "—"}</td></tr>)}
+          {!items.length ? <tr><td colSpan={6}>{emptyText}</td></tr> : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, publications }: { employeeId: number; schedule: StaffShift[]; requests: StaffShiftRequest[]; coworkers: StaffCoworker[]; publications: StaffSchedulePublication[] }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const { upcomingSchedule, previousSchedule } = useMemo(() => {
+    const today = todayIso();
+    const ordered = [...schedule].sort(sortAscending);
+    return {
+      upcomingSchedule: ordered.filter((shift) => shift.shift_date >= today),
+      previousSchedule: ordered.filter((shift) => shift.shift_date < today).reverse(),
+    };
+  }, [schedule]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,17 +131,25 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
       <section className="card staff-schedule-print">
         <div className="panel-title"><div><h2>My schedule</h2><p className="muted">Only published shifts linked to your employee account are shown.</p></div><button className="button secondary print-actions" type="button" onClick={() => window.print()}>Print / Save PDF</button></div>
         {publications.length ? <div className="badge-row print-actions">{publications.map((publication) => publication.acknowledged ? <span className="badge" key={publication.week_start}>Week of {publication.week_start} acknowledged{publication.acknowledged_at ? ` · ${publication.acknowledged_at}` : ""}</span> : <button className="button small" disabled={busy} key={publication.week_start} type="button" onClick={() => acknowledge(publication.week_start)}>Acknowledge week of {publication.week_start}</button>)}</div> : null}
-        <div className="table-wrap"><table><thead><tr><th>Date</th><th>Time</th><th>Position</th><th>Department</th><th>Status</th><th>Notes</th></tr></thead><tbody>
-          {schedule.map((shift) => <tr key={shift.id}><td>{shift.shift_date}</td><td><strong>{shift.start_time}–{shift.end_time}</strong></td><td>{shift.position || "—"}</td><td>{shift.department || "—"}</td><td>{shift.status || "—"}</td><td>{shift.notes || "—"}</td></tr>)}
-          {!schedule.length ? <tr><td colSpan={6}>No published schedule available.</td></tr> : null}
-        </tbody></table></div>
+
+        <div className="panel-title"><div><h3>Upcoming</h3><p className="muted">Today and future published shifts.</p></div><span className="badge">{upcomingSchedule.length}</span></div>
+        <ScheduleTable items={upcomingSchedule} emptyText="No upcoming published shifts." />
+
+        <details className="print-actions" style={{ marginTop: "1rem" }}>
+          <summary><strong>Previous schedules</strong> <span className="muted">({previousSchedule.length})</span></summary>
+          <div style={{ marginTop: "0.75rem" }}><ScheduleTable items={previousSchedule} emptyText="No previous published shifts." /></div>
+        </details>
+        <div className="print-only" style={{ marginTop: "1rem" }}>
+          <div className="panel-title"><div><h3>Previous schedules</h3></div></div>
+          <ScheduleTable items={previousSchedule} emptyText="No previous published shifts." />
+        </div>
       </section>
 
       <section className="card">
         <div className="panel-title"><div><h2>Request a shift change</h2><p className="muted">Online submission is the official record. The original request stays in history.</p></div></div>
         {message ? <p><strong>{message}</strong></p> : null}
         <form onSubmit={submit} className="grid cols-2">
-          <label className="field">Affected shift<select name="shift_id" required defaultValue=""><option value="" disabled>Select your shift</option>{schedule.map((shift) => <option key={shift.id} value={shift.id}>{shift.shift_date} · {shift.start_time}–{shift.end_time}</option>)}</select></label>
+          <label className="field">Affected shift<select name="shift_id" required defaultValue=""><option value="" disabled>Select your upcoming shift</option>{upcomingSchedule.map((shift) => <option key={shift.id} value={shift.id}>{shift.shift_date} · {shift.start_time}–{shift.end_time}</option>)}</select></label>
           <label className="field">Request type<select name="request_type" required defaultValue={shiftRequestTypes[0]}>{shiftRequestTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
           <label className="field">Requested date<input type="date" name="requested_date" /></label>
           <div className="grid cols-2"><label className="field">New start<input type="time" name="requested_start_time" /></label><label className="field">New end<input type="time" name="requested_end_time" /></label></div>
@@ -115,7 +158,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
           <label className="field" style={{ gridColumn: "1 / -1" }}>Reason<textarea name="reason" rows={4} required minLength={3} /></label>
           <label className="field"><span><input type="checkbox" name="emergency" /> Emergency review priority</span></label>
           <label className="field"><span><input type="checkbox" name="accuracy_confirmed" required /> I confirm that this information is accurate.</span></label>
-          <div><button className="button" type="submit" disabled={busy}>{busy ? "Saving…" : "Submit request"}</button></div>
+          <div><button className="button" type="submit" disabled={busy || !upcomingSchedule.length}>{busy ? "Saving…" : "Submit request"}</button></div>
         </form>
       </section>
 
