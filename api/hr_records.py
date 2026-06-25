@@ -65,6 +65,15 @@ def require_payroll_editor(authorization: str | None, x_api_key: str | None) -> 
     return user
 
 
+def staff_employee_id(user: dict[str, Any]) -> int | None:
+    if user.get("role_key") != "staff":
+        return None
+    employee_id = int(user.get("employee_id") or 0)
+    if not employee_id:
+        raise HTTPException(status_code=403, detail="Staff account is not linked to an employee record.")
+    return employee_id
+
+
 def ensure_schema(conn) -> None:
     conn.execute(
         """
@@ -177,9 +186,10 @@ def leave_balances(
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
+        staff_id = staff_employee_id(user)
         employees = fetchall(conn, "SELECT id, full_name, employee_code, department, position FROM employees ORDER BY full_name")
-        if user.get("role_key") == "staff" and user.get("employee_id"):
-            employees = [e for e in employees if int(e["id"]) == int(user["employee_id"])]
+        if staff_id is not None:
+            employees = [e for e in employees if int(e["id"]) == staff_id]
         types = fetchall(conn, "SELECT id, name, default_credits, paid, active FROM leave_types WHERE active=1 ORDER BY name")
         entitlements = fetchall(
             conn,
@@ -250,9 +260,10 @@ def hr_records(
         ensure_schema(conn)
         filters: list[str] = []
         params: list[Any] = []
-        if user.get("role_key") == "staff" and user.get("employee_id"):
+        staff_id = staff_employee_id(user)
+        if staff_id is not None:
             filters.append("hr.employee_id=?")
-            params.append(user["employee_id"])
+            params.append(staff_id)
         elif employee_id:
             filters.append("hr.employee_id=?")
             params.append(employee_id)
