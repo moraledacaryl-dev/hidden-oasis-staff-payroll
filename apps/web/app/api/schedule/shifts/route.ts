@@ -20,7 +20,7 @@ async function authHeaders(includeJson = true) {
 export async function GET() {
   const headers = await authHeaders(false);
   if (!headers) return NextResponse.json({ ok: false, message: "Not signed in." }, { status: 401 });
-  const response = await fetch(`${apiBaseUrl()}/api/v1/me/self-service`, { headers, cache: "no-store" });
+  const response = await fetch(`${apiBaseUrl()}/api/v1/me/published-self-service`, { headers, cache: "no-store" });
   const data = await response.json().catch(() => ({}));
   return NextResponse.json(data, { status: response.status });
 }
