@@ -12,28 +12,40 @@ export async function POST(request: Request) {
   const body = await request.json();
   let target = "/api/v1/schedules/shifts";
   let payload = body;
+  let method = "POST";
   if (body.operation === "staff_request") {
     target = "/api/v1/me/shift-change-requests";
     const { operation, ...rest } = body;
     payload = rest;
-  }
-  if (body.operation === "withdraw_request") {
+  } else if (body.operation === "withdraw_request") {
     target = `/api/v1/me/shift-change-requests/${Number(body.request_id)}/withdraw`;
     payload = {};
-  }
-  if (body.operation === "confirm_swap") {
+  } else if (body.operation === "confirm_swap") {
     target = `/api/v1/me/shift-change-requests/${Number(body.request_id)}/confirm-swap`;
     payload = {};
+  } else if (body.operation === "review_requests") {
+    target = "/api/v1/schedule/change-requests";
+    method = "GET";
+    payload = null;
+  } else if (body.operation === "decide_request") {
+    target = `/api/v1/schedule/change-requests/${Number(body.request_id)}/decision`;
+    payload = {
+      decision: body.decision,
+      decision_note: body.decision_note || null,
+      employee_notified: Boolean(body.employee_notified),
+      coverage_confirmed: Boolean(body.coverage_confirmed),
+      apply_change: body.apply_change !== false,
+    };
   }
   const authHeader = "Author" + "ization";
   const response = await fetch(`${apiBaseUrl()}${target}`, {
-    method: "POST",
+    method,
     headers: {
       [authHeader]: `Bearer ${token}`,
       "Content-Type": "application/json",
       ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
     },
-    body: JSON.stringify(payload),
+    ...(method === "GET" ? {} : { body: JSON.stringify(payload) }),
     cache: "no-store",
   });
   const data = await response.json().catch(() => ({}));
