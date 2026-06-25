@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
+import { StaffSelfServicePanel } from "@/components/StaffSelfServicePanel";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
 import { currentSession } from "@/lib/session";
 import { apiBaseUrl, numberText, peso } from "@/lib/api";
@@ -74,8 +75,10 @@ export default async function MyPortalPage() {
           <div className="card"><strong>Password</strong><p className="muted">Use Settings → Password.</p></div>
         </section>
 
+        <StaffSelfServicePanel />
+
         <section className="card">
-          <div className="panel-title"><div><h2>My payslips</h2><p className="muted">Approved or paid payroll only.</p></div></div>
+          <div className="panel-title"><div><h2>My payslips</h2><p className="muted">Approved or paid payroll only. Print this page to save a PDF copy.</p></div></div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Period</th><th>Payout</th><th>Status</th><th>Hours</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead>
