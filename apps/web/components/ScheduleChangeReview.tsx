@@ -25,6 +25,7 @@ type Item = {
   decision_note?: string | null;
   employee_notified?: number;
   coverage_confirmed?: number;
+  attachment_path?: string | null;
 };
 
 async function post(body: Record<string, unknown>) {
@@ -84,6 +85,7 @@ export function ScheduleChangeReview() {
       {error ? <section className="card"><strong>Could not complete action</strong><p className="muted">{error}</p></section> : null}
       {items.map((item) => {
         const pending = ["Pending", "Emergency Review"].includes(item.status);
+        const isSwap = item.request_type.trim().toLowerCase() === "shift swap";
         return (
           <article className="card shift-request-print" key={item.id}>
             <div className="panel-title">
@@ -96,13 +98,15 @@ export function ScheduleChangeReview() {
               <div><strong>Request type</strong><p>{item.request_type}{item.swap_employee_name ? <><br />Swap with {item.swap_employee_name}</> : null}</p></div>
             </div>
             <div><strong>Reason</strong><p>{item.reason}</p></div>
+            {item.attachment_path ? <p className="muted">Supporting document is attached to this request.</p> : null}
+            {isSwap ? <p className="muted"><strong>Swap control:</strong> Approving records management consent only. Update both employees’ shifts on the Schedule board so neither shift is changed only halfway.</p> : null}
             {item.decision_note ? <div><strong>Decision note</strong><p>{item.decision_note}</p></div> : null}
             {pending ? (
               <form className="grid cols-2" onSubmit={(event) => event.preventDefault()}>
                 <label className="field" style={{ gridColumn: "1 / -1" }}>Decision note<textarea name="decision_note" rows={3} /></label>
                 <label><input type="checkbox" name="coverage_confirmed" /> Coverage confirmed</label>
                 <label><input type="checkbox" name="employee_notified" /> Employee notified</label>
-                <label><input type="checkbox" name="apply_change" defaultChecked /> Apply approved change to official schedule</label>
+                {isSwap ? <input type="hidden" name="apply_change" value="off" /> : <label><input type="checkbox" name="apply_change" defaultChecked /> Apply approved change to official schedule</label>}
                 <div className="badge-row">
                   <button className="button" type="button" disabled={busy === item.id} onClick={(event) => decide(item.id, "Approved", event.currentTarget.form!)}>Approve</button>
                   <button className="button secondary" type="button" disabled={busy === item.id} onClick={(event) => decide(item.id, "Rejected", event.currentTarget.form!)}>Reject</button>
