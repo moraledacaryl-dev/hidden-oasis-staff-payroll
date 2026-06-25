@@ -16,8 +16,44 @@
   }
 
   .payslip-page .payslip-grid,
-  .payslip-page .payslip-grid * {
+  .payslip-page .payslip-grid *,
+  .staff-payslip-print,
+  .staff-payslip-print *,
+  .staff-schedule-print,
+  .staff-schedule-print * {
     visibility: visible !important;
+  }
+
+  .staff-payslip-print,
+  .staff-schedule-print {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+
+  .staff-payslip-print {
+    min-height: 175mm !important;
+    padding: 10mm !important;
+    border: 1px solid #777 !important;
+  }
+
+  .staff-schedule-print {
+    padding: 5mm !important;
+    border: 0 !important;
+  }
+
+  .staff-schedule-print .print-actions {
+    display: none !important;
+  }
+
+  .staff-schedule-print table {
+    width: 100% !important;
+    font-size: 9px !important;
   }
 
   .payslip-page .payslip-grid {
