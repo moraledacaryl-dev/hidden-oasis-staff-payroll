@@ -6,7 +6,7 @@ import { shiftRequestTypes } from "@/app/me/shift-request-types";
 
 export type StaffShift = { id: number; shift_date: string; start_time: string; end_time: string; position?: string; department?: string; status?: string; notes?: string };
 export type StaffCoworker = { id: number; full_name: string; department?: string };
-export type StaffShiftRequest = { id: number; request_no: string; employee_id: number; request_type: string; original_date: string; original_start_time: string; original_end_time: string; requested_date?: string | null; requested_start_time?: string | null; requested_end_time?: string | null; reason: string; proposed_swap_employee_id?: number | null; swap_employee_name?: string | null; status: string; submitted_at: string; decision_note?: string | null };
+export type StaffShiftRequest = { id: number; request_no: string; employee_id: number; request_type: string; original_date: string; original_start_time: string; original_end_time: string; requested_date?: string | null; requested_start_time?: string | null; requested_end_time?: string | null; reason: string; proposed_swap_employee_id?: number | null; swap_employee_name?: string | null; status: string; submitted_at: string; decision_note?: string | null; attachment_path?: string | null };
 
 async function post(body: Record<string, unknown>) {
   const response = await fetch("/api/schedule/shifts", {
@@ -17,6 +17,15 @@ async function post(body: Record<string, unknown>) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.detail || data.message || "Request failed.");
   return data;
+}
+
+async function uploadAttachment(requestId: number, file: File) {
+  const form = new FormData();
+  form.set("request_id", String(requestId));
+  form.set("file", file);
+  const response = await fetch("/api/schedule/shifts", { method: "POST", body: form });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || data.message || "Attachment upload failed.");
 }
 
 export function StaffShiftRequests({ employeeId, schedule, requests, coworkers }: { employeeId: number; schedule: StaffShift[]; requests: StaffShiftRequest[]; coworkers: StaffCoworker[] }) {
@@ -42,6 +51,8 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers }
         emergency: form.get("emergency") === "on",
         accuracy_confirmed: form.get("accuracy_confirmed") === "on",
       });
+      const file = form.get("attachment");
+      if (file instanceof File && file.size > 0) await uploadAttachment(Number(data.request_id), file);
       setMessage(`Request ${data.request_no} submitted.`);
       event.currentTarget.reset();
       router.refresh();
@@ -67,11 +78,11 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers }
 
   return (
     <>
-      <section className="card">
-        <div className="panel-title"><div><h2>My schedule</h2><p className="muted">Only shifts linked to your employee account are shown.</p></div></div>
+      <section className="card staff-schedule-print">
+        <div className="panel-title"><div><h2>My schedule</h2><p className="muted">Only published shifts linked to your employee account are shown.</p></div><button className="button secondary print-actions" type="button" onClick={() => window.print()}>Print / Save PDF</button></div>
         <div className="table-wrap"><table><thead><tr><th>Date</th><th>Time</th><th>Position</th><th>Department</th><th>Status</th><th>Notes</th></tr></thead><tbody>
           {schedule.map((shift) => <tr key={shift.id}><td>{shift.shift_date}</td><td><strong>{shift.start_time}–{shift.end_time}</strong></td><td>{shift.position || "—"}</td><td>{shift.department || "—"}</td><td>{shift.status || "—"}</td><td>{shift.notes || "—"}</td></tr>)}
-          {!schedule.length ? <tr><td colSpan={6}>No schedule available.</td></tr> : null}
+          {!schedule.length ? <tr><td colSpan={6}>No published schedule available.</td></tr> : null}
         </tbody></table></div>
       </section>
 
@@ -84,6 +95,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers }
           <label className="field">Requested date<input type="date" name="requested_date" /></label>
           <div className="grid cols-2"><label className="field">New start<input type="time" name="requested_start_time" /></label><label className="field">New end<input type="time" name="requested_end_time" /></label></div>
           <label className="field">Proposed swap employee<select name="proposed_swap_employee_id" defaultValue=""><option value="">Not a swap</option>{coworkers.map((person) => <option key={person.id} value={person.id}>{person.full_name} · {person.department || "Unassigned"}</option>)}</select></label>
+          <label className="field">Supporting document<input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /><span className="muted">Optional. PDF, image, DOC, or DOCX up to 10 MB.</span></label>
           <label className="field" style={{ gridColumn: "1 / -1" }}>Reason<textarea name="reason" rows={4} required minLength={3} /></label>
           <label className="field"><span><input type="checkbox" name="emergency" /> Emergency review priority</span></label>
           <label className="field"><span><input type="checkbox" name="accuracy_confirmed" required /> I confirm that this information is accurate.</span></label>
@@ -97,7 +109,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers }
           {requests.map((item) => {
             const waitingForMe = item.proposed_swap_employee_id === employeeId && item.status === "Swap Confirmation";
             const canWithdraw = item.employee_id === employeeId && ["Pending", "Swap Confirmation", "Emergency Review"].includes(item.status);
-            return <tr key={item.id}><td><strong>{item.request_no}</strong><br /><span className="muted">{item.request_type} · {item.submitted_at}</span></td><td>{item.original_date}<br />{item.original_start_time}–{item.original_end_time}</td><td>{item.requested_date || "Same date"}<br />{item.requested_start_time || item.original_start_time}–{item.requested_end_time || item.original_end_time}{item.swap_employee_name ? <><br /><span className="muted">Swap: {item.swap_employee_name}</span></> : null}</td><td>{item.reason}</td><td><strong>{item.status}</strong>{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td>{waitingForMe ? <button className="button small" disabled={busy} onClick={() => act("confirm_swap", item.id)}>Confirm swap</button> : null}{canWithdraw ? <button className="button small secondary" disabled={busy} onClick={() => act("withdraw_request", item.id)}>Withdraw</button> : null}</td></tr>;
+            return <tr key={item.id}><td><strong>{item.request_no}</strong><br /><span className="muted">{item.request_type} · {item.submitted_at}</span>{item.attachment_path ? <><br /><span className="muted">Attachment uploaded</span></> : null}</td><td>{item.original_date}<br />{item.original_start_time}–{item.original_end_time}</td><td>{item.requested_date || "Same date"}<br />{item.requested_start_time || item.original_start_time}–{item.requested_end_time || item.original_end_time}{item.swap_employee_name ? <><br /><span className="muted">Swap: {item.swap_employee_name}</span></> : null}</td><td>{item.reason}</td><td><strong>{item.status}</strong>{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td>{waitingForMe ? <button className="button small" disabled={busy} onClick={() => act("confirm_swap", item.id)}>Confirm swap</button> : null}{canWithdraw ? <button className="button small secondary" disabled={busy} onClick={() => act("withdraw_request", item.id)}>Withdraw</button> : null}</td></tr>;
           })}
           {!requests.length ? <tr><td colSpan={6}>No requests submitted.</td></tr> : null}
         </tbody></table></div>
