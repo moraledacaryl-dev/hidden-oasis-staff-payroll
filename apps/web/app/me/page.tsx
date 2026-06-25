@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
@@ -78,10 +79,10 @@ export default async function MyPortalPage() {
         <StaffSelfServicePanel />
 
         <section className="card">
-          <div className="panel-title"><div><h2>My payslips</h2><p className="muted">Approved or paid payroll only. Print this page to save a PDF copy.</p></div></div>
+          <div className="panel-title"><div><h2>My payslips</h2><p className="muted">Approved or paid payroll only. Open an individual payslip to print or save it as PDF.</p></div></div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Period</th><th>Payout</th><th>Status</th><th>Hours</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead>
+              <thead><tr><th>Period</th><th>Payout</th><th>Status</th><th>Hours</th><th>Gross</th><th>Deductions</th><th>Net</th><th>Action</th></tr></thead>
               <tbody>
                 {payroll.items.map((item) => (
                   <tr key={item.id}>
@@ -96,9 +97,10 @@ export default async function MyPortalPage() {
                     <td>{peso(item.gross_pay)}</td>
                     <td>{peso(item.total_deductions)}</td>
                     <td><strong>{peso(item.net_pay)}</strong></td>
+                    <td><Link className="primary-link" href={`/me/payslips/${item.id}`}>View / Download</Link></td>
                   </tr>
                 ))}
-                {!payroll.items.length ? <tr><td colSpan={7}>{payroll.message || "No payslips yet."}</td></tr> : null}
+                {!payroll.items.length ? <tr><td colSpan={8}>{payroll.message || "No payslips yet."}</td></tr> : null}
               </tbody>
             </table>
           </div>
