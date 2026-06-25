@@ -6,9 +6,28 @@ function apiBaseUrl(): string {
   return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
 }
 
-export async function POST(request: Request) {
+async function authHeaders() {
   const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  if (!token) return NextResponse.json({ ok: false, message: "Not signed in." }, { status: 401 });
+  if (!token) return null;
+  const authHeader = "Author" + "ization";
+  return {
+    [authHeader]: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
+  };
+}
+
+export async function GET() {
+  const headers = await authHeaders();
+  if (!headers) return NextResponse.json({ ok: false, message: "Not signed in." }, { status: 401 });
+  const response = await fetch(`${apiBaseUrl()}/api/v1/me/self-service`, { headers, cache: "no-store" });
+  const data = await response.json().catch(() => ({}));
+  return NextResponse.json(data, { status: response.status });
+}
+
+export async function POST(request: Request) {
+  const headers = await authHeaders();
+  if (!headers) return NextResponse.json({ ok: false, message: "Not signed in." }, { status: 401 });
   const body = await request.json();
   let target = "/api/v1/schedules/shifts";
   let payload = body;
@@ -37,14 +56,9 @@ export async function POST(request: Request) {
       apply_change: body.apply_change !== false,
     };
   }
-  const authHeader = "Author" + "ization";
   const response = await fetch(`${apiBaseUrl()}${target}`, {
     method,
-    headers: {
-      [authHeader]: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-    },
+    headers,
     ...(method === "GET" ? {} : { body: JSON.stringify(payload) }),
     cache: "no-store",
   });
