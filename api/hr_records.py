@@ -46,6 +46,8 @@ def require_hr_viewer(authorization: str | None, x_api_key: str | None) -> dict[
     user = current_user_from_token(authorization)
     if user.get("role_key") not in {"owner", "payroll", "supervisor", "staff"}:
         raise HTTPException(status_code=403, detail="HR access denied.")
+    if user.get("role_key") == "staff" and not user.get("employee_id"):
+        raise HTTPException(status_code=403, detail="Staff account is not linked to an employee record.")
     return user
 
 
@@ -177,9 +179,14 @@ def leave_balances(
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        employees = fetchall(conn, "SELECT id, full_name, employee_code, department, position FROM employees ORDER BY full_name")
-        if user.get("role_key") == "staff" and user.get("employee_id"):
-            employees = [e for e in employees if int(e["id"]) == int(user["employee_id"])]
+        if user.get("role_key") == "staff":
+            employees = fetchall(
+                conn,
+                "SELECT id, full_name, employee_code, department, position FROM employees WHERE id=? ORDER BY full_name",
+                (int(user["employee_id"]),),
+            )
+        else:
+            employees = fetchall(conn, "SELECT id, full_name, employee_code, department, position FROM employees ORDER BY full_name")
         types = fetchall(conn, "SELECT id, name, default_credits, paid, active FROM leave_types WHERE active=1 ORDER BY name")
         entitlements = fetchall(
             conn,
@@ -192,27 +199,42 @@ def leave_balances(
             """,
             (year,),
         )
+        allowed_ids = {int(emp["id"]) for emp in employees}
         by_employee: dict[int, list[dict[str, Any]]] = {}
         for ent in entitlements:
-            used = sync_entitlement_usage(conn, int(ent["employee_id"]), int(ent["leave_type_id"]), year)
+            employee_id = int(ent["employee_id"])
+            if employee_id not in allowed_ids:
+                continue
+            used = sync_entitlement_usage(conn, employee_id, int(ent["leave_type_id"]), year)
             credits = float(ent.get("credits") or 0)
-            by_employee.setdefault(int(ent["employee_id"]), []).append({
-                "leave_type_id": ent["leave_type_id"],
-                "leave_type_name": ent["leave_type_name"],
-                "credits": credits,
-                "used": used,
-                "remaining": max(0.0, credits - used),
-                "entitled": int(ent.get("entitled") or 0),
-                "paid": int(ent.get("paid") or 0),
-            })
+            by_employee.setdefault(employee_id, []).append(
+                {
+                    "leave_type_id": ent["leave_type_id"],
+                    "leave_type_name": ent["leave_type_name"],
+                    "credits": credits,
+                    "used": used,
+                    "remaining": max(0.0, credits - used),
+                    "entitled": int(ent.get("entitled") or 0),
+                    "paid": int(ent.get("paid") or 0),
+                }
+            )
         conn.commit()
-        return {"ok": True, "year": year, "leave_types": types, "items": [{**dict(emp), "balances": by_employee.get(int(emp["id"]), [])} for emp in employees]}
+        return {
+            "ok": True,
+            "year": year,
+            "leave_types": types,
+            "items": [{**dict(emp), "balances": by_employee.get(int(emp["id"]), [])} for emp in employees],
+        }
     finally:
         conn.close()
 
 
 @router.post("/hr/leave-entitlements")
-def save_leave_entitlement(payload: LeaveEntitlementPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+def save_leave_entitlement(
+    payload: LeaveEntitlementPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
     require_payroll_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
@@ -250,9 +272,10 @@ def hr_records(
         ensure_schema(conn)
         filters: list[str] = []
         params: list[Any] = []
-        if user.get("role_key") == "staff" and user.get("employee_id"):
+        if user.get("role_key") == "staff":
             filters.append("hr.employee_id=?")
-            params.append(user["employee_id"])
+            params.append(int(user["employee_id"]))
+            filters.append("hr.status NOT IN ('Draft','Voided')")
         elif employee_id:
             filters.append("hr.employee_id=?")
             params.append(employee_id)
@@ -278,7 +301,11 @@ def hr_records(
 
 
 @router.post("/hr/records")
-def create_hr_record(payload: HrRecordPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+def create_hr_record(
+    payload: HrRecordPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
     user = require_hr_editor(authorization, x_api_key)
     if payload.record_type not in HR_TYPES:
         raise HTTPException(status_code=422, detail="Invalid HR record type.")
