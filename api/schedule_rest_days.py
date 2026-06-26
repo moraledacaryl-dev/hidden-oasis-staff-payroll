@@ -28,7 +28,7 @@ def require_editor(authorization: str | None, x_api_key: str | None) -> dict[str
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
     if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Only owner, payroll, or supervisor can edit rest days.")
+        raise HTTPException(status_code=403, detail="Only owner, payroll, or the General Manager can edit rest days.")
     return user
 
 

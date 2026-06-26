@@ -2,15 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { getMeta, getPayrollRuns } from "@/lib/api";
+import { getPayrollRuns, getProductionHealth } from "@/lib/api";
 import { currentSession } from "@/lib/session";
 
 async function healthCheck() {
   try {
-    const meta = await getMeta();
-    return { ok: true, meta };
-  } catch (error) {
-    return { ok: false, meta: null };
+    const health = await getProductionHealth();
+    return { ok: health.ok, health };
+  } catch {
+    return { ok: false, health: null };
   }
 }
 
@@ -24,11 +24,12 @@ export default async function LaunchCenterPage() {
   const runs = health.ok ? await getPayrollRuns().catch(() => []) : [];
   const latestRun = runs[0];
   const checks = [
-    { title: "API", ok: health.ok, detail: health.ok ? "Online" : "Check backend" },
-    { title: "Payroll pages", ok: true, detail: "Runs, audit, reports, payslips" },
-    { title: "Paid marker", ok: true, detail: "Owner-only record" },
-    { title: "Backups", ok: false, detail: "Run before payroll changes" },
-    { title: "Services", ok: false, detail: "Use systemd in production" },
+    { title: "Database", ok: Boolean(health.health?.database_exists && health.health?.database_checks.integrity === "ok"), detail: health.health?.database_checks.integrity || "Unavailable" },
+    { title: "Writes", ok: Boolean(health.health?.database_checks.writable), detail: health.health?.database_checks.writable ? "Ready" : "Unavailable" },
+    { title: "Migrations", ok: Number(health.health?.database_checks.migration_version || 0) > 0, detail: `Version ${health.health?.database_checks.migration_version || 0}` },
+    { title: "Backup", ok: Number(health.health?.backup_count || 0) > 0 && Number(health.health?.backup_age_hours || 999) <= 24, detail: health.health?.latest_backup?.created_at || "No backup" },
+    { title: "Encryption", ok: Boolean(health.health?.backup_encryption_configured), detail: health.health?.backup_encryption_configured ? "Configured" : "Not configured" },
+    { title: "Off-server copy", ok: Boolean(health.health?.offsite_backup_configured), detail: health.health?.offsite_backup_configured ? "Configured" : "Not configured" },
   ];
 
   return (
@@ -38,7 +39,6 @@ export default async function LaunchCenterPage() {
           <div className="grid">
             <span className="eyebrow">Launch</span>
             <h1>System health</h1>
-            <p className="muted">Deployment checks.</p>
           </div>
           <StatusBadge label={health.ok ? "API online" : "API issue"} tone={health.ok ? "ok" : "danger"} />
         </header>
@@ -46,11 +46,11 @@ export default async function LaunchCenterPage() {
         <section className="grid cols-3">
           <div className="card metric"><span className="eyebrow">API</span><strong className="metric-value">{health.ok ? "OK" : "Check"}</strong></div>
           <div className="card metric"><span className="eyebrow">Runs</span><strong className="metric-value">{runs.length}</strong></div>
-          <div className="card metric"><span className="eyebrow">Launch</span><strong className="metric-value">Check</strong></div>
+          <div className="card metric"><span className="eyebrow">Checks</span><strong className="metric-value">{checks.filter((check) => check.ok).length}/{checks.length}</strong></div>
         </section>
 
         <section className="card">
-          <div className="panel-title"><div><h2>Checks</h2><p className="muted">Finish yellow items before live payroll.</p></div></div>
+          <div className="panel-title"><h2>Checks</h2></div>
           <div className="action-list">
             {checks.map((check) => (
               <div className="action-item" key={check.title}>
@@ -61,10 +61,7 @@ export default async function LaunchCenterPage() {
           </div>
         </section>
 
-        <section className="grid cols-2">
-          <div className="card"><h2>Payroll links</h2><div className="action-list"><Link className="action-item" href="/payroll/runs">Run history</Link><Link className="action-item" href="/cutoff">Cutoff</Link>{latestRun ? <Link className="action-item" href={`/payroll/runs/${latestRun.id}/reports`}>Latest report</Link> : null}{latestRun ? <Link className="action-item" href={`/payroll/runs/${latestRun.id}/payslips`}>Latest payslips</Link> : null}</div></div>
-          <div className="card"><h2>Before live use</h2><div className="action-list"><div className="action-item"><strong>Backup</strong><p className="muted">Fresh database copy.</p></div><div className="action-item"><strong>Services</strong><p className="muted">API and web under systemd.</p></div><div className="action-item"><strong>Compare</strong><p className="muted">Confirm totals and payslips.</p></div></div></div>
-        </section>
+        <section className="card"><h2>Payroll</h2><div className="action-list"><Link className="action-item" href="/payroll/runs">Run history</Link><Link className="action-item" href="/cutoff">Cutoff</Link>{latestRun ? <Link className="action-item" href={`/payroll/runs/${latestRun.id}/reports`}>Latest report</Link> : null}{latestRun ? <Link className="action-item" href={`/payroll/runs/${latestRun.id}/payslips`}>Latest payslips</Link> : null}</div></section>
       </div>
     </Shell>
   );

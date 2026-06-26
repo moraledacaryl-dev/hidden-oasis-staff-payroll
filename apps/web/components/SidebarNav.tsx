@@ -2,29 +2,54 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  Banknote,
+  CalendarDays,
+  ChartNoAxesCombined,
+  CircleUserRound,
+  ClipboardCheck,
+  Clock3,
+  DatabaseBackup,
+  FileClock,
+  FileText,
+  HandCoins,
+  History,
+  LayoutDashboard,
+  ListChecks,
+  LockKeyhole,
+  ReceiptText,
+  Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  Star,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { navGroups } from "@/lib/navigation";
 import type { RoleKey } from "@/lib/types";
 import styles from "./SidebarNav.module.css";
 
-const glyphs: Record<string, string> = {
-  "/": "DB",
-  "/me": "ME",
-  "/schedule": "SC",
-  "/attendance": "AT",
-  "/staff": "ST",
-  "/performance-reviews": "PF",
-  "/hr": "HR",
-  "/cash-advances": "CA",
-  "/cutoff": "CO",
-  "/payroll": "PV",
-  "/payroll/runs": "PR",
-  "/payslips": "PS",
-  "/reports/operations": "RO",
-  "/reports": "RP",
-  "/controls": "CT",
-  "/backup": "BK",
-  "/settings": "SE",
-  "/settings/password": "AC",
+const icons: Record<string, LucideIcon> = {
+  "/": LayoutDashboard,
+  "/me": CircleUserRound,
+  "/schedule": CalendarDays,
+  "/schedule/requests": FileClock,
+  "/attendance": Clock3,
+  "/staff": Users,
+  "/performance-reviews": Star,
+  "/hr": FileText,
+  "/cash-advances": HandCoins,
+  "/cutoff": ClipboardCheck,
+  "/payroll": Banknote,
+  "/payroll/runs": History,
+  "/payslips": ReceiptText,
+  "/reports/operations": ListChecks,
+  "/reports": ChartNoAxesCombined,
+  "/controls": SlidersHorizontal,
+  "/backup": DatabaseBackup,
+  "/settings": Settings,
+  "/settings/security": ShieldCheck,
+  "/settings/password": LockKeyhole,
 };
 
 function routeMatches(pathname: string, href: string): boolean {
@@ -38,13 +63,13 @@ function activeHrefFor(pathname: string, hrefs: string[]): string | null {
     .sort((a, b) => b.length - a.length)[0] || null;
 }
 
-function NavLink({ href, label, description, active, subcard = false }: {
+function NavLink({ href, label, active, subcard = false }: {
   href: string;
   label: string;
-  description: string;
   active: boolean;
   subcard?: boolean;
 }) {
+  const Icon = icons[href] || FileText;
   return (
     <Link
       className={`nav-card ${styles.link} ${subcard ? styles.subcard : ""} ${active ? styles.activeLink : ""}`}
@@ -52,10 +77,9 @@ function NavLink({ href, label, description, active, subcard = false }: {
       title={label}
       aria-current={active ? "page" : undefined}
     >
-      <span className={styles.glyph} aria-hidden="true">{glyphs[href] || label.slice(0, 2).toUpperCase()}</span>
+      <span className={styles.glyph} aria-hidden="true"><Icon size={17} strokeWidth={1.9} /></span>
       <span className={styles.copy}>
         <strong>{label}</strong>
-        <small>{description}</small>
       </span>
     </Link>
   );
@@ -85,7 +109,6 @@ export function SidebarNav({ role }: { role: RoleKey }) {
                   key={item.href}
                   href={item.href}
                   label={item.label}
-                  description={item.description}
                   active={item.href === activeHref}
                 />
               ))}
@@ -109,7 +132,6 @@ export function SidebarNav({ role }: { role: RoleKey }) {
                   key={item.href}
                   href={item.href}
                   label={item.label}
-                  description={item.description}
                   active={item.href === activeHref}
                   subcard
                 />

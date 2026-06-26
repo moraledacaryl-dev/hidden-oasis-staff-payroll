@@ -9,11 +9,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements-api.txt
-      - run: python -m compileall -q api core
+      - run: pip check
+      - run: PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall -q api core tests
+      - run: python -m unittest discover -v
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - run: npm ci
+        working-directory: apps/web
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: apps/web
+      - run: npm run lint
+        working-directory: apps/web
+      - run: npm run typecheck
         working-directory: apps/web
       - run: npm run build
         working-directory: apps/web

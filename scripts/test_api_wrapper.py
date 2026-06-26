@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Smoke-test the Staff Payroll FastAPI wrapper.
+"""Smoke-test the Staff Payroll API.
 
 Run the API first:
-    python3 -m uvicorn api.server_review:app --host 127.0.0.1 --port 8001
+    python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 
 Then run:
-    python3 scripts/test_api_wrapper.py --start 2026-06-01 --end 2026-06-15
+    python3 scripts/test_api_wrapper.py --display-name Owner --password '<password>' --start 2026-06-01 --end 2026-06-15
 
 If STAFF_PAYROLL_API_KEY is configured in the API process, pass it here too:
-    python3 scripts/test_api_wrapper.py --api-key change-this-before-production --start 2026-06-01 --end 2026-06-15
+    python3 scripts/test_api_wrapper.py --api-key change-this-before-production --display-name Owner --password '<password>' --start 2026-06-01 --end 2026-06-15
 """
 
 from __future__ import annotations
@@ -24,7 +24,13 @@ from typing import Any
 DEFAULT_BASE_URL = "http://127.0.0.1:8001"
 
 
-def request_json(method: str, url: str, payload: dict[str, Any] | None = None, api_key: str | None = None) -> Any:
+def request_json(
+    method: str,
+    url: str,
+    payload: dict[str, Any] | None = None,
+    api_key: str | None = None,
+    token: str | None = None,
+) -> Any:
     data = None
     headers = {"Accept": "application/json"}
     if payload is not None:
@@ -32,6 +38,8 @@ def request_json(method: str, url: str, payload: dict[str, Any] | None = None, a
         headers["Content-Type"] = "application/json"
     if api_key:
         headers["X-API-Key"] = api_key
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
@@ -46,9 +54,12 @@ def request_json(method: str, url: str, payload: dict[str, Any] | None = None, a
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Smoke-test Staff Payroll API wrapper.")
+    parser = argparse.ArgumentParser(description="Smoke-test Staff Payroll API.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--api-key", default=None)
+    parser.add_argument("--display-name", required=True)
+    parser.add_argument("--password", required=True)
+    parser.add_argument("--otp", default=None)
     parser.add_argument("--start", required=True, help="Payroll period start, YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="Payroll period end, YYYY-MM-DD")
     args = parser.parse_args()
@@ -58,7 +69,19 @@ def main() -> int:
     health = request_json("GET", f"{base}/health", api_key=args.api_key)
     print("Health:", health)
 
-    meta = request_json("GET", f"{base}/api/v1/meta", api_key=args.api_key)
+    login = request_json(
+        "POST",
+        f"{base}/api/v1/auth/login",
+        payload={
+            "display_name": args.display_name,
+            "password": args.password,
+            "otp": args.otp,
+        },
+        api_key=args.api_key,
+    )
+    token = str(login["access_token"])
+
+    meta = request_json("GET", f"{base}/api/v1/meta", api_key=args.api_key, token=token)
     print("Meta:", json.dumps(meta, indent=2))
 
     preview = request_json(
@@ -66,6 +89,7 @@ def main() -> int:
         f"{base}/api/v1/payroll/preview",
         payload={"period_start": args.start, "period_end": args.end},
         api_key=args.api_key,
+        token=token,
     )
     print("Payroll preview summary:", preview.get("summary"))
     print("Payroll preview totals:", json.dumps(preview.get("totals"), indent=2))

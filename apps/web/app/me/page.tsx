@@ -1,12 +1,10 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StaffSelfServicePanel } from "@/components/StaffSelfServicePanel";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
 import { currentSession } from "@/lib/session";
-import { apiBaseUrl, numberText, peso } from "@/lib/api";
+import { apiBaseUrl, backendHeaders, numberText, peso } from "@/lib/api";
 
 type MyPayrollItem = {
   id: number;
@@ -36,13 +34,8 @@ function hasHours(value: number | null | undefined) {
 }
 
 async function loadMyPayroll(): Promise<MyPayrollResponse> {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  if (!token) return { ok: false, employee: null, items: [], message: "Not signed in." };
   const response = await fetch(`${apiBaseUrl()}/api/v1/me/payroll`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-    },
+    headers: await backendHeaders(),
     cache: "no-store",
   });
   const data = await response.json().catch(() => ({}));
@@ -73,13 +66,13 @@ export default async function MyPortalPage() {
         <section className="grid cols-3">
           <div className="card"><strong>Linked employee</strong><p className="muted">{payroll.employee?.name || payroll.message || "Not linked"}</p></div>
           <div className="card"><strong>Payslips</strong><p className="muted">{payroll.items.length} visible</p></div>
-          <div className="card"><strong>Password</strong><p className="muted">Use Settings → Password.</p></div>
+          <div className="card"><strong>Password</strong><p><Link className="primary-link" href="/settings/password">Change password</Link></p></div>
         </section>
 
         <StaffSelfServicePanel />
 
         <section className="card">
-          <div className="panel-title"><div><h2>My payslips</h2><p className="muted">Approved or paid payroll only. Open an individual payslip to print or save it as PDF.</p></div></div>
+          <div className="panel-title"><div><h2>My payslips</h2><p className="muted">Approved and paid payroll.</p></div></div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Period</th><th>Payout</th><th>Status</th><th>Hours</th><th>Gross</th><th>Deductions</th><th>Net</th><th>Action</th></tr></thead>

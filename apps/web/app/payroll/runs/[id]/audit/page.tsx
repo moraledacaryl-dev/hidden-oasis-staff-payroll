@@ -1,25 +1,11 @@
+import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getPayrollCorrections, getPayrollRunReview, peso } from "@/lib/api";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
 import { currentSession } from "@/lib/session";
 import styles from "./page.module.css";
-
-function apiBaseUrl(): string {
-  return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
-}
-
-async function apiHeaders(): Promise<HeadersInit> {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  return {
-    Accept: "application/json",
-    ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
 
 type AuditEvent = {
   source: string;
@@ -32,7 +18,7 @@ type AuditEvent = {
 
 async function getAuditEvents(runId: number): Promise<AuditEvent[]> {
   const response = await fetch(`${apiBaseUrl()}/api/v1/payroll/runs/${runId}/audit-events`, {
-    headers: await apiHeaders(),
+    headers: await backendHeaders(),
     cache: "no-store",
   });
   if (!response.ok) return [];

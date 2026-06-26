@@ -1,3 +1,4 @@
+import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import { cookies } from "next/headers";
 import { ACCESS_TOKEN_COOKIE, NAME_COOKIE, ROLE_COOKIE } from "./session-client";
 import type { RoleKey } from "./types";
@@ -9,14 +10,14 @@ export type WebSession = {
   display_name: string;
   role: string;
   role_key: RoleKey;
+  must_change_password: number;
+  mfa_enabled: number;
+  mfa_setup_required: number;
+  employee_id?: number | null;
 };
 
 export function isRoleKey(value: string | undefined | null): value is RoleKey {
   return roles.includes(value as RoleKey);
-}
-
-function apiBaseUrl(): string {
-  return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
 }
 
 export async function currentSession(): Promise<WebSession | null> {
@@ -26,10 +27,7 @@ export async function currentSession(): Promise<WebSession | null> {
 
   try {
     const response = await fetch(`${apiBaseUrl()}/api/v1/auth/me`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-      },
+      headers: await backendHeaders(),
       cache: "no-store",
     });
     if (!response.ok) return null;

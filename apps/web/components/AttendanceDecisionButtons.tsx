@@ -18,7 +18,7 @@ export function AttendanceDecisionButtons({ timeLogId, detectedOtHours }: { time
         time_log_id: timeLogId,
         decision,
         approved_ot_hours: decision === "Approved" ? detectedOtHours : 0,
-        reason: `Supervisor selected ${decision} from web queue.`,
+        reason: `General Manager selected ${decision}.`,
       }),
     });
     setBusy(null);

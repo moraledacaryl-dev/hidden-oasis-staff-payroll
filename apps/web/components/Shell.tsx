@@ -44,9 +44,19 @@ function AppLinks() {
   );
 }
 
-export async function Shell({ children, allowedRoles = ["owner"] }: { children: React.ReactNode; allowedRoles?: RoleKey[] }) {
+export async function Shell({
+  children,
+  allowedRoles = ["owner"],
+  allowAccountSetup = false,
+}: {
+  children: React.ReactNode;
+  allowedRoles?: RoleKey[];
+  allowAccountSetup?: boolean;
+}) {
   const session = await currentSession();
   if (!session) redirect("/login");
+  if (!allowAccountSetup && session.must_change_password) redirect("/settings/password");
+  if (!allowAccountSetup && session.mfa_setup_required) redirect("/settings/security");
 
   const role = session.role_key;
   const allowed = allowedRoles.includes(role);

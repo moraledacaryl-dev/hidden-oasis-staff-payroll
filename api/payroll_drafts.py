@@ -1,190 +1,165 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import json
-import os
-import time
-from dataclasses import asdict, is_dataclass
-from datetime import date, datetime
+from calendar import monthrange
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
 
+from api.payroll_service import (
+    PayrollDraftRequest,
+    approve_payroll_run as approve_payroll_run_v1,
+    item_dict,
+    list_payroll_runs as list_payroll_runs_v1,
+    lock_payroll_run as lock_payroll_run_v1,
+    must_be_payroll_user,
+    now_iso,
+    totals,
+)
 from core.corrections import mark_eligible_corrections_applied
-from core.db import DB_PATH, fetchall, fetchone, get_conn
-from core.payroll_engine import REVIEW_STATUS, compute_payroll, update_payroll_status
+from core.db import DB_PATH, fetchone, get_conn
+from core.payroll_engine import compute_payroll
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 router = APIRouter(prefix="/api/v1")
 
-class PayrollDraftRequest(BaseModel):
-    period_start: date
-    period_end: date
-    payout_date: date
-    run_label: str = Field(default="Semi-monthly")
+
+def _validate_semimonthly_period(start: date, end: date) -> None:
+    if start.year != end.year or start.month != end.month:
+        raise HTTPException(status_code=422, detail="A semi-monthly payroll period must stay within one calendar month.")
+    last_day = monthrange(start.year, start.month)[1]
+    if not ((start.day == 1 and end.day == 15) or (start.day == 16 and end.day == last_day)):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Use either {start.year}-{start.month:02d}-01 to {start.year}-{start.month:02d}-15 "
+                f"or {start.year}-{start.month:02d}-16 to {start.year}-{start.month:02d}-{last_day:02d}."
+            ),
+        )
 
 
-def now_iso() -> str:
-    return datetime.now().replace(microsecond=0).isoformat(sep=" ")
-
-
-def role_key(role: str | None) -> str:
-    text = (role or "").strip().lower().replace(" ", "_").replace("-", "_")
-    if text in {"owner", "admin", "administrator"}:
-        return "owner"
-    if text in {"payroll", "payroll_admin", "hr", "hr_payroll"}:
-        return "payroll"
-    return "staff"
-
-
-def secret() -> str:
-    return os.getenv("STAFF_PAYROLL_SESSION_SECRET") or os.getenv("STAFF_PAYROLL_API_KEY") or "dev-only-change-staff-payroll-session-secret"
-
-
-def b64decode(data: str) -> bytes:
-    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
-
-
-def must_be_payroll_user(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
-    expected_key = os.getenv("STAFF_PAYROLL_API_KEY")
-    if expected_key and x_api_key != expected_key:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing bearer token.")
-    try:
-        body, signature = authorization.removeprefix("Bearer ").strip().split(".", 1)
-        expected = hmac.new(secret().encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
-        if not hmac.compare_digest(b64decode(signature), expected):
-            raise ValueError("bad signature")
-        payload = json.loads(b64decode(body).decode("utf-8"))
-        if int(payload.get("exp") or 0) < int(time.time()):
-            raise ValueError("expired")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired session token.")
-    conn = get_conn(DB_PATH)
-    try:
-        user = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (payload.get("sub"),))
-    finally:
-        conn.close()
-    if not user:
-        raise HTTPException(status_code=401, detail="User no longer exists or is inactive.")
-    user["role_key"] = role_key(user.get("role"))
-    if user["role_key"] not in {"owner", "payroll"}:
-        raise HTTPException(status_code=403, detail="Payroll draft actions require owner or payroll role.")
-    return user
-
-
-def item_dict(item: Any) -> dict[str, Any]:
-    data = asdict(item) if is_dataclass(item) else dict(item)
-    data["warnings"] = "\n".join(data.get("warnings") or [])
-    return data
-
-
-def totals(conn: Any, run_id: int) -> dict[str, Any]:
-    row = fetchone(conn, "SELECT COUNT(*) employees, COALESCE(SUM(gross_pay),0) gross_pay, COALESCE(SUM(net_pay),0) net_pay, COALESCE(SUM(total_deductions),0) total_deductions FROM payroll_items WHERE payroll_run_id=?", (run_id,)) or {}
-    return {"employees": int(row.get("employees") or 0), "gross_pay": round(float(row.get("gross_pay") or 0), 2), "net_pay": round(float(row.get("net_pay") or 0), 2), "total_deductions": round(float(row.get("total_deductions") or 0), 2)}
+def _active_overlap(conn: Any, start: str, end: str) -> dict[str, Any] | None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(payroll_runs)").fetchall()}
+    where = "status NOT IN ('Cancelled','Voided')"
+    if "superseded_by_run_id" in columns:
+        where += " AND superseded_by_run_id IS NULL"
+    return fetchone(
+        conn,
+        f"""
+        SELECT id,period_start,period_end,run_label,status
+        FROM payroll_runs
+        WHERE {where}
+          AND date(period_start)<=date(?)
+          AND date(period_end)>=date(?)
+        ORDER BY id
+        LIMIT 1
+        """,
+        (end, start),
+    )
 
 
 @router.get("/payroll/runs")
-def list_payroll_runs(authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> list[dict[str, Any]]:
-    must_be_payroll_user(authorization, x_api_key)
-    conn = get_conn(DB_PATH)
-    try:
-        rows = fetchall(conn, "SELECT * FROM payroll_runs ORDER BY created_at DESC, id DESC LIMIT 50")
-        for row in rows:
-            row["totals"] = totals(conn, int(row["id"]))
-        return rows
-    finally:
-        conn.close()
+def list_payroll_runs(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    return list_payroll_runs_v1(authorization, x_api_key)
 
 
 @router.post("/payroll/runs/draft")
-def create_payroll_draft(payload: PayrollDraftRequest, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+def create_payroll_draft(
+    payload: PayrollDraftRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
     user = must_be_payroll_user(authorization, x_api_key)
-    start = payload.period_start.isoformat()
-    end = payload.period_end.isoformat()
-    label = payload.run_label.strip() or "Semi-monthly"
-    if payload.period_end < payload.period_start:
+    start_date = payload.period_start
+    end_date = payload.period_end
+
+    if end_date < start_date:
         raise HTTPException(status_code=422, detail="End date cannot be before start date.")
+    if end_date >= date.today():
+        raise HTTPException(status_code=409, detail="Payroll can only be created after the payroll period has fully ended.")
+    if payload.payout_date < end_date:
+        raise HTTPException(status_code=422, detail="Payout date cannot be before the payroll period ends.")
+
+    label = payload.run_label.strip() or "Semi-monthly"
+    if "semi-monthly" in label.lower():
+        _validate_semimonthly_period(start_date, end_date)
+
+    start = start_date.isoformat()
+    end = end_date.isoformat()
     conn = get_conn(DB_PATH)
     try:
-        existing = fetchone(conn, "SELECT id FROM payroll_runs WHERE period_start=? AND period_end=? AND run_label=?", (start, end, label))
-        if existing:
-            raise HTTPException(status_code=409, detail="Payroll run already exists for this period and label.")
+        overlap = _active_overlap(conn, start, end)
+        if overlap:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Active payroll run #{overlap['id']} already covers "
+                    f"{overlap['period_start']} to {overlap['period_end']}. "
+                    "Edit that Draft or use the controlled revision action."
+                ),
+            )
+
         checks = build_payroll_preflight_checks(conn, start, end)
-        blockers = [c for c in checks if c.get("severity") == "Blocker"]
+        blockers = [check for check in checks if check.get("severity") == "Blocker"]
         if blockers:
             raise HTTPException(status_code=409, detail={"message": "Draft blocked by payroll QA blockers.", "checks": checks})
-        ts = now_iso()
-        cur = conn.execute("INSERT INTO payroll_runs (period_start, period_end, payout_date, run_label, status, prepared_by, validation_summary, created_at) VALUES (?, ?, ?, ?, 'Draft', ?, ?, ?)", (start, end, payload.payout_date.isoformat(), label, user.get("display_name"), summarize_checks(checks), ts))
-        run_id = int(cur.lastrowid)
-        cols = ["employee_id", "regular_hours", "regular_pay", "approved_ot_hours", "ot_pay", "night_diff_hours", "night_diff_pay", "holiday_pay", "paid_leave_days", "paid_leave_pay", "freelance_pay", "other_earnings", "gross_pay", "late_minutes", "undertime_minutes", "unpaid_absence_days", "sss_ee", "philhealth_ee", "pagibig_ee", "sss_er", "sss_ec", "philhealth_er", "pagibig_er", "tax", "cash_advance_deduction", "other_deductions", "total_deductions", "net_pay", "warnings"]
+
+        stamp = now_iso()
+        cursor = conn.execute(
+            """
+            INSERT INTO payroll_runs(
+                period_start,period_end,payout_date,run_label,status,
+                prepared_by,validation_summary,created_at
+            ) VALUES(?,?,?,?,'Draft',?,?,?)
+            """,
+            (start, end, payload.payout_date.isoformat(), label, user.get("display_name"), summarize_checks(checks), stamp),
+        )
+        run_id = int(cursor.lastrowid)
+        columns = [
+            "employee_id","regular_hours","regular_pay","approved_ot_hours","ot_pay",
+            "night_diff_hours","night_diff_pay","holiday_pay","paid_leave_days","paid_leave_pay",
+            "freelance_pay","other_earnings","gross_pay","late_minutes","undertime_minutes",
+            "unpaid_absence_days","sss_ee","philhealth_ee","pagibig_ee","sss_er","sss_ec",
+            "philhealth_er","pagibig_er","tax","cash_advance_deduction","other_deductions",
+            "total_deductions","net_pay","warnings",
+        ]
         for result in compute_payroll(conn, start, end):
             data = item_dict(result)
-            values = [run_id] + [data.get(c, 0) for c in cols] + [ts]
-            conn.execute(f"INSERT INTO payroll_items (payroll_run_id,{','.join(cols)},created_at) VALUES ({','.join('?' for _ in values)})", values)
+            values = [run_id] + [data.get(column, 0) for column in columns] + [stamp]
+            conn.execute(
+                f"INSERT INTO payroll_items(payroll_run_id,{','.join(columns)},created_at) "
+                f"VALUES({','.join('?' for _ in values)})",
+                values,
+            )
+
         mark_eligible_corrections_applied(conn, run_id, start)
         conn.commit()
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
         run["totals"] = totals(conn, run_id)
         return {"ok": True, "run": run, "checks": checks, "mode": "draft_saved_not_released"}
     except HTTPException:
-        conn.rollback(); raise
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
 
 @router.post("/payroll/runs/{run_id}/approve")
-def approve_payroll_run(run_id: int, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
-    if user.get("role_key") != "owner":
-        raise HTTPException(status_code=403, detail="Only owner can approve payroll.")
-    conn = get_conn(DB_PATH)
-    try:
-        run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
-        if not run:
-            raise HTTPException(status_code=404, detail="Payroll run not found.")
-        if run.get("status") not in {REVIEW_STATUS, "Reviewed"}:
-            raise HTTPException(status_code=409, detail="Only owner-review runs can be approved.")
-        try:
-            update_payroll_status(conn, run_id, "Approved", str(user.get("display_name") or "Owner"))
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
-        updated["totals"] = totals(conn, run_id)
-        return {"ok": True, "run": updated, "mode": "approved_not_released"}
-    finally:
-        conn.close()
+def approve_payroll_run(
+    run_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    return approve_payroll_run_v1(run_id, authorization, x_api_key)
+
 
 @router.post("/payroll/runs/{run_id}/lock")
 def lock_payroll_run(
     run_id: int,
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
-    user = must_be_payroll_user(authorization, x_api_key)
-    conn = get_conn(DB_PATH)
-    try:
-        run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
-        if not run:
-            raise HTTPException(status_code=404, detail="Payroll run not found.")
-        if run.get("status") != "Draft":
-            raise HTTPException(status_code=409, detail="Only Draft runs can be locked for owner review.")
-
-        try:
-            update_payroll_status(conn, run_id, REVIEW_STATUS, str(user.get("display_name") or "Payroll"))
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-
-        updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
-        updated["totals"] = totals(conn, run_id)
-        return {
-            "ok": True,
-            "run": updated,
-            "mode": "locked_for_owner_review_not_released",
-        }
-    finally:
-        conn.close()
+):
+    return lock_payroll_run_v1(run_id, authorization, x_api_key)

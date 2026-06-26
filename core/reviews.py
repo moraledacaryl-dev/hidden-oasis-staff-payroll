@@ -21,7 +21,7 @@ def _score_from_rate(rate: float, good_threshold: float, fair_threshold: float) 
 def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
     """Return True when a SQLite table contains a column.
 
-    Some existing local prototype databases were created before review metrics
+    Some existing local databases were created before review metrics
     like time_logs.late_minutes / undertime_minutes existed. Annual review
     summaries should degrade gracefully instead of crashing when those older
     databases are opened.

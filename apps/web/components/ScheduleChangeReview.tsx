@@ -99,14 +99,14 @@ export function ScheduleChangeReview() {
             </div>
             <div><strong>Reason</strong><p>{item.reason}</p></div>
             {item.attachment_path ? <p className="muted">Supporting document is attached to this request.</p> : null}
-            {isSwap ? <p className="muted"><strong>Swap control:</strong> Approving records management consent only. Update both employees’ shifts on the Schedule board so neither shift is changed only halfway.</p> : null}
+            {isSwap ? <p className="muted">Approval exchanges both shift assignments together.</p> : null}
             {item.decision_note ? <div><strong>Decision note</strong><p>{item.decision_note}</p></div> : null}
             {pending ? (
               <form className="grid cols-2" onSubmit={(event) => event.preventDefault()}>
                 <label className="field" style={{ gridColumn: "1 / -1" }}>Decision note<textarea name="decision_note" rows={3} /></label>
                 <label><input type="checkbox" name="coverage_confirmed" /> Coverage confirmed</label>
                 <label><input type="checkbox" name="employee_notified" /> Employee notified</label>
-                {isSwap ? <input type="hidden" name="apply_change" value="off" /> : <label><input type="checkbox" name="apply_change" defaultChecked /> Apply approved change to official schedule</label>}
+                <label><input type="checkbox" name="apply_change" defaultChecked /> Apply to schedule</label>
                 <div className="badge-row">
                   <button className="button" type="button" disabled={busy === item.id} onClick={(event) => decide(item.id, "Approved", event.currentTarget.form!)}>Approve</button>
                   <button className="button secondary" type="button" disabled={busy === item.id} onClick={(event) => decide(item.id, "Rejected", event.currentTarget.form!)}>Reject</button>

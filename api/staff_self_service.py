@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from api.main import current_user_from_token, require_api_key
+from api.schedule_change_log import log_schedule_change
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -26,6 +27,7 @@ class ShiftChangeRequestPayload(BaseModel):
     requested_end_time: str | None = None
     reason: str = Field(..., min_length=3, max_length=1000)
     proposed_swap_employee_id: int | None = None
+    proposed_swap_shift_id: int | None = None
     emergency: bool = False
     accuracy_confirmed: bool = True
 
@@ -89,6 +91,9 @@ def ensure_schema(conn) -> None:
         CREATE INDEX IF NOT EXISTS idx_shift_change_requests_shift ON shift_change_requests(shift_id);
         """
     )
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(shift_change_requests)")}
+    if "proposed_swap_shift_id" not in columns:
+        conn.execute("ALTER TABLE shift_change_requests ADD COLUMN proposed_swap_shift_id INTEGER")
     conn.commit()
 
 
@@ -113,7 +118,7 @@ def require_staff_user(x_api_key: str | None, user: dict[str, Any]) -> dict[str,
 def require_reviewer(x_api_key: str | None, user: dict[str, Any]) -> dict[str, Any]:
     require_api_key(x_api_key)
     if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Owner, payroll, or supervisor access required.")
+        raise HTTPException(status_code=403, detail="Owner, payroll, or General Manager access required.")
     return user
 
 
@@ -159,7 +164,44 @@ def schedule_items(conn, employee_id: int) -> list[dict[str, Any]]:
     )
 
 
-@router.get("/me/self-service")
+def shift_interval(shift: dict[str, Any]) -> tuple[datetime, datetime]:
+    start = datetime.fromisoformat(
+        f"{str(shift.get('shift_date') or '')[:10]}T{str(shift.get('start_time') or '')[:5]}"
+    )
+    end = datetime.fromisoformat(
+        f"{str(shift.get('shift_date') or '')[:10]}T{str(shift.get('end_time') or '')[:5]}"
+    )
+    if end <= start:
+        end += timedelta(days=1)
+    return start, end
+
+
+def conflicting_shift(
+    conn,
+    employee_id: int,
+    proposed: dict[str, Any],
+    exclude_ids: set[int],
+) -> dict[str, Any] | None:
+    start, end = shift_interval(proposed)
+    rows = fetchall(
+        conn,
+        """
+        SELECT * FROM scheduled_shifts
+        WHERE employee_id=?
+          AND date(shift_date) BETWEEN date(?, '-1 day') AND date(?, '+1 day')
+          AND COALESCE(status,'Draft') NOT IN ('Cancelled','Deleted')
+        """,
+        (employee_id, start.date().isoformat(), end.date().isoformat()),
+    )
+    for row in rows:
+        if int(row.get("id") or 0) in exclude_ids:
+            continue
+        other_start, other_end = shift_interval(row)
+        if start < other_end and other_start < end:
+            return row
+    return None
+
+
 def my_self_service(
     user: dict[str, Any] = Depends(current_user_from_token),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
@@ -227,8 +269,22 @@ def submit_shift_change_request(
         is_swap = request_type.lower() in {"shift swap", "swap"}
         if is_swap and not payload.proposed_swap_employee_id:
             raise HTTPException(status_code=400, detail="Choose the employee proposed for the swap.")
+        if is_swap and not payload.proposed_swap_shift_id:
+            raise HTTPException(status_code=400, detail="Choose the shift proposed for the swap.")
         if payload.proposed_swap_employee_id == employee_id:
             raise HTTPException(status_code=400, detail="You cannot swap a shift with yourself.")
+        if is_swap:
+            counterpart = fetchone(
+                conn,
+                """
+                SELECT * FROM scheduled_shifts
+                WHERE id=? AND employee_id=?
+                  AND COALESCE(status,'Draft') NOT IN ('Cancelled','Deleted')
+                """,
+                (payload.proposed_swap_shift_id, payload.proposed_swap_employee_id),
+            )
+            if not counterpart:
+                raise HTTPException(status_code=404, detail="The proposed swap shift is no longer available.")
         initial_status = "Emergency Review" if payload.emergency else ("Swap Confirmation" if is_swap else "Pending")
         submitted_at = now_iso()
         cursor = conn.execute(
@@ -236,14 +292,15 @@ def submit_shift_change_request(
             INSERT INTO shift_change_requests(
                 employee_id, shift_id, request_type, original_date, original_start_time, original_end_time,
                 requested_date, requested_start_time, requested_end_time, reason, proposed_swap_employee_id,
-                status, emergency, accuracy_confirmed, submitted_by_user_id, submitted_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                proposed_swap_shift_id, status, emergency, accuracy_confirmed, submitted_by_user_id, submitted_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 employee_id, payload.shift_id, request_type, shift["shift_date"], shift["start_time"], shift["end_time"],
                 payload.requested_date.isoformat() if payload.requested_date else None,
                 payload.requested_start_time, payload.requested_end_time, payload.reason.strip(),
-                payload.proposed_swap_employee_id, initial_status, int(payload.emergency), 1, int(user["id"]), submitted_at,
+                payload.proposed_swap_employee_id, payload.proposed_swap_shift_id, initial_status,
+                int(payload.emergency), 1, int(user["id"]), submitted_at,
             ),
         )
         request_id = int(cursor.lastrowid)
@@ -394,21 +451,114 @@ def decide_shift_change_request(
         reviewed_at = now_iso()
         applied_at = None
         if decision == "Approved" and payload.apply_change:
-            updates = []
-            values: list[Any] = []
-            for column, value in (
-                ("shift_date", row.get("requested_date")),
-                ("start_time", row.get("requested_start_time")),
-                ("end_time", row.get("requested_end_time")),
-            ):
-                if value:
-                    updates.append(f"{column}=?")
-                    values.append(value)
-            if updates:
-                updates.extend(["status='Confirmed'", "updated_at=?"])
-                values.extend([reviewed_at, row["shift_id"]])
-                conn.execute(f"UPDATE scheduled_shifts SET {', '.join(updates)} WHERE id=?", tuple(values))
+            is_swap = str(row.get("request_type") or "").strip().lower() in {"shift swap", "swap"}
+            if is_swap:
+                original = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (row["shift_id"],))
+                counterpart = fetchone(
+                    conn,
+                    "SELECT * FROM scheduled_shifts WHERE id=?",
+                    (row.get("proposed_swap_shift_id"),),
+                )
+                if (
+                    not original
+                    or not counterpart
+                    or int(original.get("employee_id") or 0) != int(row["employee_id"])
+                    or int(counterpart.get("employee_id") or 0) != int(row.get("proposed_swap_employee_id") or 0)
+                ):
+                    raise HTTPException(status_code=409, detail="One of the swap shifts changed. Review the request again.")
+                excluded = {int(original["id"]), int(counterpart["id"])}
+                if conflicting_shift(
+                    conn,
+                    int(counterpart["employee_id"]),
+                    original,
+                    excluded,
+                ) or conflicting_shift(
+                    conn,
+                    int(original["employee_id"]),
+                    counterpart,
+                    excluded,
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The swap would overlap another scheduled shift.",
+                    )
+                conn.execute(
+                    "UPDATE scheduled_shifts SET employee_id=?, status='Confirmed', updated_at=? WHERE id=?",
+                    (counterpart["employee_id"], reviewed_at, original["id"]),
+                )
+                conn.execute(
+                    "UPDATE scheduled_shifts SET employee_id=?, status='Confirmed', updated_at=? WHERE id=?",
+                    (original["employee_id"], reviewed_at, counterpart["id"]),
+                )
+                for before, after_employee in (
+                    (original, counterpart["employee_id"]),
+                    (counterpart, original["employee_id"]),
+                ):
+                    log_schedule_change(
+                        conn,
+                        change_type="Shift swap approved",
+                        entity_type="scheduled_shifts",
+                        entity_id=int(before["id"]),
+                        employee_id=int(after_employee),
+                        work_date=str(before.get("shift_date") or ""),
+                        before=before,
+                        after={**before, "employee_id": after_employee},
+                        changed_by=user.get("display_name"),
+                        reason_category="Staff request",
+                        reason_note=payload.decision_note or row.get("reason"),
+                        attachment_ref=row.get("attachment_path"),
+                    )
                 applied_at = reviewed_at
+            else:
+                updates = []
+                values: list[Any] = []
+                for column, value in (
+                    ("shift_date", row.get("requested_date")),
+                    ("start_time", row.get("requested_start_time")),
+                    ("end_time", row.get("requested_end_time")),
+                ):
+                    if value:
+                        updates.append(f"{column}=?")
+                        values.append(value)
+                if updates:
+                    before = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (row["shift_id"],))
+                    if not before:
+                        raise HTTPException(status_code=409, detail="The scheduled shift no longer exists.")
+                    proposed = {
+                        **before,
+                        "shift_date": row.get("requested_date") or before.get("shift_date"),
+                        "start_time": row.get("requested_start_time") or before.get("start_time"),
+                        "end_time": row.get("requested_end_time") or before.get("end_time"),
+                    }
+                    if conflicting_shift(
+                        conn,
+                        int(row["employee_id"]),
+                        proposed,
+                        {int(row["shift_id"])},
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="The requested time overlaps another scheduled shift.",
+                        )
+                    updates.extend(["status='Confirmed'", "updated_at=?"])
+                    values.extend([reviewed_at, row["shift_id"]])
+                    conn.execute(f"UPDATE scheduled_shifts SET {', '.join(updates)} WHERE id=?", tuple(values))
+                    after = fetchone(conn, "SELECT * FROM scheduled_shifts WHERE id=?", (row["shift_id"],))
+                    log_schedule_change(
+                        conn,
+                        change_type="Staff shift request approved",
+                        entity_type="scheduled_shifts",
+                        entity_id=int(row["shift_id"]),
+                        employee_id=int(row["employee_id"]),
+                        work_date=str((after or row).get("shift_date") or ""),
+                        before=before,
+                        after=after,
+                        changed_by=user.get("display_name"),
+                        reason_category="Staff request",
+                        reason_note=payload.decision_note or row.get("reason"),
+                        attachment_ref=row.get("attachment_path"),
+                    )
+                    applied_at = reviewed_at
         conn.execute(
             """
             UPDATE shift_change_requests

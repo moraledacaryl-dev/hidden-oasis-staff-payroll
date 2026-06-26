@@ -12,16 +12,19 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse
 
-from core.auth import authenticate_user
+from core.auth import authenticate_user, verify_totp
+from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.login_security import clear_login_failures, lock_remaining_seconds, record_login_failure
 from core.payroll_engine import compute_payroll
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
-APP_VERSION = "0.1.5-api-wrapper-attendance-history"
+APP_VERSION = "1.0.0"
 API_PREFIX = "/api/v1"
 SESSION_TTL_SECONDS = 12 * 60 * 60
 ROLE_OWNER = "owner"
@@ -36,6 +39,7 @@ class PayrollPreviewRequest(BaseModel):
 class LoginRequest(BaseModel):
     display_name: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
+    otp: str | None = Field(default=None, min_length=6, max_length=6)
 
 class AttendanceDecisionRequest(BaseModel):
     decision: str = Field(..., description="Approved, Rejected, or Needs Correction")
@@ -98,12 +102,28 @@ def role_to_key(role: str | None) -> str:
     text = (role or "").strip().lower().replace(" ", "_").replace("-", "_")
     if text in {"owner", "admin", "administrator"}: return ROLE_OWNER
     if text in {"payroll", "payroll_admin", "hr", "hr_payroll"}: return ROLE_PAYROLL
-    if text in {"supervisor", "manager", "department_head"}: return ROLE_SUPERVISOR
+    if text in {"supervisor", "manager", "general_manager", "department_head"}: return ROLE_SUPERVISOR
     if text in {"staff", "employee"}: return ROLE_STAFF
     return ROLE_STAFF
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
-    return clean_row({"id": user.get("id"), "display_name": user.get("display_name") or "", "role": user.get("role") or "Staff", "role_key": role_to_key(user.get("role")), "active": int(user.get("active") or 0), "must_change_password": int(user.get("must_change_password") or 0), "last_login_at": user.get("last_login_at")})
+    role_key = role_to_key(user.get("role"))
+    mfa_enabled = int(user.get("mfa_enabled") or 0)
+    return clean_row(
+        {
+            "id": user.get("id"),
+            "display_name": user.get("display_name") or "",
+            "role": "General Manager" if role_key == ROLE_SUPERVISOR else user.get("role") or "Staff",
+            "role_key": role_key,
+            "active": int(user.get("active") or 0),
+            "must_change_password": int(user.get("must_change_password") or 0),
+            "mfa_enabled": mfa_enabled,
+            "mfa_setup_required": int(role_key in {ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR} and not mfa_enabled),
+            "employee_id": user.get("employee_id"),
+            "session_version": int(user.get("session_version") or 1),
+            "last_login_at": user.get("last_login_at"),
+        }
+    )
 
 def token_secret() -> str:
     return os.getenv("STAFF_PAYROLL_SESSION_SECRET") or os.getenv("STAFF_PAYROLL_API_KEY") or "dev-only-change-staff-payroll-session-secret"
@@ -138,6 +158,8 @@ def current_user_from_token(authorization: str | None = Header(default=None, ali
         user = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (payload.get("sub"),))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists or is inactive.")
+    if int(payload.get("sv") or 1) != int(user.get("session_version") or 1):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session has been revoked.")
     return public_user(user)
 
 def require_authenticated_user(user: dict[str, Any] = Depends(current_user_from_token)) -> dict[str, Any]:
@@ -152,7 +174,7 @@ def require_roles(*allowed_roles: str) -> Callable[[dict[str, Any]], dict[str, A
     return _require_role
 
 def normalize_employee(row: dict[str, Any], department_name: str | None = None, include_private: bool = True) -> dict[str, Any]:
-    return clean_row({"id": row.get("id"), "employee_code": row.get("employee_code") or row.get("code") or "", "full_name": row.get("full_name") or row.get("name") or "", "department_id": row.get("department_id"), "department_name": department_name or row.get("department_name") or row.get("department") or None, "position": row.get("position") or row.get("role") or None, "employment_type": row.get("employment_type") or None, "status": row.get("status") or "Active", "default_shift_start": row.get("default_shift_start"), "default_shift_end": row.get("default_shift_end"), "standard_paid_hours": row.get("standard_paid_hours"), "break_mins": row.get("break_mins"), "benefits_sss": int(row.get("benefits_sss") or 0) if include_private else 0, "benefits_philhealth": int(row.get("benefits_philhealth") or 0) if include_private else 0, "benefits_pagibig": int(row.get("benefits_pagibig") or 0) if include_private else 0, "benefits_tax": int(row.get("benefits_tax") or 0) if include_private else 0, "created_at": row.get("created_at") or ""})
+    return clean_row({"id": row.get("id"), "employee_code": row.get("employee_code") or row.get("code") or "", "full_name": row.get("full_name") or row.get("name") or "", "department_id": row.get("department_id"), "department_name": department_name or row.get("department_name") or row.get("department") or None, "position": row.get("position") or row.get("role") or None, "employment_type": row.get("employment_type") or None, "status": row.get("status") or "Active", "default_shift_start": row.get("default_shift_start"), "default_shift_end": row.get("default_shift_end"), "standard_shift_hours": row.get("standard_shift_hours"), "unpaid_break_minutes": row.get("unpaid_break_minutes"), "benefits_sss": int(row.get("benefits_sss") or 0) if include_private else 0, "benefits_philhealth": int(row.get("benefits_philhealth") or 0) if include_private else 0, "benefits_pagibig": int(row.get("benefits_pagibig") or 0) if include_private else 0, "benefits_tax": int(row.get("benefits_tax") or 0) if include_private else 0, "created_at": row.get("created_at") or ""})
 
 def department_lookup(conn: Any) -> dict[int, str]:
     if not table_exists(conn, "departments"): return {}
@@ -185,21 +207,120 @@ def attendance_exception_sql() -> str:
     """
 
 def build_app() -> FastAPI:
-    app = FastAPI(title="Hidden Oasis Staff Payroll API", version=APP_VERSION, description="Migration API wrapper around the existing SQLite database and Python payroll engine.")
-    origins = env_csv("STAFF_PAYROLL_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    app = FastAPI(
+        title="Hidden Oasis Staff Payroll API",
+        version=APP_VERSION,
+        description="Staff operations and payroll API.",
+    )
+    origins = env_csv(
+        "STAFF_PAYROLL_CORS_ORIGINS",
+        "http://localhost:3001,http://127.0.0.1:3001",
+    )
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["*"])
+
+    @app.middleware("http")
+    async def enforce_account_security(request: Request, call_next):
+        path = request.url.path
+        exempt = {
+            f"{API_PREFIX}/auth/login",
+            f"{API_PREFIX}/auth/me",
+            f"{API_PREFIX}/auth/change-password",
+            f"{API_PREFIX}/auth/mfa/setup",
+            f"{API_PREFIX}/auth/mfa/confirm",
+            f"{API_PREFIX}/auth/mfa/disable",
+        }
+        authorization = request.headers.get("Authorization", "")
+        if (
+            request.method != "OPTIONS"
+            and path.startswith(API_PREFIX)
+            and path not in exempt
+            and authorization.startswith("Bearer ")
+        ):
+            try:
+                payload = verify_token(authorization.removeprefix("Bearer ").strip())
+                with db_conn(read_only=True) as conn:
+                    user = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (payload.get("sub"),))
+                if user and int(payload.get("sv") or 1) != int(user.get("session_version") or 1):
+                    return JSONResponse({"detail": "Session has been revoked."}, status_code=401)
+                if user and int(user.get("must_change_password") or 0):
+                    return JSONResponse(
+                        {"detail": "Change your temporary password first.", "code": "password_change_required"},
+                        status_code=428,
+                    )
+                role_key = role_to_key((user or {}).get("role"))
+                if user and role_key in {ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR} and not int(user.get("mfa_enabled") or 0):
+                    return JSONResponse(
+                        {"detail": "Set up your authenticator first.", "code": "mfa_setup_required"},
+                        status_code=428,
+                    )
+            except HTTPException:
+                pass
+        return await call_next(request)
 
     @app.get("/health", response_model=ApiMessage)
     def health() -> ApiMessage:
         return ApiMessage(ok=True, message="Staff Payroll API is running.")
 
     @app.post(f"{API_PREFIX}/auth/login", dependencies=[Depends(require_api_key)])
-    def auth_login(payload: LoginRequest) -> dict[str, Any]:
+    def auth_login(payload: LoginRequest, request: Request) -> dict[str, Any]:
+        ip_address = request.client.host if request.client else "unknown"
         with db_conn(read_only=False) as conn:
-            user = authenticate_user(conn, payload.display_name.strip(), payload.password)
-        if not user: raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
+            remaining = lock_remaining_seconds(conn, payload.display_name, ip_address)
+            if remaining:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Too many failed attempts. Try again in {remaining} seconds.",
+                )
+            user = authenticate_user(
+                conn,
+                payload.display_name.strip(),
+                payload.password,
+                record_login=False,
+            )
+            if not user:
+                record_login_failure(conn, payload.display_name, ip_address)
+                log_audit(
+                    conn,
+                    actor=payload.display_name.strip() or None,
+                    action="Login failed",
+                    table_name="app_users",
+                    details={"ip_address": ip_address},
+                )
+                conn.commit()
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
+            if int(user.get("mfa_enabled") or 0) and not verify_totp(user.get("mfa_secret"), payload.otp):
+                record_login_failure(conn, payload.display_name, ip_address)
+                log_audit(
+                    conn,
+                    actor=user.get("display_name"),
+                    action="Login failed",
+                    table_name="app_users",
+                    record_id=int(user["id"]),
+                    details={"ip_address": ip_address, "reason": "invalid_mfa"},
+                )
+                conn.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="A valid authenticator code is required.",
+                )
+            logged_in_at = now_iso()
+            conn.execute(
+                "UPDATE app_users SET last_login_at=? WHERE id=?",
+                (logged_in_at, user["id"]),
+            )
+            user["last_login_at"] = logged_in_at
+            clear_login_failures(conn, payload.display_name, ip_address)
+            log_audit(
+                conn,
+                actor=user.get("display_name"),
+                action="Login succeeded",
+                table_name="app_users",
+                record_id=int(user["id"]),
+                details={"ip_address": ip_address},
+            )
+            conn.commit()
         safe_user = public_user(user); now = int(time.time())
-        token = sign_payload({"sub": safe_user["id"], "role": safe_user["role_key"], "iat": now, "exp": now + SESSION_TTL_SECONDS})
+        token = sign_payload({"sub": safe_user["id"], "role": safe_user["role_key"], "sv": safe_user["session_version"], "iat": now, "exp": now + SESSION_TTL_SECONDS})
         return {"access_token": token, "token_type": "bearer", "expires_in": SESSION_TTL_SECONDS, "user": safe_user}
 
     @app.get(f"{API_PREFIX}/auth/me", dependencies=[Depends(require_api_key)])
@@ -245,6 +366,17 @@ def build_app() -> FastAPI:
                 INSERT INTO attendance_reviews (time_log_id, reviewer, decision, reason, approved_ot_hours, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (time_log_id, user["display_name"], decision, payload.reason or "", float(payload.approved_ot_hours or 0), timestamp))
+            log_audit(
+                conn,
+                actor=user.get("display_name"),
+                action=f"Attendance {decision.lower()}",
+                table_name="time_logs",
+                record_id=time_log_id,
+                details={
+                    "approved_ot_hours": float(payload.approved_ot_hours or 0),
+                    "reason": payload.reason or "",
+                },
+            )
             conn.commit()
             updated = fetchone(conn, "SELECT * FROM time_logs WHERE id=?", (time_log_id,))
         return {"ok": True, "time_log": clean_row(updated or {}), "decision": decision, "reviewed_by": user["display_name"], "reviewed_at": timestamp}
@@ -265,14 +397,18 @@ def build_app() -> FastAPI:
         return clean_rows(rows)
 
     @app.get(f"{API_PREFIX}/meta", dependencies=[Depends(require_api_key)])
-    def meta() -> dict[str, Any]:
+    def meta(
+        user: dict[str, Any] = Depends(
+            require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR)
+        ),
+    ) -> dict[str, Any]:
         db_path = configured_db_path()
         with db_conn(read_only=True) as conn:
             table_count = fetchone(conn, "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")["c"]
             employees = fetchone(conn, "SELECT COUNT(*) AS c FROM employees")["c"]
             payroll_runs = fetchone(conn, "SELECT COUNT(*) AS c FROM payroll_runs")["c"]
             employee_columns = sorted(table_columns(conn, "employees"))
-        return {"app": "hidden-oasis-staff-payroll", "api_version": APP_VERSION, "database_path": str(db_path), "database_exists": db_path.exists(), "table_count": table_count, "employee_count": employees, "payroll_run_count": payroll_runs, "employee_columns": employee_columns, "mode": "api-wrapper-first-migration"}
+        return {"app": "hidden-oasis-staff-payroll", "api_version": APP_VERSION, "database_path": str(db_path), "database_exists": db_path.exists(), "table_count": table_count, "employee_count": employees, "payroll_run_count": payroll_runs, "employee_columns": employee_columns, "mode": "production"}
 
     @app.get(f"{API_PREFIX}/staff/employees", dependencies=[Depends(require_api_key)])
     def list_employees(status_filter: str | None = Query(default=None), department_id: int | None = Query(default=None), user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR))) -> list[dict[str, Any]]:
@@ -295,7 +431,15 @@ def build_app() -> FastAPI:
         return normalize_employee(row, departments.get(int(row["department_id"])) if row.get("department_id") is not None else None, include_private=include_private)
 
     @app.get(f"{API_PREFIX}/schedules", dependencies=[Depends(require_api_key)])
-    def list_schedules(start_date: date, end_date: date, department_id: int | None = Query(default=None), employee_id: int | None = Query(default=None)) -> list[dict[str, Any]]:
+    def list_schedules(
+        start_date: date,
+        end_date: date,
+        department_id: int | None = Query(default=None),
+        employee_id: int | None = Query(default=None),
+        user: dict[str, Any] = Depends(
+            require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR)
+        ),
+    ) -> list[dict[str, Any]]:
         period_start, period_end = parse_date_order(start_date, end_date)
         with db_conn(read_only=True) as conn:
             employee_columns = table_columns(conn, "employees")
@@ -308,7 +452,15 @@ def build_app() -> FastAPI:
             return rows
 
     @app.get(f"{API_PREFIX}/time-logs", dependencies=[Depends(require_api_key)])
-    def list_time_logs(start_date: date, end_date: date, employee_id: int | None = Query(default=None), attendance_status: str | None = Query(default=None)) -> list[dict[str, Any]]:
+    def list_time_logs(
+        start_date: date,
+        end_date: date,
+        employee_id: int | None = Query(default=None),
+        attendance_status: str | None = Query(default=None),
+        user: dict[str, Any] = Depends(
+            require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR)
+        ),
+    ) -> list[dict[str, Any]]:
         period_start, period_end = parse_date_order(start_date, end_date)
         with db_conn(read_only=True) as conn:
             sql = """SELECT tl.*, e.employee_code, e.full_name FROM time_logs tl JOIN employees e ON e.id=tl.employee_id WHERE tl.work_date BETWEEN ? AND ?"""; params: list[Any] = [period_start, period_end]

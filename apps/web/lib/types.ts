@@ -20,8 +20,8 @@ export type Employee = {
   status: string;
   default_shift_start: string | null;
   default_shift_end: string | null;
-  standard_paid_hours: number | null;
-  break_mins: number | null;
+  standard_shift_hours: number | null;
+  unpaid_break_minutes: number | null;
   benefits_sss: number;
   benefits_philhealth: number;
   benefits_pagibig: number;

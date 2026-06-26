@@ -2,28 +2,33 @@ import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getPayrollRuns } from "@/lib/api";
+import { currentSession } from "@/lib/session";
+import { redirect } from "next/navigation";
 
 const groups = [
   {
     title: "Readiness",
     items: [
-      { href: "/launch", label: "Launch", desc: "Health checks." },
-      { href: "/backup", label: "Backups", desc: "Data safety." },
-      { href: "/settings", label: "Settings", desc: "System info." },
-      { href: "/controls/old-schedules", label: "Old schedules", desc: "Old schedule data notes." },
+      { href: "/launch", label: "Launch" },
+      { href: "/backup", label: "Backups" },
+      { href: "/settings", label: "Settings" },
+      { href: "/controls/old-schedules", label: "Old schedules" },
     ],
   },
   {
     title: "Payroll",
     items: [
-      { href: "/cutoff", label: "Cutoff", desc: "Save draft." },
-      { href: "/payroll/runs", label: "Runs", desc: "Review history." },
-      { href: "/payroll", label: "Preview", desc: "Check totals." },
+      { href: "/cutoff", label: "Cutoff" },
+      { href: "/payroll/runs", label: "Runs" },
+      { href: "/payroll", label: "Preview" },
     ],
   },
 ];
 
 export default async function OperationsControlsPage() {
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  if (!["owner", "payroll"].includes(session.role_key)) return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
   const runs = await getPayrollRuns();
   const recentRuns = runs.slice(0, 3);
 
@@ -31,8 +36,8 @@ export default async function OperationsControlsPage() {
     <Shell allowedRoles={["owner", "payroll"]}>
       <div className="page">
         <header className="page-header">
-          <div className="grid"><span className="eyebrow">Controls</span><h1>Payroll controls</h1><p className="muted">Key routes and recent runs.</p></div>
-          <StatusBadge label="ready" tone="ok" />
+          <div className="grid"><span className="eyebrow">Controls</span><h1>Payroll controls</h1></div>
+          <StatusBadge label={`${recentRuns.length} recent`} tone="ok" />
         </header>
         <section className="grid cols-3">
           {groups.map((group) => (
@@ -40,7 +45,7 @@ export default async function OperationsControlsPage() {
               <div className="panel-title"><h2>{group.title}</h2></div>
               <div className="action-list">
                 {group.items.map((item) => (
-                  <Link className="action-item" href={item.href} key={item.href}><strong>{item.label}</strong><p className="muted">{item.desc}</p></Link>
+                  <Link className="action-item" href={item.href} key={item.href}><strong>{item.label}</strong></Link>
                 ))}
               </div>
             </div>

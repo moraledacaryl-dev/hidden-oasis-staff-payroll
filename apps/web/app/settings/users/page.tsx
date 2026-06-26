@@ -20,8 +20,7 @@ export default async function UserSettingsPage() {
           <div className="grid">
             <span className="eyebrow">Users</span>
             <h1>User management</h1>
-            <p className="muted">Owner-only app users, active state, and temporary password resets.</p>
-            <div className="action-row"><Link className="button ghost" href="/settings">Settings</Link><Link className="button ghost" href="/settings/password">My password</Link></div>
+            <div className="action-row"><Link className="button ghost" href="/settings">Settings</Link><Link className="button ghost" href="/settings/security">My security</Link></div>
           </div>
         </header>
         <section className="card">

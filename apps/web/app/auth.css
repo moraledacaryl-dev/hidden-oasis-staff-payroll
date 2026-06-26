@@ -11,7 +11,7 @@
 .primary-link {
   min-height: auto;
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--accent);
   color: #fff;
   font-size: 0.86rem;
@@ -34,7 +34,7 @@
 
 .mini-button {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
@@ -76,7 +76,7 @@
   gap: 20px;
   padding: 28px;
   border: 1px solid var(--line);
-  border-radius: 30px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.84);
   box-shadow: var(--shadow);
   backdrop-filter: blur(16px);
@@ -93,7 +93,7 @@
   gap: 6px;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 8px;
   background: var(--surface-soft);
   cursor: pointer;
 }

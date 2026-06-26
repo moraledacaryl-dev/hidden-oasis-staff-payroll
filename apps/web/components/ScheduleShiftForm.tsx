@@ -2,10 +2,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
+import type { ScheduleEmployee } from "@/lib/schedule-types";
 
 const positions = ["Receptionist", "Cook", "Barista", "Bartender", "Security", "Housekeeper", "Other"];
-
-type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
 
 export function ScheduleShiftForm({ weekStart, employees }: { weekStart: string; employees: ScheduleEmployee[] }) {
   const router = useRouter();
@@ -16,12 +15,18 @@ export function ScheduleShiftForm({ weekStart, employees }: { weekStart: string;
   const selectedEmployee = useMemo(() => employees.find((employee) => String(employee.id) === employeeId), [employeeId, employees]);
   const [position, setPosition] = useState("Receptionist");
   const [department, setDepartment] = useState("");
+  const [startTime, setStartTime] = useState("08:00");
+  const [endTime, setEndTime] = useState("17:00");
+  const [breakMinutes, setBreakMinutes] = useState(60);
 
   function chooseEmployee(nextEmployeeId: string) {
     setEmployeeId(nextEmployeeId);
     const employee = employees.find((item) => String(item.id) === nextEmployeeId);
     if (employee?.position && positions.includes(employee.position)) setPosition(employee.position);
     if (employee?.department) setDepartment(employee.department);
+    setStartTime(employee?.default_shift_start || "08:00");
+    setEndTime(employee?.default_shift_end || "17:00");
+    setBreakMinutes(Number(employee?.unpaid_break_minutes ?? 60));
   }
 
   async function submit(formData: FormData) {
@@ -56,11 +61,11 @@ export function ScheduleShiftForm({ weekStart, employees }: { weekStart: string;
     <form action={submit} className="form-grid">
       <label>Date<input name="shift_date" type="date" defaultValue={weekStart} required /></label>
       <label>Person<select name="employee_id" value={employeeId} onChange={(event) => chooseEmployee(event.target.value)}><option value="">Unassigned</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
-      <label>Start<input name="start_time" type="time" defaultValue="08:00" required /></label>
-      <label>End<input name="end_time" type="time" defaultValue="17:00" required /></label>
+      <label>Start<input name="start_time" type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} required /></label>
+      <label>End<input name="end_time" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></label>
       <label>Role<select name="position" value={position} onChange={(event) => setPosition(event.target.value)}>{positions.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
       <label>Dept<input name="department" value={department} onChange={(event) => setDepartment(event.target.value)} placeholder="Optional" /></label>
-      <label>Break<input name="break_minutes" type="number" min="0" defaultValue="60" /></label>
+      <label>Break<input name="break_minutes" type="number" min="0" max="1440" value={breakMinutes} onChange={(event) => setBreakMinutes(Number(event.target.value))} /></label>
       <label>Note<input name="notes" placeholder="Optional" /></label>
       <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Add"}</button>
       {message ? <p className="muted">{message}</p> : null}

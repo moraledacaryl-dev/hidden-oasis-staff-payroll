@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./PayrollAdjustmentEditor.module.css";
 
@@ -25,7 +25,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
 
   const selectedAdvance = useMemo(() => advances.find((item) => item.id === selectedAdvanceId), [advances, selectedAdvanceId]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setMessage("");
     const response = await fetch(`/api/payroll/runs/${runId}/employees/${employeeId}/adjustments`, { cache: "no-store" });
@@ -41,9 +41,9 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
     setSelectedAdvanceId(current.cash_advance_id ? Number(current.cash_advance_id) : null);
     setCashAmount(Number(current.cash_advance_amount || 0));
     setServerEditable(data.editable !== false);
-  }
+  }, [employeeId, runId]);
 
-  useEffect(() => { if (open) void load(); }, [open]);
+  useEffect(() => { if (open) void load(); }, [load, open]);
 
   function chooseAdvance(value: string) {
     const id = value ? Number(value) : null;

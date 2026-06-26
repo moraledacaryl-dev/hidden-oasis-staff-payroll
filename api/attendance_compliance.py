@@ -26,7 +26,7 @@ def require_attendance_compliance_user(authorization: str | None, x_api_key: str
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
     if user.get("role_key") not in {"owner", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Attendance compliance requires owner or supervisor role.")
+        raise HTTPException(status_code=403, detail="Attendance compliance requires owner or General Manager access.")
     return user
 
 

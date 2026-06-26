@@ -11,7 +11,7 @@ export function defaultPathForRole(role: RoleKey): string {
     case "payroll":
       return "/payroll";
     case "supervisor":
-      return "/supervisor";
+      return "/";
     case "staff":
       return "/me";
     default:

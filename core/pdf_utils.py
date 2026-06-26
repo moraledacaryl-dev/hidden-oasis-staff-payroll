@@ -25,7 +25,7 @@ def _draw_lines(c: canvas.Canvas, x: float, y: float, rows: Iterable[tuple[str, 
 def generate_payslip_pdf(company_name: str, company_addr: str, employee: dict[str, Any], run: dict[str, Any], item: dict[str, Any], lines: list[dict[str, Any]] | None = None) -> BytesIO:
     """Generate a clean single-employee payslip PDF.
 
-    This restores the original Payroll app's practical payslip feature in the broader Staff/Payroll prototype.
+    Generate the practical payslip output used by the Staff/Payroll app.
     """
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)

@@ -35,7 +35,7 @@ export default async function DashboardPage() {
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className="page">
         <header className="page-header">
-          <div className="grid"><span className="eyebrow">Dashboard</span><h1>{canSeePayroll ? "Payroll overview" : "Supervisor overview"}</h1><p className="muted">{periodStart} to {periodEnd}</p></div>
+          <div className="grid"><span className="eyebrow">Dashboard</span><h1>{canSeePayroll ? "Payroll overview" : "Operations overview"}</h1><p className="muted">{periodStart} to {periodEnd}</p></div>
           <div className="badge-row"><StatusBadge label="Connected" />{preview ? <StatusBadge label={preview.mode} tone="warning" /> : <StatusBadge label="Operations" tone="warning" />}</div>
         </header>
 
@@ -53,7 +53,7 @@ export default async function DashboardPage() {
           </div>
 
           <div className="card">
-            <div className="panel-title"><div><h2>Quick actions</h2><p className="muted">Common work areas.</p></div></div>
+            <div className="panel-title"><h2>Quick actions</h2></div>
             <div className="grid cols-2">
                 <Link className="primary-link" href="/schedule">Schedule</Link>
                 <Link className="primary-link" href="/attendance">Attendance</Link>

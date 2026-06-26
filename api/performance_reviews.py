@@ -51,7 +51,7 @@ def require_review_user(authorization: str | None, x_api_key: str | None) -> dic
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
     if user.get("role_key") not in {"owner", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Performance reviews require owner or supervisor role.")
+        raise HTTPException(status_code=403, detail="Performance reviews require owner or General Manager access.")
     return user
 
 
@@ -434,7 +434,7 @@ def save_performance_log(
             if not existing:
                 raise HTTPException(status_code=404, detail="Performance log not found.")
             if user.get("role_key") != "owner" and existing.get("created_by") != user.get("display_name"):
-                raise HTTPException(status_code=403, detail="Supervisor can only edit their own performance logs.")
+                raise HTTPException(status_code=403, detail="The General Manager can only edit their own performance logs.")
 
         values = (
             payload.employee_id,

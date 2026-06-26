@@ -1,24 +1,22 @@
+import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import { NextResponse } from "next/server";
 import { ACCESS_TOKEN_COOKIE, NAME_COOKIE, ROLE_COOKIE } from "@/lib/session-client";
-
-function apiBaseUrl(): string {
-  return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
-}
 
 export async function POST(request: Request) {
   const body = await request.json();
   const apiResponse = await fetch(`${apiBaseUrl()}/api/v1/auth/login`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-    },
-    body: JSON.stringify({ display_name: body.display_name, password: body.password }),
+    headers: await backendHeaders(true, false),
+    body: JSON.stringify({ display_name: body.display_name, password: body.password, otp: body.otp }),
     cache: "no-store",
   });
 
   if (!apiResponse.ok) {
-    return NextResponse.json({ ok: false, message: "Invalid username or password." }, { status: 401 });
+    const failed = await apiResponse.json().catch(() => ({}));
+    return NextResponse.json(
+      { ok: false, message: failed.detail || "Sign in failed." },
+      { status: apiResponse.status },
+    );
   }
 
   const data = await apiResponse.json();

@@ -17,6 +17,9 @@ Required runtime values:
 STAFF_PAYROLL_DB_PATH=/root/repos/hidden-oasis-staff-payroll/data/staff_payroll.sqlite
 STAFF_PAYROLL_API_KEY=<set-a-private-key>
 STAFF_PAYROLL_SESSION_SECRET=<set-a-long-random-secret>
+STAFF_PAYROLL_BACKUP_DIR=/srv/backups/staff-payroll
+STAFF_PAYROLL_BACKUP_KEY=<set-a-different-long-random-secret>
+STAFF_PAYROLL_OFFSITE_BACKUP_DIR=/mnt/offsite/staff-payroll
 STAFF_PAYROLL_CORS_ORIGINS=http://89.167.28.163:3001,http://127.0.0.1:3001
 ```
 
@@ -25,7 +28,7 @@ STAFF_PAYROLL_CORS_ORIGINS=http://89.167.28.163:3001,http://127.0.0.1:3001
 ```bash
 cd /root/repos/hidden-oasis-staff-payroll
 . .venv-api/bin/activate
-python3 -m uvicorn api.server_review:app --host 127.0.0.1 --port 8001
+python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 ## 4. Web environment
@@ -33,7 +36,7 @@ python3 -m uvicorn api.server_review:app --host 127.0.0.1 --port 8001
 Set the API URL and API key for the Next.js app:
 
 ```bash
-NEXT_PUBLIC_STAFF_PAYROLL_API_URL=http://127.0.0.1:8001
+STAFF_PAYROLL_API_URL=http://127.0.0.1:8001
 STAFF_PAYROLL_API_KEY=<same-private-key>
 ```
 
@@ -41,7 +44,7 @@ STAFF_PAYROLL_API_KEY=<same-private-key>
 
 ```bash
 cd /root/repos/hidden-oasis-staff-payroll/apps/web
-npm install
+npm ci
 npm run build
 npm run start -- -H 0.0.0.0 -p 3001
 ```

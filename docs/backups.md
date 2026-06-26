@@ -1,58 +1,36 @@
-# Backup Guidance
+# Backup and Restore
 
-Hidden Oasis Staff Payroll keeps the runtime SQLite database outside Git. Make a local server backup before migrations or deploys, then keep at least one off-server copy.
+The runtime SQLite database stays outside Git. Create a verified backup before every migration or deployment and keep an off-server copy.
 
-## Before Changes
+## Configuration
 
-Run the existing local backup first:
-
-```bash
-cd /root/repos/hidden-oasis-staff-payroll
-/root/backups/hidden-oasis-payroll/backup.sh
+```text
+STAFF_PAYROLL_BACKUP_DIR=/srv/backups/staff-payroll
+STAFF_PAYROLL_BACKUP_KEY=<long-random-encryption-secret>
+STAFF_PAYROLL_OFFSITE_BACKUP_DIR=/mounted-offsite/staff-payroll
+STAFF_PAYROLL_BACKUP_RETENTION=30
 ```
 
-Confirm the backup file exists and is readable before running migrations.
+## Create and Verify
 
-## Off-Server Options
+Owners can create, verify, and download backups from the Backups page.
 
-### S3-Compatible Storage
-
-Use a bucket from AWS S3, Cloudflare R2, Backblaze B2, Wasabi, or another S3-compatible provider. Store credentials outside the repo.
+Command line:
 
 ```bash
-export AWS_ACCESS_KEY_ID="<access-key>"
-export AWS_SECRET_ACCESS_KEY="<secret-key>"
-export AWS_DEFAULT_REGION="<region>"
-aws s3 cp /root/backups/hidden-oasis-payroll/<backup-file>.tar.gz s3://<bucket-name>/hidden-oasis-payroll/
+.venv-api/bin/python scripts/backup_database.py
 ```
 
-### Google Drive With rclone
+Backups use SQLite's online backup API and run an integrity check before completion. Encrypted backups require the same `STAFF_PAYROLL_BACKUP_KEY` for verification and restore.
 
-Configure rclone interactively on the server. Do not commit the rclone config if it contains tokens.
-
-```bash
-rclone copy /root/backups/hidden-oasis-payroll gdrive:<folder>/hidden-oasis-payroll --include "*.tar.gz"
-```
-
-### Another Server With rsync
-
-Use SSH keys managed outside the repo.
-
-```bash
-rsync -avz /root/backups/hidden-oasis-payroll/ <backup-user>@<backup-host>:/srv/backups/hidden-oasis-payroll/
-```
-
-## Restore Checklist
+## Restore
 
 1. Stop the API and web services.
-2. Copy the selected backup archive back to the payroll server.
-3. Extract to a temporary restore directory.
-4. Verify the SQLite database file name, size, and timestamp.
-5. Move the current database aside before replacing it.
-6. Restore the database file with the same owner and permissions.
-7. Start the API and web services.
-8. Open the app and verify login, schedule, payroll runs, payslips, and recent audit data.
+2. Keep the current database as a separate rollback copy.
+3. Decrypt the selected backup when it ends in `.fernet`.
+4. Run `PRAGMA integrity_check` on the restored SQLite file.
+5. Restore the configured file path and permissions.
+6. Start the API and run `scripts/production_preflight.py`.
+7. Verify login, schedules, payroll runs, payslips, backups, and recent audit records.
 
-## Test Restores
-
-Schedule a restore test on a non-production machine. A backup is only production-safe after the team has proven it can be restored.
+Run a restore test on a non-production machine regularly. A backup is not proven until it has been restored successfully.

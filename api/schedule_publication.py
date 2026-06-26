@@ -26,10 +26,6 @@ class PublishSchedulePayload(BaseModel):
     notes: str | None = None
 
 
-class AcknowledgeSchedulePayload(BaseModel):
-    notes: str | None = None
-
-
 class PublishedChangeFields(BaseModel):
     change_reason: str | None = None
     change_note: str | None = None
@@ -225,7 +221,7 @@ def require_change_reason_if_published(conn, work_date: str | date, payload: Any
 
 @router.get("/schedules/week/{week_start}/publication")
 def get_schedule_publication(week_start: str, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    require_user(authorization, x_api_key, {"owner", "payroll", "supervisor", "staff"})
+    require_user(authorization, x_api_key, {"owner", "payroll", "supervisor"})
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
@@ -253,7 +249,6 @@ def get_schedule_publication(week_start: str, authorization: str | None = Header
     finally:
         conn.close()
 
-
 @router.post("/schedules/week/{week_start}/publish")
 def publish_schedule(week_start: str, payload: PublishSchedulePayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     user = require_user(authorization, x_api_key, {"owner", "payroll", "supervisor"})
@@ -275,29 +270,5 @@ def publish_schedule(week_start: str, payload: PublishSchedulePayload, authoriza
         conn.commit()
         row = fetchone(conn, "SELECT * FROM schedule_publications WHERE week_start=?", (week_start,))
         return {"ok": True, "publication": row, "has_pending_changes": False, "display_status": "Published"}
-    finally:
-        conn.close()
-
-
-@router.post("/schedules/week/{week_start}/acknowledge")
-def acknowledge_schedule(week_start: str, payload: AcknowledgeSchedulePayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    user = require_user(authorization, x_api_key, {"owner", "payroll", "supervisor", "staff"})
-    employee_id = user.get("employee_id")
-    if not employee_id:
-        raise HTTPException(status_code=422, detail="User is not linked to an employee record.")
-    conn = get_conn(DB_PATH)
-    try:
-        ensure_schema(conn)
-        conn.execute(
-            """
-            INSERT INTO schedule_acknowledgements(week_start, employee_id, acknowledged_by, acknowledged_at, notes)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
-            ON CONFLICT(week_start, employee_id)
-            DO UPDATE SET acknowledged_by=excluded.acknowledged_by, acknowledged_at=CURRENT_TIMESTAMP, notes=excluded.notes
-            """,
-            (week_start, int(employee_id), user.get("display_name"), payload.notes),
-        )
-        conn.commit()
-        return {"ok": True, "message": "Schedule acknowledged."}
     finally:
         conn.close()

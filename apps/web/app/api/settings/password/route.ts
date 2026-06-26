@@ -1,25 +1,21 @@
-import { cookies } from "next/headers";
+import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import { NextResponse } from "next/server";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
-
-function apiBaseUrl(): string {
-  return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
-}
+import { ACCESS_TOKEN_COOKIE, NAME_COOKIE, ROLE_COOKIE } from "@/lib/session-client";
 
 export async function POST(request: Request) {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  if (!token) return NextResponse.json({ ok: false, message: "Not signed in." }, { status: 401 });
   const body = await request.json();
   const response = await fetch(`${apiBaseUrl()}/api/v1/auth/change-password`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-    },
+    headers: await backendHeaders(true),
     body: JSON.stringify({ current_password: body.current_password, new_password: body.new_password }),
     cache: "no-store",
   });
   const data = await response.json().catch(() => ({}));
-  return NextResponse.json(data, { status: response.status });
+  const result = NextResponse.json(data, { status: response.status });
+  if (response.ok) {
+    result.cookies.delete(ACCESS_TOKEN_COOKIE);
+    result.cookies.delete(ROLE_COOKIE);
+    result.cookies.delete(NAME_COOKIE);
+  }
+  return result;
 }

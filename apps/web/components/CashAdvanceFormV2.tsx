@@ -133,7 +133,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
 
           <label className="cash-edit-field">
             <span>Approved by</span>
-            <input name="approved_by" defaultValue={item?.approved_by || ""} placeholder="Supervisor or owner" />
+            <input name="approved_by" defaultValue={item?.approved_by || ""} placeholder="General Manager or owner" />
           </label>
 
           <label className="cash-edit-field cash-edit-span-2">

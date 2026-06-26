@@ -4,44 +4,20 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { moveScheduledShift } from "@/app/schedule/actions";
 import { ScheduleDayEditorModal } from "@/components/ScheduleDayEditorModal";
+import type {
+  ScheduleEmployee,
+  ScheduleLeaveStatus,
+  ScheduleRestDay,
+  ScheduleShift,
+} from "@/lib/schedule-types";
 import styles from "@/app/schedule/page.module.css";
 import restStyles from "./ScheduleRestDay.module.css";
 
-type Shift = {
-  id: number;
-  employee_id: number | null;
-  shift_date: string;
-  start_time: string;
-  end_time: string;
-  position: string;
-  department?: string | null;
-  employee_department?: string | null;
-  break_minutes: number;
-  status: string;
-  notes?: string | null;
-  employee_name?: string | null;
-  planned_paid_hours: number;
-  is_overnight: boolean;
-  source?: string;
-  movable?: boolean;
-  actual_in?: string | null;
-  actual_out?: string | null;
-  actual_status?: string | null;
-  actual_source?: string | null;
-  actual_notes?: string | null;
-  is_absent?: number | null;
-  absence_type?: string | null;
-  approved_ot_hours?: number | null;
-};
-
-type RestDay = { id: number; employee_id: number; work_date: string; notes?: string | null };
-type LeaveStatus = { id: number; employee_id: number; work_date: string; leave_type_name: string; paid: number; status: string; reason?: string | null };
-type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
-type EditorState = { day: string; shift: Shift | null; employeeId?: number | null; initialTab?: "scheduled" | "actual" | "leave" };
+type EditorState = { day: string; shift: ScheduleShift | null; employeeId?: number | null; initialTab?: "scheduled" | "actual" | "leave" };
 
 type Props = {
   days: string[];
-  shifts: Shift[];
+  shifts: ScheduleShift[];
   employees: ScheduleEmployee[];
   canEdit: boolean;
 };
@@ -54,20 +30,20 @@ function dayLabel(iso: string) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" });
 }
 
-function actualText(shift: Shift) {
+function actualText(shift: ScheduleShift) {
   if (shift.is_absent) return shift.absence_type || "Absent";
   if (shift.actual_in || shift.actual_out) return `${shift.actual_in || "—"}–${shift.actual_out || "—"}`;
   return "Not recorded";
 }
 
-function actualTone(shift: Shift) {
+function actualTone(shift: ScheduleShift) {
   if (shift.is_absent) return styles.actualDanger;
   if (shift.actual_source === "legacy_schedule") return styles.actualLegacy;
   if (shift.actual_in || shift.actual_out) return styles.actualOk;
   return styles.actualMissing;
 }
 
-function shiftIdentity(shift: Shift) {
+function shiftIdentity(shift: ScheduleShift) {
   return [shift.employee_id || "unassigned", shift.shift_date, shift.start_time, shift.end_time, shift.position || "Other"].join("|");
 }
 
@@ -77,8 +53,8 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   const [overDay, setOverDay] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const [restDays, setRestDays] = useState<RestDay[]>([]);
-  const [leaveStatuses, setLeaveStatuses] = useState<LeaveStatus[]>([]);
+  const [restDays, setRestDays] = useState<ScheduleRestDay[]>([]);
+  const [leaveStatuses, setLeaveStatuses] = useState<ScheduleLeaveStatus[]>([]);
   const [isPending, startTransition] = useTransition();
 
   const loadDayStates = useCallback(() => {
@@ -110,7 +86,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
     return hasUnassigned ? [...employeeRows, { id: null, name: "Unassigned", department: "", position: "" }] : employeeRows;
   }, [employees, visibleShifts]);
 
-  const shiftsByCell = useMemo(() => visibleShifts.reduce<Record<string, Shift[]>>((acc, shift) => {
+  const shiftsByCell = useMemo(() => visibleShifts.reduce<Record<string, ScheduleShift[]>>((acc, shift) => {
     const key = `${shift.employee_id || "unassigned"}:${shift.shift_date}`;
     acc[key] ||= [];
     acc[key].push(shift);
@@ -118,7 +94,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   }, {}), [visibleShifts]);
 
   const restDayKeys = useMemo(() => new Set(restDays.map((item) => `${item.employee_id}:${item.work_date}`)), [restDays]);
-  const leaveByCell = useMemo(() => leaveStatuses.reduce<Record<string, LeaveStatus>>((acc, item) => {
+  const leaveByCell = useMemo(() => leaveStatuses.reduce<Record<string, ScheduleLeaveStatus>>((acc, item) => {
     acc[`${item.employee_id}:${item.work_date}`] = item;
     return acc;
   }, {}), [leaveStatuses]);

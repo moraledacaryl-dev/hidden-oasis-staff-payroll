@@ -1,11 +1,9 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { CashAdvanceForm } from "@/components/CashAdvanceForm";
 import { ManualRepaymentForm } from "@/components/ManualRepaymentForm";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiBaseUrl, peso } from "@/lib/api";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
+import { apiBaseUrl, backendHeaders, peso } from "@/lib/api";
 import { currentSession } from "@/lib/session";
 import "./cash-advances.css";
 
@@ -17,21 +15,16 @@ type Advance = {
   total_repaid?: number; overpayment_credit?: number; repayment_method?: string; status: string; reason?: string | null; repayments?: Repayment[];
 };
 
-async function authHeaders(): Promise<HeadersInit> {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  return { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}) };
-}
-
 async function loadAdvances(): Promise<Advance[]> {
-  const response = await fetch(`${apiBaseUrl()}/api/v1/cash-advances`, { headers: await authHeaders(), cache: "no-store" });
-  if (!response.ok) return [];
+  const response = await fetch(`${apiBaseUrl()}/api/v1/cash-advances`, { headers: await backendHeaders(), cache: "no-store" });
+  if (!response.ok) throw new Error(`Cash advances could not be loaded (${response.status}).`);
   const data = await response.json().catch(() => ({}));
   return data.items || [];
 }
 
 async function loadEmployees(): Promise<Employee[]> {
-  const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/employees`, { headers: await authHeaders(), cache: "no-store" });
-  if (!response.ok) return [];
+  const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/employees`, { headers: await backendHeaders(), cache: "no-store" });
+  if (!response.ok) throw new Error(`Employees could not be loaded (${response.status}).`);
   const data = await response.json().catch(() => ({}));
   return data.items || [];
 }
@@ -49,7 +42,16 @@ export default async function CashAdvancesPage() {
 
   const canEditExisting = ["owner", "payroll"].includes(session.role_key);
   const isOwner = session.role_key === "owner";
-  const [advances, employees] = await Promise.all([loadAdvances(), loadEmployees()]);
+  const loaded = await Promise.allSettled([loadAdvances(), loadEmployees()]);
+  const failed = loaded.find((result) => result.status === "rejected");
+  if (failed?.status === "rejected") {
+    return (
+      <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
+        <div className="page"><section className="card"><strong>Cash advances unavailable</strong><p className="muted">{failed.reason instanceof Error ? failed.reason.message : "Try again shortly."}</p></section></div>
+      </Shell>
+    );
+  }
+  const [advances, employees] = loaded.map((result) => result.status === "fulfilled" ? result.value : []) as [Advance[], Employee[]];
   const active = advances.filter((item) => item.status === "Active");
   const totalBalance = active.reduce((sum, item) => sum + Number(item.remaining_balance || 0), 0);
   const totalRepaid = advances.reduce((sum, item) => sum + Number(item.total_repaid || 0), 0);
@@ -58,7 +60,7 @@ export default async function CashAdvancesPage() {
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className="page cash-advance-page">
         <header className="page-header">
-          <div className="grid"><span className="eyebrow">Cash Advances</span><h1>Employee advances</h1><p className="muted">Record advances, receive payments, and review outstanding balances.</p></div>
+          <div className="grid"><span className="eyebrow">Cash Advances</span><h1>Employee advances</h1></div>
           <StatusBadge label={`${active.length} active`} tone={active.length ? "warning" : "ok"} />
         </header>
 
@@ -69,7 +71,7 @@ export default async function CashAdvancesPage() {
         </section>
 
         <section className="card cash-create-card">
-          <div className="panel-title"><div><h2>Add cash advance</h2><p className="muted">Create a new advance and select how it will normally be repaid.</p></div></div>
+          <div className="panel-title"><h2>Add cash advance</h2></div>
           <CashAdvanceForm employees={employees} isOwner={isOwner} />
         </section>
 
@@ -135,7 +137,7 @@ export default async function CashAdvancesPage() {
               </article>
             );
           })}
-          {advances.length === 0 ? <section className="card cash-empty-state"><h2>No cash advances yet</h2><p className="muted">New advances will appear here with balance and repayment tracking.</p></section> : null}
+          {advances.length === 0 ? <section className="card cash-empty-state"><h2>No cash advances</h2></section> : null}
         </section>
       </div>
     </Shell>

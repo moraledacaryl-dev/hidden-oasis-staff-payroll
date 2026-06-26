@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export function PasswordChangeForm() {
+  const router = useRouter();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -11,9 +13,9 @@ export function PasswordChangeForm() {
     setMessage("");
     const newPassword = String(formData.get("new_password") || "");
     const confirm = String(formData.get("confirm_password") || "");
-    if (newPassword.length < 8) {
+    if (newPassword.length < 12) {
       setBusy(false);
-      setMessage("Use at least 8 characters.");
+      setMessage("Use at least 12 characters.");
       return;
     }
     if (newPassword !== confirm) {
@@ -35,14 +37,18 @@ export function PasswordChangeForm() {
       setMessage(typeof data.detail === "string" ? data.detail : data.message || "Password was not changed.");
       return;
     }
-    setMessage("Password changed.");
+    setMessage("Password changed. Redirecting...");
+    window.setTimeout(() => {
+      router.push("/login");
+      router.refresh();
+    }, 500);
   }
 
   return (
     <form action={submit} className="form-grid">
       <label>Current password<input name="current_password" type="password" required autoComplete="current-password" /></label>
-      <label>New password<input name="new_password" type="password" required minLength={8} autoComplete="new-password" /></label>
-      <label>Confirm new password<input name="confirm_password" type="password" required minLength={8} autoComplete="new-password" /></label>
+      <label>New password<input name="new_password" type="password" required minLength={12} autoComplete="new-password" /></label>
+      <label>Confirm new password<input name="confirm_password" type="password" required minLength={12} autoComplete="new-password" /></label>
       <button className="primary-button" type="submit" disabled={busy}>{busy ? "Changing..." : "Change password"}</button>
       {message ? <p className="muted">{message}</p> : null}
     </form>

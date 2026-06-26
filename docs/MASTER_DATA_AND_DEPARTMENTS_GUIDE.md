@@ -1,6 +1,6 @@
 # Master Data and Departments Guide
 
-This Staff/Payroll prototype should use master data imports for employee setup whenever possible. Do not manually add every employee if you already have a complete list.
+Use master data imports for employee setup whenever possible. Do not manually add every employee if you already have a complete list.
 
 ## Upload order
 

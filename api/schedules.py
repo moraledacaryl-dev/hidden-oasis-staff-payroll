@@ -191,7 +191,7 @@ def require_schedule_viewer(authorization: str | None, x_api_key: str | None) ->
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
     if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Schedule view requires owner, payroll, or supervisor role.")
+        raise HTTPException(status_code=403, detail="Schedule view requires owner, payroll, or General Manager access.")
     return user
 
 
@@ -199,7 +199,7 @@ def require_schedule_editor(authorization: str | None, x_api_key: str | None) ->
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
     if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Only owner, payroll, or supervisor can edit schedules.")
+        raise HTTPException(status_code=403, detail="Only owner, payroll, or the General Manager can edit schedules.")
     return user
 
 
@@ -500,9 +500,28 @@ def schedule_employees(authorization: str | None = Header(default=None, alias="A
         code_expr = "employee_code" if "employee_code" in cols else "'' AS employee_code"
         dept_expr = "department" if "department" in cols else "'' AS department"
         position_expr = "position" if "position" in cols else "'' AS position"
-        status_expr = "employment_status" if "employment_status" in cols else "'active' AS employment_status"
-        where = "WHERE COALESCE(employment_status, 'active') NOT IN ('inactive', 'terminated', 'resigned')" if "employment_status" in cols else ""
-        rows = fetchall(conn, f"SELECT id, {name_col} AS full_name, {code_expr}, {dept_expr}, {position_expr}, {status_expr} FROM employees {where} ORDER BY COALESCE(department, ''), {name_col}")
+        start_expr = "default_shift_start" if "default_shift_start" in cols else "NULL AS default_shift_start"
+        end_expr = "default_shift_end" if "default_shift_end" in cols else "NULL AS default_shift_end"
+        break_expr = "unpaid_break_minutes" if "unpaid_break_minutes" in cols else "60 AS unpaid_break_minutes"
+        status_col = first_existing(cols, ["employment_status", "status"])
+        status_expr = f"{status_col} AS employment_status" if status_col else "'Active' AS employment_status"
+        where = (
+            f"WHERE lower(COALESCE({status_col}, 'active')) NOT IN ('inactive', 'terminated', 'resigned')"
+            if status_col
+            else ""
+        )
+        order_department = "COALESCE(department, '')" if "department" in cols else "''"
+        rows = fetchall(
+            conn,
+            f"""
+            SELECT id, {name_col} AS full_name, {code_expr}, {dept_expr},
+                   {position_expr}, {start_expr}, {end_expr}, {break_expr},
+                   {status_expr}
+            FROM employees
+            {where}
+            ORDER BY {order_department}, {name_col}
+            """,
+        )
         return {"ok": True, "items": rows}
     finally:
         conn.close()

@@ -6,7 +6,7 @@
 .employee-payroll-card {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -33,7 +33,7 @@
   height: 40px;
   display: grid;
   place-items: center;
-  border-radius: 13px;
+  border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 0.78rem;
@@ -67,7 +67,7 @@
 
 .employee-payroll-net {
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--accent-soft);
 }
 
@@ -109,7 +109,7 @@
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 8px;
   background: var(--surface);
 }
 
@@ -162,7 +162,7 @@
 .employee-payroll-warnings {
   padding: 12px 14px;
   border: 1px solid #edd19c;
-  border-radius: 14px;
+  border-radius: 8px;
   background: var(--warning-soft);
   color: var(--warning);
 }
@@ -179,14 +179,14 @@
   gap: 16px;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 8px;
   background: var(--surface);
 }
 
 .payroll-run-version-note {
   padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 8px;
   background: var(--surface-soft);
   color: var(--muted);
   font-size: 0.84rem;

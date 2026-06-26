@@ -13,8 +13,8 @@ export default async function StaffPage() {
     return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div /></Shell>;
   }
   const employees = await getEmployees();
-  const canEdit = session.role_key === "owner" || session.role_key === "payroll";
-  const showPrivate = canEdit;
+  const canEdit = ["owner", "payroll", "supervisor"].includes(session.role_key);
+  const showPrivate = session.role_key === "owner" || session.role_key === "payroll";
   const active = employees.filter((employee) => employee.status === "Active");
   const freelance = employees.filter((employee) => employee.employment_type === "Freelance");
   const departments = new Set(employees.map((employee) => employee.department_name || "Unassigned"));
@@ -26,7 +26,6 @@ export default async function StaffPage() {
           <div className="grid">
             <span className="eyebrow">Staff</span>
             <h1>Staff directory</h1>
-            <p className="muted">Current employee records.</p>
             {canEdit ? (
               <div className="action-row">
                 <Link className="primary-button" href="/staff/manage?add=1#add-employee">Add employee</Link>

@@ -1,12 +1,11 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { shiftRequestTypes } from "@/app/me/shift-request-types";
 
 export type StaffShift = { id: number; shift_date: string; start_time: string; end_time: string; position?: string; department?: string; status?: string; notes?: string; week_start?: string };
-export type StaffCoworker = { id: number; full_name: string; department?: string };
-export type StaffShiftRequest = { id: number; request_no: string; employee_id: number; request_type: string; original_date: string; original_start_time: string; original_end_time: string; requested_date?: string | null; requested_start_time?: string | null; requested_end_time?: string | null; reason: string; proposed_swap_employee_id?: number | null; swap_employee_name?: string | null; status: string; submitted_at: string; decision_note?: string | null; attachment_path?: string | null };
+export type StaffCoworkerShift = { id: number; employee_id: number; full_name: string; shift_date: string; start_time: string; end_time: string; position?: string };
+export type StaffShiftRequest = { id: number; request_no: string; employee_id: number; request_type: string; original_date: string; original_start_time: string; original_end_time: string; requested_date?: string | null; requested_start_time?: string | null; requested_end_time?: string | null; reason: string; proposed_swap_employee_id?: number | null; proposed_swap_shift_id?: number | null; swap_employee_name?: string | null; status: string; submitted_at: string; decision_note?: string | null; attachment_path?: string | null };
 export type StaffSchedulePublication = { week_start: string; published_at?: string | null; published_by?: string | null; notes?: string | null; acknowledged: boolean; acknowledged_at?: string | null };
 
 async function post(body: Record<string, unknown>) {
@@ -55,8 +54,7 @@ function ScheduleTable({ items, emptyText }: { items: StaffShift[]; emptyText: s
   );
 }
 
-export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, publications }: { employeeId: number; schedule: StaffShift[]; requests: StaffShiftRequest[]; coworkers: StaffCoworker[]; publications: StaffSchedulePublication[] }) {
-  const router = useRouter();
+export function StaffShiftRequests({ employeeId, schedule, requests, coworkerShifts, publications, onChanged }: { employeeId: number; schedule: StaffShift[]; requests: StaffShiftRequest[]; coworkerShifts: StaffCoworkerShift[]; publications: StaffSchedulePublication[]; onChanged: () => Promise<void> }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -73,7 +71,10 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
     event.preventDefault();
     setBusy(true);
     setMessage("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const swapShiftId = Number(form.get("proposed_swap_shift_id") || 0) || null;
+    const swapShift = coworkerShifts.find((item) => item.id === swapShiftId);
     try {
       const data = await post({
         operation: "staff_request",
@@ -83,15 +84,16 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
         requested_start_time: String(form.get("requested_start_time") || "") || null,
         requested_end_time: String(form.get("requested_end_time") || "") || null,
         reason: String(form.get("reason") || ""),
-        proposed_swap_employee_id: Number(form.get("proposed_swap_employee_id") || 0) || null,
+        proposed_swap_employee_id: swapShift?.employee_id || null,
+        proposed_swap_shift_id: swapShiftId,
         emergency: form.get("emergency") === "on",
         accuracy_confirmed: form.get("accuracy_confirmed") === "on",
       });
       const file = form.get("attachment");
       if (file instanceof File && file.size > 0) await uploadAttachment(Number(data.request_id), file);
       setMessage(`Request ${data.request_no} submitted.`);
-      event.currentTarget.reset();
-      router.refresh();
+      formElement.reset();
+      await onChanged();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
     } finally {
@@ -104,7 +106,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
     setMessage("");
     try {
       await post({ operation, request_id: requestId });
-      router.refresh();
+      await onChanged();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Action failed.");
     } finally {
@@ -118,7 +120,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
     try {
       await post({ operation: "acknowledge_schedule", week_start: weekStart });
       setMessage(`Schedule for week of ${weekStart} acknowledged.`);
-      router.refresh();
+      await onChanged();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Acknowledgement failed.");
     } finally {
@@ -129,10 +131,10 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
   return (
     <>
       <section className="card staff-schedule-print">
-        <div className="panel-title"><div><h2>My schedule</h2><p className="muted">Only published shifts linked to your employee account are shown.</p></div><button className="button secondary print-actions" type="button" onClick={() => window.print()}>Print / Save PDF</button></div>
+        <div className="panel-title"><h2>My schedule</h2><button className="button secondary print-actions" type="button" onClick={() => window.print()}>Print / Save PDF</button></div>
         {publications.length ? <div className="badge-row print-actions">{publications.map((publication) => publication.acknowledged ? <span className="badge" key={publication.week_start}>Week of {publication.week_start} acknowledged{publication.acknowledged_at ? ` · ${publication.acknowledged_at}` : ""}</span> : <button className="button small" disabled={busy} key={publication.week_start} type="button" onClick={() => acknowledge(publication.week_start)}>Acknowledge week of {publication.week_start}</button>)}</div> : null}
 
-        <div className="panel-title"><div><h3>Upcoming</h3><p className="muted">Today and future published shifts.</p></div><span className="badge">{upcomingSchedule.length}</span></div>
+        <div className="panel-title"><h3>Upcoming</h3><span className="badge">{upcomingSchedule.length}</span></div>
         <ScheduleTable items={upcomingSchedule} emptyText="No upcoming published shifts." />
 
         <details className="print-actions" style={{ marginTop: "1rem" }}>
@@ -146,14 +148,14 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
       </section>
 
       <section className="card">
-        <div className="panel-title"><div><h2>Request a shift change</h2><p className="muted">Online submission is the official record. The original request stays in history.</p></div></div>
+        <div className="panel-title"><h2>Request a shift change</h2></div>
         {message ? <p><strong>{message}</strong></p> : null}
         <form onSubmit={submit} className="grid cols-2">
           <label className="field">Affected shift<select name="shift_id" required defaultValue=""><option value="" disabled>Select your upcoming shift</option>{upcomingSchedule.map((shift) => <option key={shift.id} value={shift.id}>{shift.shift_date} · {shift.start_time}–{shift.end_time}</option>)}</select></label>
           <label className="field">Request type<select name="request_type" required defaultValue={shiftRequestTypes[0]}>{shiftRequestTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
           <label className="field">Requested date<input type="date" name="requested_date" /></label>
           <div className="grid cols-2"><label className="field">New start<input type="time" name="requested_start_time" /></label><label className="field">New end<input type="time" name="requested_end_time" /></label></div>
-          <label className="field">Proposed swap employee<select name="proposed_swap_employee_id" defaultValue=""><option value="">Not a swap</option>{coworkers.map((person) => <option key={person.id} value={person.id}>{person.full_name} · {person.department || "Unassigned"}</option>)}</select></label>
+          <label className="field">Shift to swap with<select name="proposed_swap_shift_id" defaultValue=""><option value="">Not a swap</option>{coworkerShifts.map((shift) => <option key={shift.id} value={shift.id}>{shift.shift_date} · {shift.start_time}–{shift.end_time} · {shift.full_name}</option>)}</select></label>
           <label className="field">Supporting document<input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /><span className="muted">Optional. PDF, image, DOC, or DOCX up to 10 MB.</span></label>
           <label className="field" style={{ gridColumn: "1 / -1" }}>Reason<textarea name="reason" rows={4} required minLength={3} /></label>
           <label className="field"><span><input type="checkbox" name="emergency" /> Emergency review priority</span></label>
@@ -163,7 +165,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkers, 
       </section>
 
       <section className="card">
-        <div className="panel-title"><div><h2>My requests</h2><p className="muted">Pending requests may be withdrawn, but are never erased.</p></div></div>
+        <div className="panel-title"><h2>My requests</h2></div>
         <div className="table-wrap"><table><thead><tr><th>Request</th><th>Original</th><th>Requested</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead><tbody>
           {requests.map((item) => {
             const waitingForMe = item.proposed_swap_employee_id === employeeId && item.status === "Swap Confirmation";

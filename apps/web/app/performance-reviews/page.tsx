@@ -1,28 +1,20 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiBaseUrl } from "@/lib/api";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
+import { apiBaseUrl, backendHeaders } from "@/lib/api";
 import { currentSession } from "@/lib/session";
+import type { AnnualReviewItem } from "@/lib/performance-types";
+
+type AnnualReviewResponse = { ok: boolean; year: number; items: AnnualReviewItem[]; error?: string };
 
 function defaultYear() {
   return new Date().getFullYear();
 }
 
-async function authHeaders(): Promise<HeadersInit> {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  return {
-    Accept: "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-  };
-}
-
-async function loadAnnualReviews(year: number) {
+async function loadAnnualReviews(year: number): Promise<AnnualReviewResponse> {
   const response = await fetch(`${apiBaseUrl()}/api/v1/performance/annual-reviews?year=${year}`, {
-    headers: await authHeaders(),
+    headers: await backendHeaders(),
     cache: "no-store",
   });
 
@@ -31,7 +23,7 @@ async function loadAnnualReviews(year: number) {
     return { ok: false, year, items: [], error: `Annual review API failed ${response.status}: ${text}` };
   }
 
-  return response.json();
+  return response.json() as Promise<AnnualReviewResponse>;
 }
 
 export default async function PerformanceReviewsPage({
@@ -51,14 +43,14 @@ export default async function PerformanceReviewsPage({
   const employeeFilter = (params.employee || "").trim().toLowerCase();
   const data = await loadAnnualReviews(year);
 
-  const items = (data.items || []).filter((item: any) => {
+  const items = (data.items || []).filter((item) => {
     if (!employeeFilter) return true;
     return String(item.employee?.full_name || "").toLowerCase().includes(employeeFilter);
   });
 
-  const draftCount = items.filter((item: any) => !item.review || item.review.status === "Draft").length;
-  const submittedCount = items.filter((item: any) => item.review?.status === "Submitted").length;
-  const finalizedCount = items.filter((item: any) => item.review?.status === "Finalized").length;
+  const draftCount = items.filter((item) => !item.review || item.review.status === "Draft").length;
+  const submittedCount = items.filter((item) => item.review?.status === "Submitted").length;
+  const finalizedCount = items.filter((item) => item.review?.status === "Finalized").length;
 
   return (
     <Shell allowedRoles={["owner", "supervisor"]}>
@@ -67,7 +59,6 @@ export default async function PerformanceReviewsPage({
           <div className="grid">
             <span className="eyebrow">Performance</span>
             <h1>Annual Reviews {year}</h1>
-            <p className="muted">Choose an employee to open their notes, previous comments, and annual review.</p>
           </div>
           <StatusBadge label={`${finalizedCount} finalized`} tone={finalizedCount ? "ok" : undefined} />
         </header>
@@ -103,10 +94,7 @@ export default async function PerformanceReviewsPage({
 
         <section className="card">
           <div className="panel-title">
-            <div>
-              <h2>Employees</h2>
-              <p className="muted">Open one employee at a time for a clean review workflow.</p>
-            </div>
+            <h2>Employees</h2>
           </div>
 
           <div className="table-wrap review-table">
@@ -123,7 +111,7 @@ export default async function PerformanceReviewsPage({
                 </tr>
               </thead>
               <tbody>
-                {items.map((item: any) => {
+                {items.map((item) => {
                   const previous = (item.previous_reviews || [])[0];
 
                   return (

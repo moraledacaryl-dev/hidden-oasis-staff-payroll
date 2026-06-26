@@ -1,15 +1,11 @@
-# Python
 __pycache__/
 *.py[cod]
 *.pyo
 .venv/
 venv/
-.env
 
-# Streamlit/local runtime
 .streamlit/secrets.toml
 
-# Local database and generated files
 data/*.sqlite
 data/*.db
 data/backups/
@@ -20,30 +16,23 @@ uploads/
 *.zip
 !hidden_oasis_staff_payroll_final.zip
 
-# OS/editor
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 
-# Python local environment
 .venv-api/
-.venv/
-__pycache__/
-*.pyc
 
-# Next local dependencies/build output
 apps/web/node_modules/
 apps/web/.next/
 node_modules/
 .next/
+*.tsbuildinfo
 
-# Local env files
 .env
 .env.local
 apps/web/.env.local
 
-# Local scratch/backup files
 *.bak
 *.backup
 *.broken-now-*

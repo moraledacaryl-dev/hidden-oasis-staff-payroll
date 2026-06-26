@@ -84,13 +84,12 @@ export default async function PayslipPreviewPage({ params }: { params: Promise<{
   let review;
   try {
     review = await getPayrollRunReview(runId);
-  } catch (error) {
+  } catch {
     return (
       <Shell allowedRoles={["owner", "payroll"]}>
         <div className="page">
-          <header className="page-header"><div className="grid"><span className="eyebrow">Payslips</span><h1>Could not open run #{runId}</h1><p className="muted">The payroll run may not exist yet, or the backend returned an error.</p></div></header>
+          <header className="page-header"><div className="grid"><span className="eyebrow">Payslips</span><h1>Run #{runId} unavailable</h1></div></header>
           <section className="card">
-            <p className="muted">Open a saved payroll from the run history. If this run exists and still errors, check the API logs for /api/v1/payroll/runs/{runId}/review.</p>
             <div className="action-row"><Link className="primary-link" href="/payroll/runs">Back to payroll runs</Link><Link className="primary-link" href="/payroll">Current payroll</Link></div>
           </section>
         </div>

@@ -1,19 +1,5 @@
-import { cookies } from "next/headers";
+import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import { NextResponse } from "next/server";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
-
-function apiBaseUrl(): string {
-  return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
-}
-
-async function apiHeaders(json = false): Promise<HeadersInit> {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  return {
-    ...(json ? { "Content-Type": "application/json" } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-  };
-}
 
 function normalized(value: unknown): string {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -32,7 +18,7 @@ async function activeLeave(employeeId: number, shiftDate: string) {
   if (!employeeId || !shiftDate) return null;
   const params = new URLSearchParams({ employee_id: String(employeeId), shift_date: shiftDate });
   const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day?${params.toString()}`, {
-    headers: await apiHeaders(),
+    headers: await backendHeaders(),
     cache: "no-store",
   });
   if (!response.ok) return null;
@@ -44,7 +30,7 @@ async function clearRestDay(employeeId: number, workDate: string) {
   if (!employeeId || !workDate) return;
   const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/rest-days`, {
     method: "POST",
-    headers: await apiHeaders(true),
+    headers: await backendHeaders(true),
     body: JSON.stringify({ employee_id: employeeId, work_date: workDate, active: false }),
     cache: "no-store",
   });
@@ -56,11 +42,8 @@ async function clearRestDay(employeeId: number, workDate: string) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const target = url.searchParams.get("self_service") === "1"
-    ? `${apiBaseUrl()}/api/v1/me/self-service`
-    : `${apiBaseUrl()}/api/v1/schedules/day?${url.searchParams.toString()}`;
-  const response = await fetch(target, {
-    headers: await apiHeaders(),
+  const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day?${url.searchParams.toString()}`, {
+    headers: await backendHeaders(),
     cache: "no-store",
   });
   const data = await response.json().catch(() => ({}));
@@ -79,7 +62,7 @@ export async function POST(request: Request) {
     }
     const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day/reset`, {
       method: "POST",
-      headers: await apiHeaders(true),
+      headers: await backendHeaders(true),
       body: JSON.stringify({ employee_id: employeeId, work_date: workDate }),
       cache: "no-store",
     });
@@ -92,7 +75,7 @@ export async function POST(request: Request) {
     if (!shiftId) return NextResponse.json({ ok: false, message: "Missing schedule shift." }, { status: 422 });
     const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/shifts/${shiftId}/delete`, {
       method: "POST",
-      headers: await apiHeaders(),
+      headers: await backendHeaders(),
       cache: "no-store",
     });
     const data = await response.json().catch(() => ({}));
@@ -129,7 +112,7 @@ export async function POST(request: Request) {
 
   const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day/${route}`, {
     method: "POST",
-    headers: await apiHeaders(true),
+    headers: await backendHeaders(true),
     body: JSON.stringify(body),
     cache: "no-store",
   });

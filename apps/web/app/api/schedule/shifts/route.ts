@@ -1,31 +1,15 @@
-import { cookies } from "next/headers";
+import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import { NextResponse } from "next/server";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
-
-const base = () => (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
-
-async function headers(json = false) {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  if (!token) return null;
-  const auth = "Author" + "ization";
-  return {
-    [auth]: `Bearer ${token}`,
-    ...(json ? { "Content-Type": "application/json" } : {}),
-    ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-  };
-}
 
 export async function GET() {
-  const h = await headers();
-  if (!h) return NextResponse.json({ ok: false }, { status: 401 });
-  const response = await fetch(`${base()}/api/v1/me/published-self-service`, { headers: h, cache: "no-store" });
+  const h = await backendHeaders();
+  const response = await fetch(`${apiBaseUrl()}/api/v1/me/published-self-service`, { headers: h, cache: "no-store" });
   return NextResponse.json(await response.json().catch(() => ({})), { status: response.status });
 }
 
 export async function POST(request: Request) {
   const multipart = (request.headers.get("content-type") || "").includes("multipart/form-data");
-  const h = await headers(!multipart);
-  if (!h) return NextResponse.json({ ok: false }, { status: 401 });
+  const h = await backendHeaders(!multipart);
 
   if (multipart) {
     const incoming = await request.formData();
@@ -34,7 +18,7 @@ export async function POST(request: Request) {
     if (!id || !(file instanceof File)) return NextResponse.json({ ok: false, message: "Request and file are required." }, { status: 422 });
     const outgoing = new FormData();
     outgoing.set("file", file);
-    const response = await fetch(`${base()}/api/v1/me/shift-change-requests/${id}/attachment`, { method: "POST", headers: h, body: outgoing, cache: "no-store" });
+    const response = await fetch(`${apiBaseUrl()}/api/v1/me/shift-change-requests/${id}/attachment`, { method: "POST", headers: h, body: outgoing, cache: "no-store" });
     return NextResponse.json(await response.json().catch(() => ({})), { status: response.status });
   }
 
@@ -45,8 +29,13 @@ export async function POST(request: Request) {
 
   if (body.operation === "staff_request") {
     path = "/api/v1/me/shift-change-requests";
-    const { operation, ...rest } = body;
-    payload = rest;
+    payload = Object.fromEntries(Object.entries(body).filter(([key]) => key !== "operation"));
+  } else if (body.operation === "leave_request") {
+    path = "/api/v1/me/leave-requests";
+    payload = Object.fromEntries(Object.entries(body).filter(([key]) => key !== "operation"));
+  } else if (body.operation === "withdraw_leave_request") {
+    path = `/api/v1/me/leave-requests/${Number(body.request_id)}/withdraw`;
+    payload = {};
   } else if (body.operation === "withdraw_request") {
     path = `/api/v1/me/shift-change-requests/${Number(body.request_id)}/withdraw`;
     payload = {};
@@ -72,6 +61,6 @@ export async function POST(request: Request) {
     payload = { decision: body.decision, decision_note: body.decision_note || null, employee_notified: Boolean(body.employee_notified), coverage_confirmed: Boolean(body.coverage_confirmed), apply_change: body.apply_change !== false };
   }
 
-  const response = await fetch(`${base()}${path}`, { method, headers: h, ...(method === "GET" ? {} : { body: JSON.stringify(payload) }), cache: "no-store" });
+  const response = await fetch(`${apiBaseUrl()}${path}`, { method, headers: h, ...(method === "GET" ? {} : { body: JSON.stringify(payload) }), cache: "no-store" });
   return NextResponse.json(await response.json().catch(() => ({})), { status: response.status });
 }

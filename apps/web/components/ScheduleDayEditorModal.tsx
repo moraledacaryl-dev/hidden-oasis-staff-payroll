@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { ScheduleEmployee, ScheduleShift } from "@/lib/schedule-types";
 
 const positions = ["Receptionist", "Cook", "Barista", "Bartender", "Security", "Housekeeper", "Other"];
 const leaveKinds = [
@@ -20,13 +21,11 @@ const leaveKinds = [
 const noticeTimings = ["In advance", "At least 1 hour before shift", "After shift start", "No notice"];
 const attendanceStatuses = ["Pending", "Approved", "Needs Review", "Needs Correction", "Rejected"];
 
-type ScheduleEmployee = { id: number; full_name: string; employee_code?: string; department?: string; position?: string };
-type Shift = { id: number; employee_id: number | null; shift_date: string; start_time: string; end_time: string; position: string; department?: string | null; employee_department?: string | null; break_minutes: number; status: string; notes?: string | null; employee_name?: string | null; planned_paid_hours: number; is_overnight: boolean; source?: string; movable?: boolean };
 type TabKey = "scheduled" | "actual" | "leave";
 type Bundle = {
   ok: boolean;
   employee?: ScheduleEmployee | null;
-  shift?: Shift | null;
+  shift?: ScheduleShift | null;
   actual?: { id: number; actual_in?: string | null; actual_out?: string | null; attendance_status?: string | null; approved_ot_hours?: number | null; notes?: string | null; is_absent?: number | null; absence_type?: string | null; notice_given_at?: string | null; notice_timing?: string | null; evidence_ref?: string | null } | null;
   leave?: { id: number; leave_type_name?: string | null; reason?: string | null; paid?: number | null; status?: string | null; days?: number | null; paid_hours?: number | null } | null;
   payroll_locked?: boolean;
@@ -38,7 +37,7 @@ type Bundle = {
 type Props = {
   open: boolean;
   day: string;
-  shift: Shift | null;
+  shift: ScheduleShift | null;
   initialEmployeeId?: number | null;
   initialTab?: TabKey;
   employees: ScheduleEmployee[];

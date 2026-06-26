@@ -1,40 +1,33 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AnnualReviewForm } from "@/components/AnnualReviewForm";
 import { PerformanceLogForm } from "@/components/PerformanceLogForm";
 import { Shell } from "@/components/Shell";
-import { apiBaseUrl } from "@/lib/api";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
+import { apiBaseUrl, backendHeaders } from "@/lib/api";
 import { currentSession } from "@/lib/session";
+import type { AnnualReviewItem, PerformanceLog } from "@/lib/performance-types";
 
-async function authHeaders(): Promise<HeadersInit> {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  return {
-    Accept: "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-  };
-}
+type ReviewResponse = { ok: boolean; items: AnnualReviewItem[] };
+type LogsResponse = { ok: boolean; items: PerformanceLog[] };
 
-async function loadAnnualReviews(year: number) {
+async function loadAnnualReviews(year: number): Promise<ReviewResponse> {
   const response = await fetch(`${apiBaseUrl()}/api/v1/performance/annual-reviews?year=${year}`, {
-    headers: await authHeaders(),
+    headers: await backendHeaders(),
     cache: "no-store",
   });
 
   if (!response.ok) return { ok: false, items: [] };
-  return response.json();
+  return response.json() as Promise<ReviewResponse>;
 }
 
-async function loadLogs(employeeId: number, year: number) {
+async function loadLogs(employeeId: number, year: number): Promise<LogsResponse> {
   const response = await fetch(`${apiBaseUrl()}/api/v1/performance/logs?employee_id=${employeeId}&year=${year}`, {
-    headers: await authHeaders(),
+    headers: await backendHeaders(),
     cache: "no-store",
   });
 
   if (!response.ok) return { ok: false, items: [] };
-  return response.json();
+  return response.json() as Promise<LogsResponse>;
 }
 
 export default async function EmployeePerformancePage({
@@ -61,7 +54,7 @@ export default async function EmployeePerformancePage({
     loadLogs(employeeId, year),
   ]);
 
-  const item = (reviewsData.items || []).find((row: any) => Number(row.employee?.id) === employeeId);
+  const item = (reviewsData.items || []).find((row) => Number(row.employee?.id) === employeeId);
 
   if (!item) {
     return (
@@ -102,12 +95,11 @@ export default async function EmployeePerformancePage({
               <div className="panel-title">
                 <div>
                   <h2>This year’s performance notes</h2>
-                  <p className="muted">Supervisor notes used as context for the annual review.</p>
                 </div>
               </div>
 
               <div className="review-log-list">
-                {logs.map((log: any) => (
+                {logs.map((log) => (
                   <article key={log.id} className="review-log-card">
                     <div className="review-log-meta">
                       <span className="badge">{log.log_date}</span>
@@ -134,7 +126,6 @@ export default async function EmployeePerformancePage({
             <div className="panel-title">
               <div>
                 <h2>Annual Review</h2>
-                <p className="muted">Previous comments are shown inside the review form.</p>
               </div>
             </div>
 

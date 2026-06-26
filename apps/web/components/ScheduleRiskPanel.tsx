@@ -1,20 +1,10 @@
-type ShiftLike = {
-  id: number;
-  employee_id: number | null;
-  employee_name?: string | null;
-  shift_date: string;
-  start_time: string;
-  end_time: string;
-  position?: string | null;
-  is_overnight?: boolean;
-};
+import type { ScheduleEmployee, ScheduleShift } from "@/lib/schedule-types";
 
-type EmployeeLike = {
-  id: number;
-  full_name: string;
-  department?: string;
-  position?: string;
-};
+type ShiftLike = Pick<
+  ScheduleShift,
+  "id" | "employee_id" | "employee_name" | "shift_date" | "start_time" | "end_time" | "position" | "is_overnight"
+>;
+type EmployeeLike = Pick<ScheduleEmployee, "id" | "full_name" | "department" | "position">;
 
 function minutes(time: string) {
   const [h, m] = time.split(":").map(Number);

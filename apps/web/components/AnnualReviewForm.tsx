@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { AnnualReview, PerformanceEmployee } from "@/lib/performance-types";
 
 const ratingFields = [
   ["attendance_rating", "Attendance & punctuality"],
@@ -16,14 +17,14 @@ const ratingFields = [
 ] as const;
 
 type Props = {
-  employee: any;
-  review: any | null;
-  previousReviews: any[];
+  employee: PerformanceEmployee;
+  review: AnnualReview | null;
+  previousReviews: AnnualReview[];
   reviewYear: number;
   canFinalize: boolean;
 };
 
-function value(review: any, key: string, fallback = "") {
+function value(review: AnnualReview | null, key: keyof AnnualReview, fallback: string | number = "") {
   return review?.[key] ?? fallback;
 }
 
@@ -37,7 +38,7 @@ export function AnnualReviewForm({ employee, review, previousReviews, reviewYear
     setBusy(true);
     setMessage("");
 
-    const body: any = {
+    const body: Record<string, string | number | null> = {
       id: review?.id ?? null,
       employee_id: Number(employee.id),
       review_year: reviewYear,
@@ -122,7 +123,7 @@ export function AnnualReviewForm({ employee, review, previousReviews, reviewYear
       <label>Areas for improvement<textarea name="improvements" rows={3} defaultValue={value(review, "improvements")} /></label>
       <label>Notable incidents or achievements<textarea name="notable_events" rows={3} defaultValue={value(review, "notable_events")} /></label>
       <label>Training needed<textarea name="training_needed" rows={2} defaultValue={value(review, "training_needed")} /></label>
-      <label>Supervisor recommendation<textarea name="supervisor_recommendation" rows={3} defaultValue={value(review, "supervisor_recommendation")} /></label>
+      <label>Manager recommendation<textarea name="supervisor_recommendation" rows={3} defaultValue={value(review, "supervisor_recommendation")} /></label>
 
       <div className="review-form-grid">
         <label>

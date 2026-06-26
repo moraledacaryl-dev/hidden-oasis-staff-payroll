@@ -7,6 +7,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
 from api.main import current_user_from_token, require_api_key
+from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -37,6 +38,11 @@ class LeaveEntitlementPayload(BaseModel):
     entitled: int = 1
 
 
+class LeaveDecisionPayload(BaseModel):
+    status: str
+    decision_note: str | None = None
+
+
 def now_sql(conn) -> str:
     return str(conn.execute("SELECT datetime('now','localtime')").fetchone()[0])
 
@@ -55,7 +61,7 @@ def require_hr_editor(authorization: str | None, x_api_key: str | None) -> dict[
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
     if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Only owner, payroll, or supervisor can create HR records.")
+        raise HTTPException(status_code=403, detail="Only owner, payroll, or the General Manager can create HR records.")
     return user
 
 
@@ -141,6 +147,9 @@ def ensure_schema(conn) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hr_records_employee ON hr_records(employee_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hr_records_type ON hr_records(record_type)")
+    leave_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(leave_requests)")}
+    if "decision_note" not in leave_columns:
+        conn.execute("ALTER TABLE leave_requests ADD COLUMN decision_note TEXT")
     conn.commit()
 
 
@@ -235,7 +244,7 @@ def save_leave_entitlement(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    require_payroll_editor(authorization, x_api_key)
+    user = require_payroll_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
@@ -253,8 +262,98 @@ def save_leave_entitlement(
             (payload.employee_id, payload.leave_type_id, payload.year, payload.credits, int(payload.entitled or 0), now_sql(conn), now_sql(conn)),
         )
         sync_entitlement_usage(conn, payload.employee_id, payload.leave_type_id, payload.year)
+        log_audit(
+            conn,
+            actor=user.get("display_name"),
+            action="Leave entitlement saved",
+            table_name="employee_leave_entitlements",
+            details={
+                "employee_id": payload.employee_id,
+                "leave_type_id": payload.leave_type_id,
+                "year": payload.year,
+                "credits": payload.credits,
+                "entitled": int(payload.entitled or 0),
+            },
+        )
         conn.commit()
         return {"ok": True, "message": "Leave entitlement saved."}
+    finally:
+        conn.close()
+
+
+@router.get("/hr/leave-requests")
+def list_leave_requests(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_hr_editor(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        items = fetchall(
+            conn,
+            """
+            SELECT lr.*, e.full_name AS employee_name, e.employee_code, e.department,
+                   lt.name AS leave_type_name
+            FROM leave_requests lr
+            JOIN employees e ON e.id=lr.employee_id
+            LEFT JOIN leave_types lt ON lt.id=lr.leave_type_id
+            ORDER BY CASE lr.status WHEN 'Pending' THEN 0 ELSE 1 END,
+                     date(lr.start_date) DESC, lr.id DESC
+            """,
+        )
+        return {"ok": True, "items": items}
+    finally:
+        conn.close()
+
+
+@router.post("/hr/leave-requests/{request_id}/decision")
+def decide_leave_request(
+    request_id: int,
+    payload: LeaveDecisionPayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = require_hr_editor(authorization, x_api_key)
+    decision = payload.status.strip().title()
+    if decision not in {"Approved", "Rejected"}:
+        raise HTTPException(status_code=422, detail="Decision must be Approved or Rejected.")
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        row = fetchone(conn, "SELECT * FROM leave_requests WHERE id=?", (request_id,))
+        if not row:
+            raise HTTPException(status_code=404, detail="Leave request not found.")
+        if row.get("status") != "Pending":
+            raise HTTPException(status_code=409, detail="This leave request has already been reviewed.")
+        conn.execute(
+            """
+            UPDATE leave_requests
+            SET status=?, reviewed_by=?, reviewed_at=?, decision_note=?
+            WHERE id=?
+            """,
+            (decision, user.get("display_name"), now_sql(conn), payload.decision_note, request_id),
+        )
+        if row.get("leave_type_id"):
+            sync_entitlement_usage(
+                conn,
+                int(row["employee_id"]),
+                int(row["leave_type_id"]),
+                int(str(row["start_date"])[:4]),
+            )
+        log_audit(
+            conn,
+            actor=user.get("display_name"),
+            action=f"Leave request {decision.lower()}",
+            table_name="leave_requests",
+            record_id=request_id,
+            details={"employee_id": row.get("employee_id"), "note": payload.decision_note},
+        )
+        conn.commit()
+        return {"ok": True, "status": decision}
+    except HTTPException:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -343,7 +442,20 @@ def create_hr_record(
                 now_sql(conn),
             ),
         )
+        record_id = int(cur.lastrowid)
+        log_audit(
+            conn,
+            actor=user.get("display_name"),
+            action="HR record created",
+            table_name="hr_records",
+            record_id=record_id,
+            details={
+                "employee_id": payload.employee_id,
+                "record_type": payload.record_type,
+                "status": payload.status,
+            },
+        )
         conn.commit()
-        return {"ok": True, "id": int(cur.lastrowid), "message": "HR record saved."}
+        return {"ok": True, "id": record_id, "message": "HR record saved."}
     finally:
         conn.close()

@@ -1,12 +1,35 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AttendanceMemoForm } from "@/components/AttendanceMemoForm";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiBaseUrl } from "@/lib/api";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
+import { apiBaseUrl, backendHeaders } from "@/lib/api";
 import { currentSession } from "@/lib/session";
+
+type LateDetail = { date: string; actual_in: string; scheduled_start: string; minutes_late: number; status: string };
+type AbsenceDetail = { date: string; type: string };
+type ComplianceItem = {
+  employee_id: number;
+  full_name: string;
+  employee_code?: string;
+  department?: string;
+  scheduled_shifts?: number;
+  missing_logs?: number;
+  grace_periods?: number;
+  late_infractions?: number;
+  partial_absences?: number;
+  approved_absences?: number;
+  unexcused_absences?: number;
+  awol?: number;
+  late_details?: LateDetail[];
+  absence_details?: AbsenceDetail[];
+  handbook_action: string;
+  attendance_reward_status?: string;
+};
+type AttendanceMemo = { id: number; issued_at?: string; created_at?: string; full_name?: string; employee_code?: string; department?: string; memo_type: string; memo_level: string; status: string; reason: string; notes?: string };
+type ComplianceResponse = { ok: boolean; items: ComplianceItem[]; memos: AttendanceMemo[]; error?: string };
+type PerformanceMonth = ComplianceItem & { month: string };
+type PerformanceResponse = { employee?: { full_name?: string }; totals?: Partial<ComplianceItem>; months: PerformanceMonth[] };
 
 function defaultMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -28,35 +51,26 @@ function moveMonth(value: string, delta: number) {
   return next.toISOString().slice(0, 7);
 }
 
-async function authHeaders(): Promise<HeadersInit> {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  return {
-    Accept: "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-  };
-}
-
-async function loadCompliance(month: string) {
+async function loadCompliance(month: string): Promise<ComplianceResponse> {
   const response = await fetch(`${apiBaseUrl()}/api/v1/attendance/compliance?month=${month}`, {
-    headers: await authHeaders(),
+    headers: await backendHeaders(),
     cache: "no-store",
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     return { ok: false, items: [], memos: [], error: `Attendance API failed ${response.status}: ${text}` };
   }
-  return response.json();
+  return response.json() as Promise<ComplianceResponse>;
 }
 
-async function loadPerformance(employeeId: string) {
+async function loadPerformance(employeeId: string): Promise<PerformanceResponse | null> {
   if (!employeeId) return null;
   const response = await fetch(`${apiBaseUrl()}/api/v1/attendance/performance?employee_id=${employeeId}&months=12`, {
-    headers: await authHeaders(),
+    headers: await backendHeaders(),
     cache: "no-store",
   });
   if (!response.ok) return null;
-  return response.json();
+  return response.json() as Promise<PerformanceResponse>;
 }
 
 export default async function AttendancePage({
@@ -82,17 +96,18 @@ export default async function AttendancePage({
     loadPerformance(employeeId),
   ]);
 
-  const complianceItems = (compliance.items || []).filter((item: any) => {
+  const complianceItems = (compliance.items || []).filter((item) => {
     if (!employeeFilter) return true;
     return String(item.full_name || "").toLowerCase().includes(employeeFilter);
   });
 
   const memos = compliance.memos || [];
-  const lateCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.late_infractions || 0), 0);
-  const graceCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.grace_periods || 0), 0);
-  const partialCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.partial_absences || 0), 0);
-  const absenceCount = complianceItems.reduce((sum: number, item: any) => sum + Number(item.approved_absences || 0) + Number(item.unexcused_absences || 0) + Number(item.awol || 0), 0);
-  const actionCount = complianceItems.filter((item: any) => item.handbook_action !== "No action required").length;
+  const lateCount = complianceItems.reduce((sum, item) => sum + Number(item.late_infractions || 0), 0);
+  const graceCount = complianceItems.reduce((sum, item) => sum + Number(item.grace_periods || 0), 0);
+  const partialCount = complianceItems.reduce((sum, item) => sum + Number(item.partial_absences || 0), 0);
+  const absenceCount = complianceItems.reduce((sum, item) => sum + Number(item.approved_absences || 0) + Number(item.unexcused_absences || 0) + Number(item.awol || 0), 0);
+  const actionCount = complianceItems.filter((item) => item.handbook_action !== "No action required").length;
+  const employeeOptions = Array.from(new Map((compliance.items || []).map((item) => [item.employee_id, item])).values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   return (
     <Shell allowedRoles={["owner", "supervisor"]}>
@@ -101,7 +116,6 @@ export default async function AttendancePage({
           <div className="grid">
             <span className="eyebrow">Attendance</span>
             <h1>{month}</h1>
-            <p className="muted">Monthly compliance from old schedules + actual attendance logs. Payroll cutoff is separate.</p>
           </div>
           <StatusBadge label={actionCount ? `${actionCount} action needed` : "clear"} tone={actionCount ? "warning" : "ok"} />
         </header>
@@ -117,7 +131,7 @@ export default async function AttendancePage({
           <div className="form-grid">
             <label>Month<input name="month" type="month" defaultValue={month} /></label>
             <label>Staff search<input name="employee" placeholder="Search employee name" defaultValue={params.employee || ""} /></label>
-            <label>Staff ID for 12-month history<input name="employee_id" placeholder="Employee ID" defaultValue={employeeId} /></label>
+            <label>12-month history<select name="employee_id" defaultValue={employeeId}><option value="">Select employee</option>{employeeOptions.map((item) => <option key={item.employee_id} value={item.employee_id}>{item.full_name}</option>)}</select></label>
           </div>
           <div className="badge-row"><button className="primary-button" type="submit">View attendance</button></div>
         </form>
@@ -161,7 +175,7 @@ export default async function AttendancePage({
                 </tr>
               </thead>
               <tbody>
-                {complianceItems.map((item: any) => (
+                {complianceItems.map((item) => (
                   <tr key={item.employee_id}>
                     <td>
                       <strong>{item.full_name}</strong>
@@ -182,7 +196,7 @@ export default async function AttendancePage({
                       {(item.late_details || []).length ? (
                         <div>
                           <strong>Lates</strong>
-                          {(item.late_details || []).map((late: any) => (
+                          {(item.late_details || []).map((late) => (
                             <div key={`${late.date}-${late.actual_in}`} className="muted">
                               {late.date}: {late.scheduled_start} → {late.actual_in} ({late.minutes_late} min, {late.status})
                             </div>
@@ -192,7 +206,7 @@ export default async function AttendancePage({
                       {(item.absence_details || []).length ? (
                         <div>
                           <strong>Absences</strong>
-                          {(item.absence_details || []).map((absence: any) => (
+                          {(item.absence_details || []).map((absence) => (
                             <div key={`${absence.date}-${absence.type}`} className="muted">
                               {absence.date}: {absence.type}
                             </div>
@@ -233,16 +247,16 @@ export default async function AttendancePage({
               </div>
             </div>
             <section className="grid cols-4">
-              <div className="card"><strong>{performance.totals?.late_infractions || 0}</strong><p className="muted">Total lates</p></div>
-              <div className="card"><strong>{performance.totals?.grace_periods || 0}</strong><p className="muted">Grace periods</p></div>
-              <div className="card"><strong>{performance.totals?.unexcused_absences || 0}</strong><p className="muted">Unexcused absences</p></div>
-              <div className="card"><strong>{performance.totals?.awol || 0}</strong><p className="muted">AWOL</p></div>
+              <div className="action-item"><strong>{performance.totals?.late_infractions || 0}</strong><p className="muted">Total lates</p></div>
+              <div className="action-item"><strong>{performance.totals?.grace_periods || 0}</strong><p className="muted">Grace periods</p></div>
+              <div className="action-item"><strong>{performance.totals?.unexcused_absences || 0}</strong><p className="muted">Unexcused absences</p></div>
+              <div className="action-item"><strong>{performance.totals?.awol || 0}</strong><p className="muted">AWOL</p></div>
             </section>
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Month</th><th>Scheduled</th><th>Missing</th><th>Grace</th><th>Lates</th><th>Partial</th><th>Unexcused</th><th>AWOL</th><th>Approved</th><th>Action</th></tr></thead>
                 <tbody>
-                  {(performance.months || []).map((row: any) => (
+                  {(performance.months || []).map((row) => (
                     <tr key={row.month}>
                       <td>{row.month}</td>
                       <td>{row.scheduled_shifts}</td>
@@ -273,7 +287,7 @@ export default async function AttendancePage({
             <table>
               <thead><tr><th>Issued</th><th>Employee</th><th>Type</th><th>Level</th><th>Status</th><th>Reason</th><th>Notes</th></tr></thead>
               <tbody>
-                {memos.map((memo: any) => (
+                {memos.map((memo) => (
                   <tr key={memo.id}>
                     <td>{memo.issued_at || memo.created_at || "—"}</td>
                     <td><strong>{memo.full_name || "—"}</strong><br /><span className="muted">{memo.employee_code || "—"} · {memo.department || "—"}</span></td>

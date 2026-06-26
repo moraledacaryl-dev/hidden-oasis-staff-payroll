@@ -51,7 +51,7 @@ export function HrRecordForm({ employees }: { employees: Employee[] }) {
       <label>Review period start<input name="review_period_start" type="date" /></label>
       <label>Review period end<input name="review_period_end" type="date" /></label>
       <label className="span-2">Subject<input name="subject" required placeholder="Memo / infraction / review title" /></label>
-      <label className="span-2">Details<textarea name="details" rows={4} placeholder="Details, action required, supervisor note, or review comments" /></label>
+      <label className="span-2">Details<textarea name="details" rows={4} placeholder="Details, action required, or review comments" /></label>
       <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save HR record"}</button>
       {message ? <p className="muted">{message}</p> : null}
     </form>

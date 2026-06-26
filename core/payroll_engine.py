@@ -354,7 +354,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             if log.get("attendance_status") in ("Pending", "Needs Manager", "Disputed"):
                 warnings.append(f"Attendance on {log['work_date']} is still {log.get('attendance_status')}.")
             if log.get("ot_status") == "Pending":
-                warnings.append(f"OT on {log['work_date']} is still pending supervisor approval.")
+                warnings.append(f"OT on {log['work_date']} is still pending General Manager approval.")
 
             base_multiplier, day_label = day_pay_multipliers(conn, log["work_date"], is_rest_day)
             base_regular_pay = regular_hours * hourly_rate
@@ -653,7 +653,7 @@ def add_payroll_lines(conn: sqlite3.Connection, item_id: int, r: PayrollResult) 
     lines = [
         ("earning", "Regular Pay", r.regular_pay, r.regular_hours, None, None, "Actual approved regular hours", 10),
         ("earning", "Holiday/Rest Premium", r.holiday_pay, None, None, None, "Premium above ordinary hourly pay", 15),
-        ("earning", "Approved OT Pay", r.ot_pay, r.approved_ot_hours, None, None, "Supervisor-approved OT only", 20),
+        ("earning", "Approved OT Pay", r.ot_pay, r.approved_ot_hours, None, None, "Manager-approved OT only", 20),
         ("earning", "Night Differential", r.night_diff_pay, r.night_diff_hours, None, None, "10 PM to 6 AM", 30),
         ("earning", "Paid Leave", r.paid_leave_pay, None, r.paid_leave_days, None, "Approved paid leave", 40),
         ("earning", "Freelance Output Pay", r.freelance_pay, None, None, None, "Approved manual outputs", 50),
@@ -878,7 +878,7 @@ def update_payroll_status(conn: sqlite3.Connection, run_id: int, status: str, ac
 def compute_13th_month_basis(conn: sqlite3.Connection, employee_id: int, year: int) -> float:
     """Compute 13th month basis from saved payroll history.
 
-    Policy in this prototype: regular/basic pay plus paid leave pay only.
+    Policy: regular/basic pay plus paid leave pay only.
     It intentionally excludes OT, night differential, holiday/rest premiums,
     other earnings, allowances, freelance output pay, and reimbursements.
     """

@@ -41,7 +41,7 @@
   top: 0;
   z-index: 4;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--surface);
   box-shadow: 0 2px 8px rgba(31, 35, 32, 0.08);
   font-size: 0.82rem;
@@ -62,7 +62,7 @@
   align-content: start;
   gap: 4px;
   min-height: 108px;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 12px;
   background: var(--surface-soft);
 }
@@ -80,7 +80,7 @@
 
 .scheduleCell {
   min-height: 108px;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 7px;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -94,7 +94,7 @@
 .scheduleDay {
   min-height: 390px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 8px;
   background: var(--surface-soft);
   padding: 10px;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -127,7 +127,7 @@
   gap: 7px;
   border: 1px solid rgba(49, 91, 70, 0.18);
   border-left: 4px solid var(--accent);
-  border-radius: 12px;
+  border-radius: 8px;
   background: white;
   padding: 10px;
   box-shadow: 0 8px 16px rgba(31, 35, 32, 0.04);
@@ -169,7 +169,7 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--line);
   padding: 7px 8px;
   font-size: 0.78rem;
@@ -177,7 +177,7 @@
 
 .actualLine strong {
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   font-size: 0.68rem;
   white-space: nowrap;
 }
@@ -235,7 +235,7 @@
   width: 100%;
   background: transparent;
   border: 1px dashed var(--line-strong);
-  border-radius: 12px;
+  border-radius: 8px;
   color: var(--muted);
   padding: 14px 8px;
   text-align: center;
@@ -267,7 +267,7 @@
 .printHeader { display: none; }
 .printTable { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .printTable th, .printTable td { border: 1px solid #999; padding: 6px; vertical-align: top; white-space: pre-line; font-size: 9px; line-height: 1.22; }
-.printTable th { background: #f0f0f0; font-size: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+.printTable th { background: #f0f0f0; font-size: 8px; text-transform: uppercase; letter-spacing: 0; }
 .printTable td:first-child { width: 140px; }
 .printTable span { color: #555; font-size: 8px; }
 

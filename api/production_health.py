@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import os
+import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import FileResponse
 
+from api.main import current_user_from_token, require_api_key
 from api.payroll_drafts import must_be_payroll_user
+from core.audit import log_audit
+from core.backups import backup_path, create_backup, list_backups, verify_backup
 from core.db import DB_PATH, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -24,22 +30,58 @@ def table_count(conn, table: str) -> int:
     return int(row.get("c") or 0)
 
 
+def require_owner(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    require_api_key(x_api_key)
+    user = current_user_from_token(authorization)
+    if user.get("role_key") != "owner":
+        raise HTTPException(status_code=403, detail="Owner access required.")
+    return user
+
+
+def database_checks(conn) -> dict[str, Any]:
+    integrity = str(conn.execute("PRAGMA quick_check").fetchone()[0])
+    write_ok = False
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("CREATE TEMP TABLE IF NOT EXISTS health_write_test(value INTEGER)")
+        conn.rollback()
+        write_ok = True
+    except sqlite3.Error:
+        conn.rollback()
+    migration = fetchone(conn, "SELECT MAX(version) AS version FROM schema_migrations") if table_exists(conn, "schema_migrations") else None
+    return {
+        "integrity": integrity,
+        "writable": write_ok,
+        "migration_version": int((migration or {}).get("version") or 0),
+    }
+
+
 @router.get("/production/health")
 def production_health(authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     user = must_be_payroll_user(authorization, x_api_key)
     db_path = Path(os.getenv("STAFF_PAYROLL_DB_PATH", str(DB_PATH))).expanduser()
     backup_dir = Path(os.getenv("STAFF_PAYROLL_BACKUP_DIR", "backups")).expanduser()
-    backup_files = sorted(backup_dir.glob("*.sqlite"), key=lambda item: item.stat().st_mtime, reverse=True) if backup_dir.exists() else []
+    backups = list_backups()
     conn = get_conn(db_path)
     try:
+        checks = database_checks(conn)
+        latest_backup = backups[0] if backups else None
+        backup_age_hours = None
+        if latest_backup:
+            created = datetime.fromisoformat(str(latest_backup["created_at"]))
+            backup_age_hours = round((datetime.now() - created).total_seconds() / 3600, 1)
         return {
-            "ok": True,
+            "ok": checks["integrity"].lower() == "ok" and checks["writable"],
             "checked_by": user.get("display_name"),
             "database_path": str(db_path),
             "database_exists": db_path.exists(),
             "backup_dir": str(backup_dir),
-            "backup_count": len(backup_files),
-            "latest_backup": str(backup_files[0]) if backup_files else None,
+            "backup_count": len(backups),
+            "latest_backup": latest_backup,
+            "backup_age_hours": backup_age_hours,
+            "backup_encryption_configured": bool(os.getenv("STAFF_PAYROLL_BACKUP_KEY")),
+            "offsite_backup_configured": bool(os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR")),
+            "database_checks": checks,
             "tables": {
                 "payroll_runs": table_exists(conn, "payroll_runs"),
                 "payroll_items": table_exists(conn, "payroll_items"),
@@ -59,7 +101,80 @@ def production_health(authorization: str | None = Header(default=None, alias="Au
                 "STAFF_PAYROLL_API_KEY": bool(os.getenv("STAFF_PAYROLL_API_KEY")),
                 "STAFF_PAYROLL_SESSION_SECRET": bool(os.getenv("STAFF_PAYROLL_SESSION_SECRET")),
             },
-            "mode": "production_health_summary_no_secret_values",
+            "mode": "live_production_health",
         }
     finally:
         conn.close()
+
+
+@router.get("/production/backups")
+def backups(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_owner(authorization, x_api_key)
+    return {"ok": True, "items": list_backups()}
+
+
+@router.post("/production/backups")
+def make_backup(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = require_owner(authorization, x_api_key)
+    item = create_backup(Path(os.getenv("STAFF_PAYROLL_DB_PATH", str(DB_PATH))).expanduser())
+    conn = get_conn(DB_PATH)
+    try:
+        log_audit(
+            conn,
+            actor=user.get("display_name"),
+            action="Database backup created",
+            table_name="backups",
+            details={"name": item["name"], "encrypted": item["encrypted"]},
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "item": item}
+
+
+@router.post("/production/backups/{name}/verify")
+def verify_named_backup(
+    name: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = require_owner(authorization, x_api_key)
+    try:
+        result = verify_backup(backup_path(name))
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    conn = get_conn(DB_PATH)
+    try:
+        log_audit(
+            conn,
+            actor=user.get("display_name"),
+            action="Database backup verified",
+            table_name="backups",
+            details={"name": name},
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return result
+
+
+@router.get("/production/backups/{name}/download")
+def download_backup(
+    name: str,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    require_owner(authorization, x_api_key)
+    try:
+        path = backup_path(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Backup not found.")
+    return FileResponse(path, filename=path.name, media_type="application/octet-stream")

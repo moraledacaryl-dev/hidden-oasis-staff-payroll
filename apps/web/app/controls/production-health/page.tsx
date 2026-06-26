@@ -1,40 +1,7 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/session-client";
+import { getProductionHealth, type ProductionHealth } from "@/lib/api";
 import { currentSession } from "@/lib/session";
-
-type ProductionHealth = {
-  ok: boolean;
-  checked_by?: string;
-  database_path?: string;
-  database_exists?: boolean;
-  backup_dir?: string;
-  backup_count?: number;
-  latest_backup?: string | null;
-  tables?: Record<string, boolean>;
-  counts?: Record<string, number>;
-  secrets_configured?: Record<string, boolean>;
-  mode?: string;
-};
-
-function apiBaseUrl(): string {
-  return (process.env.STAFF_PAYROLL_API_URL || process.env.NEXT_PUBLIC_STAFF_PAYROLL_API_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
-}
-
-async function getProductionHealth(): Promise<ProductionHealth> {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  if (!token) return { ok: false };
-  const res = await fetch(`${apiBaseUrl()}/api/v1/production/health`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(process.env.STAFF_PAYROLL_API_KEY ? { "X-API-Key": process.env.STAFF_PAYROLL_API_KEY } : {}),
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) return { ok: false };
-  return res.json();
-}
 
 function YesNo({ value }: { value?: boolean }) {
   return <span className={value ? "badge ok" : "badge danger"}>{value ? "Yes" : "No"}</span>;
@@ -43,25 +10,32 @@ function YesNo({ value }: { value?: boolean }) {
 export default async function ProductionHealthPage() {
   const session = await currentSession();
   if (!session) redirect("/login");
-  if (session.role_key !== "owner" && session.role_key !== "payroll") {
+  if (!["owner", "payroll"].includes(session.role_key)) {
     return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
   }
-  const health = await getProductionHealth();
+
+  let health: ProductionHealth;
+  try {
+    health = await getProductionHealth();
+  } catch (error) {
+    return (
+      <Shell allowedRoles={["owner", "payroll"]}>
+        <div className="page"><section className="card"><strong>Production health unavailable</strong><p className="muted">{error instanceof Error ? error.message : "Try again shortly."}</p></section></div>
+      </Shell>
+    );
+  }
+
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
       <div className="page">
         <header className="page-header">
-          <div>
-            <span className="eyebrow">Controls</span>
-            <h1>Production Health</h1>
-            <p className="muted">Read-only deployment, database, backup, and safety summary. Secret values are never displayed.</p>
-          </div>
+          <div><span className="eyebrow">Controls</span><h1>Production health</h1></div>
         </header>
 
         <section className="grid cols-3">
           <div className="card"><strong>Database exists</strong><p><YesNo value={health.database_exists} /></p></div>
-          <div className="card"><strong>Backups found</strong><p>{health.backup_count ?? 0}</p></div>
-          <div className="card"><strong>Latest backup</strong><p className="muted">{health.latest_backup || "None found"}</p></div>
+          <div className="card"><strong>Backups found</strong><p>{health.backup_count}</p></div>
+          <div className="card"><strong>Latest backup</strong><p>{health.latest_backup?.created_at || "None"}</p></div>
         </section>
 
         <section className="card">
@@ -81,9 +55,11 @@ export default async function ProductionHealthPage() {
             </tbody></table></div>
           </div>
           <div className="card">
-            <h2>Configured secrets</h2>
+            <h2>Configuration</h2>
             <div className="table-wrap"><table><tbody>
               {Object.entries(health.secrets_configured || {}).map(([key, value]) => <tr key={key}><th>{key}</th><td><YesNo value={value} /></td></tr>)}
+              <tr><th>Backup encryption</th><td><YesNo value={health.backup_encryption_configured} /></td></tr>
+              <tr><th>Off-server backup</th><td><YesNo value={health.offsite_backup_configured} /></td></tr>
             </tbody></table></div>
           </div>
         </section>

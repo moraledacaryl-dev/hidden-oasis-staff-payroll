@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Publication = {
   status?: string;
@@ -20,7 +20,7 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     const response = await fetch("/api/schedule/shifts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -31,13 +31,13 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
     if (!response.ok || !data.ok) return;
     setState({ publication: data.publication || null, pending: Boolean(data.has_pending_changes) });
     if (data.publication?.notes) setNotes(String(data.publication.notes));
-  }
+  }, [weekStart]);
 
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => window.clearInterval(timer);
-  }, [weekStart]);
+  }, [refresh]);
 
   async function publish() {
     const republish = Boolean(state.publication);

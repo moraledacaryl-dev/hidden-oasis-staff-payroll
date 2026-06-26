@@ -13,7 +13,7 @@
   gap: 5px;
   padding: 16px 18px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -23,12 +23,12 @@
   font-size: 0.72rem;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
 }
 
 .cash-summary-card strong {
-  font-size: clamp(1.35rem, 2vw, 1.85rem);
-  letter-spacing: -0.05em;
+  font-size: 1.55rem;
+  letter-spacing: 0;
 }
 
 .cash-summary-card.emphasis {
@@ -50,7 +50,7 @@
   gap: 16px;
   padding: 18px;
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -99,7 +99,7 @@
   flex: 0 0 40px;
   display: grid;
   place-items: center;
-  border-radius: 13px;
+  border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 900;
@@ -124,13 +124,13 @@
   font-size: 0.68rem;
   font-weight: 820;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
 }
 
 .cash-balance-block > strong {
-  font-size: clamp(1.85rem, 4vw, 2.6rem);
+  font-size: 2rem;
   line-height: 1;
-  letter-spacing: -0.07em;
+  letter-spacing: 0;
 }
 
 .cash-balance-block small {
@@ -150,7 +150,7 @@
   min-width: 0;
   padding: 11px 12px;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: 8px;
   background: var(--surface-soft);
 }
 
@@ -218,7 +218,7 @@
 .cash-history {
   width: min(560px, 100%);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--surface-soft);
 }
 
@@ -334,7 +334,7 @@
 
   .cash-advance-card {
     padding: 14px;
-    border-radius: 16px;
+    border-radius: 8px;
   }
 
   .cash-card-header {

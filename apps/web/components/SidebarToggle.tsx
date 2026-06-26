@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 const KEY = "hidden-oasis-sidebar-collapsed";
 
@@ -22,7 +23,7 @@ export function SidebarToggle() {
 
   return (
     <button className="sidebar-toggle" type="button" onClick={toggle} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-      {collapsed ? "›" : "‹"}
+      {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
     </button>
   );
 }

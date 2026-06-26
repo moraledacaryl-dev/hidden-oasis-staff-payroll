@@ -94,6 +94,6 @@ Accounting must return:
 - `reject` when payload is invalid
 - `retryable_failure` for server/network problems
 
-## Current prototype transport
+## Current transport
 
 V6 exports payloads as JSON files in a ZIP from the **Accounting Sync** page. Later, the same JSON shapes can be sent directly to Accounting API endpoints.

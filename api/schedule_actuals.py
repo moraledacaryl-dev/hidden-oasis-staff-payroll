@@ -20,7 +20,7 @@ def require_schedule_viewer(authorization: str | None, x_api_key: str | None) ->
     user = current_user_from_token(authorization)
     if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
         from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="Schedule view requires owner, payroll, or supervisor role.")
+        raise HTTPException(status_code=403, detail="Schedule view requires owner, payroll, or General Manager access.")
     return user
 
 

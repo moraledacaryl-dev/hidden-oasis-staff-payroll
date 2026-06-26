@@ -1,0 +1,244 @@
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+const baseUrl = (process.env.BROWSER_SMOKE_BASE_URL || "http://127.0.0.1:3001").replace(/\/$/, "");
+const browserPath = process.env.BROWSER_BIN || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const port = Number(process.env.BROWSER_DEBUG_PORT || 9223);
+const outputDir = process.env.BROWSER_SMOKE_OUTPUT || path.join(os.tmpdir(), "staff-payroll-browser-smoke");
+const tokens = JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
+const pages = JSON.parse(
+  process.env.BROWSER_SMOKE_PAGES_JSON ||
+    JSON.stringify({
+      owner: ["/", "/schedule", "/hr", "/backup", "/settings/users"],
+      supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances"],
+      staff: ["/me", "/settings/security"],
+    }),
+);
+const viewports = [
+  { name: "mobile", width: 390, height: 844, mobile: true, scale: 2 },
+  { name: "desktop", width: 1440, height: 900, mobile: false, scale: 1 },
+];
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForChrome() {
+  const endpoint = `http://127.0.0.1:${port}/json/version`;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      const response = await fetch(endpoint);
+      if (response.ok) return;
+    } catch {
+      // Chrome is still starting.
+    }
+    await delay(100);
+  }
+  throw new Error("Chrome DevTools did not start.");
+}
+
+class CdpSession {
+  constructor(url) {
+    this.socket = new WebSocket(url);
+    this.nextId = 1;
+    this.pending = new Map();
+    this.events = new Map();
+  }
+
+  async open() {
+    await new Promise((resolve, reject) => {
+      this.socket.addEventListener("open", resolve, { once: true });
+      this.socket.addEventListener("error", reject, { once: true });
+    });
+    this.socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data));
+      if (message.id) {
+        const pending = this.pending.get(message.id);
+        if (!pending) return;
+        this.pending.delete(message.id);
+        if (message.error) pending.reject(new Error(message.error.message));
+        else pending.resolve(message.result || {});
+        return;
+      }
+      const waiters = this.events.get(message.method) || [];
+      this.events.delete(message.method);
+      for (const resolve of waiters) resolve(message.params || {});
+    });
+  }
+
+  send(method, params = {}) {
+    const id = this.nextId;
+    this.nextId += 1;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.socket.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  waitFor(method, timeoutMs = 10000) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${method}`)), timeoutMs);
+      const wrapped = (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      };
+      this.events.set(method, [...(this.events.get(method) || []), wrapped]);
+    });
+  }
+
+  close() {
+    this.socket.close();
+  }
+}
+
+async function newPage() {
+  const response = await fetch(
+    `http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`,
+    { method: "PUT" },
+  );
+  if (!response.ok) throw new Error(`Could not create Chrome target (${response.status}).`);
+  const target = await response.json();
+  const session = new CdpSession(target.webSocketDebuggerUrl);
+  await session.open();
+  await Promise.all([
+    session.send("Page.enable"),
+    session.send("Network.enable"),
+    session.send("Runtime.enable"),
+    session.send("Log.enable"),
+  ]);
+  return session;
+}
+
+async function setSessionCookies(session, role, token) {
+  const cookieValues = {
+    ho_staff_payroll_access_token: token,
+    ho_staff_payroll_role: role,
+    ho_staff_payroll_name: role === "supervisor" ? "General Manager" : role,
+  };
+  for (const [name, value] of Object.entries(cookieValues)) {
+    const result = await session.send("Network.setCookie", {
+      name,
+      value,
+      url: baseUrl,
+      httpOnly: true,
+      sameSite: "Lax",
+    });
+    if (!result.success) throw new Error(`Could not set ${name}.`);
+  }
+}
+
+async function inspectPage(session, role, route, viewport) {
+  await session.send("Emulation.setDeviceMetricsOverride", {
+    width: viewport.width,
+    height: viewport.height,
+    deviceScaleFactor: viewport.scale,
+    mobile: viewport.mobile,
+  });
+  await setSessionCookies(session, role, tokens[role]);
+
+  const loaded = session.waitFor("Page.loadEventFired");
+  await session.send("Page.navigate", { url: `${baseUrl}${route}` });
+  await loaded;
+  await delay(1200);
+
+  const evaluation = await session.send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const root = document.documentElement;
+      const text = document.body?.innerText || "";
+      const pageOverflow = root.scrollWidth > window.innerWidth + 1;
+      const visibleProblems = [...document.querySelectorAll("body *")].filter((element) => {
+        const style = getComputedStyle(element);
+        if (style.position === "fixed" || style.position === "absolute") return false;
+        if (element.closest(".table-wrap, .boardScroll")) return false;
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && (rect.right > window.innerWidth + 2 || rect.left < -2);
+      }).slice(0, 10).map((element) => ({
+        tag: element.tagName,
+        className: String(element.className || "").slice(0, 100),
+        text: String(element.textContent || "").trim().slice(0, 80),
+      }));
+      return {
+        href: location.href,
+        title: document.title,
+        text: text.slice(0, 300),
+        pageOverflow,
+        scrollWidth: root.scrollWidth,
+        clientWidth: root.clientWidth,
+        visibleProblems,
+        hasNextError: Boolean(document.querySelector("nextjs-portal")),
+      };
+    })()`,
+  });
+  const result = evaluation.result?.value || {};
+  const screenshot = await session.send("Page.captureScreenshot", {
+    format: "png",
+    captureBeyondViewport: false,
+  });
+  const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-");
+  const file = path.join(outputDir, `${role}-${viewport.name}-${slug}.png`);
+  await writeFile(file, Buffer.from(screenshot.data, "base64"));
+
+  return {
+    role,
+    route,
+    viewport: viewport.name,
+    screenshot: file,
+    ...result,
+    ok:
+      result.href?.startsWith(`${baseUrl}${route}`) &&
+      !result.pageOverflow &&
+      !result.hasNextError &&
+      !/application error|internal server error/i.test(result.text || ""),
+  };
+}
+
+if (!tokens.owner || !tokens.supervisor || !tokens.staff) {
+  throw new Error("BROWSER_SMOKE_TOKENS_JSON must include owner, supervisor, and staff tokens.");
+}
+
+await mkdir(outputDir, { recursive: true });
+const profileDir = await mkdtemp(path.join(os.tmpdir(), "staff-payroll-chrome-"));
+const browser = spawn(
+  browserPath,
+  [
+    "--headless=new",
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profileDir}`,
+    "--no-first-run",
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-default-apps",
+    "about:blank",
+  ],
+  { stdio: "ignore" },
+);
+
+const results = [];
+try {
+  await waitForChrome();
+  for (const viewport of viewports) {
+    for (const [role, routes] of Object.entries(pages)) {
+      for (const route of routes) {
+        const session = await newPage();
+        try {
+          results.push(await inspectPage(session, role, route, viewport));
+        } finally {
+          session.close();
+        }
+      }
+    }
+  }
+} finally {
+  browser.kill("SIGTERM");
+  await rm(profileDir, { recursive: true, force: true });
+}
+
+console.log(JSON.stringify(results, null, 2));
+const failures = results.filter((result) => !result.ok);
+if (failures.length) {
+  console.error(`Browser smoke failed on ${failures.length} page(s).`);
+  process.exitCode = 1;
+}

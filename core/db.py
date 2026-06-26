@@ -4,18 +4,22 @@ import os
 import sqlite3
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 APP_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = APP_DIR / "data"
-DB_PATH = DATA_DIR / "staff_payroll.sqlite"
+DB_PATH = Path(os.getenv("STAFF_PAYROLL_DB_PATH", str(DATA_DIR / "staff_payroll.sqlite"))).expanduser()
 
 
 def get_conn(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    timeout_seconds = max(1.0, float(os.getenv("STAFF_PAYROLL_DB_TIMEOUT_SECONDS", "15")))
+    conn = sqlite3.connect(str(db_path), timeout=timeout_seconds, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute(f"PRAGMA busy_timeout = {int(timeout_seconds * 1000)}")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -46,8 +50,7 @@ def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
-def run_schema_migrations(conn: sqlite3.Connection) -> None:
-    """Lightweight local SQLite migrations for prototype upgrades."""
+def _migration_1_existing_columns(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "payroll_items", "sss_er", "REAL NOT NULL DEFAULT 0")
     ensure_column(conn, "payroll_items", "sss_ec", "REAL NOT NULL DEFAULT 0")
     ensure_column(conn, "payroll_items", "philhealth_er", "REAL NOT NULL DEFAULT 0")
@@ -72,6 +75,80 @@ def run_schema_migrations(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "payroll_corrections", "voided_by", "TEXT")
     ensure_column(conn, "payroll_corrections", "void_reason", "TEXT")
     ensure_column(conn, "payroll_corrections", "voided_at", "TEXT")
+
+
+def _migration_2_account_security(conn: sqlite3.Connection) -> None:
+    ensure_column(conn, "app_users", "session_version", "INTEGER NOT NULL DEFAULT 1")
+    ensure_column(conn, "app_users", "mfa_secret", "TEXT")
+    ensure_column(conn, "app_users", "mfa_enabled", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "app_users", "mfa_confirmed_at", "TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            identifier TEXT NOT NULL,
+            ip_address TEXT NOT NULL,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            last_failed_at TEXT,
+            locked_until TEXT,
+            PRIMARY KEY(identifier, ip_address)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_login_attempts_locked_until ON login_attempts(locked_until)"
+    )
+
+
+def _migration_3_general_manager_label(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "UPDATE app_users SET role='General Manager' WHERE lower(role) IN ('supervisor','manager','department head')"
+    )
+
+
+def _migration_4_staff_requestable_leave_types(conn: sqlite3.Connection) -> None:
+    ensure_column(conn, "leave_types", "staff_requestable", "INTEGER NOT NULL DEFAULT 1")
+    conn.execute(
+        "UPDATE leave_types SET staff_requestable=0 WHERE lower(name) IN ('awol','suspension')"
+    )
+
+
+def _migration_5_employee_schedule_defaults(conn: sqlite3.Connection) -> None:
+    ensure_column(conn, "employees", "default_shift_start", "TEXT")
+    ensure_column(conn, "employees", "default_shift_end", "TEXT")
+
+
+MIGRATIONS: tuple[tuple[int, str, Callable[[sqlite3.Connection], None]], ...] = (
+    (1, "existing incremental columns", _migration_1_existing_columns),
+    (2, "account security and login throttling", _migration_2_account_security),
+    (3, "general manager role label", _migration_3_general_manager_label),
+    (4, "staff-requestable leave types", _migration_4_staff_requestable_leave_types),
+    (5, "employee schedule defaults", _migration_5_employee_schedule_defaults),
+)
+
+
+def run_schema_migrations(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL
+        )
+        """
+    )
+    applied = {
+        int(row[0])
+        for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
+    }
+    for version, name, migration in MIGRATIONS:
+        if version in applied:
+            continue
+        migration(conn)
+        conn.execute(
+            "INSERT INTO schema_migrations(version, name, applied_at) VALUES(?,?,?)",
+            (version, name, now_iso()),
+        )
+        conn.commit()
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
@@ -689,9 +766,6 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
     for dept in ["Reception", "Housekeeping", "Kitchen", "Cafe", "Security", "Admin", "Freelance"]:
         conn.execute("INSERT OR IGNORE INTO departments(name, active) VALUES(?,1)", (dept,))
 
-    for user_name, role in [("Caryl / Owner", "Owner"), ("Supervisor", "Supervisor"), ("Reception", "Reception")]:
-        conn.execute("INSERT OR IGNORE INTO app_users(display_name, role, active, created_at) VALUES(?,?,1,?)", (user_name, role, now))
-
     leave_types = [
         ("Service Incentive Leave", 5, 1, 1, 1, 0, 1, "Default Philippine SIL bucket; entitlement can be toggled per employee."),
         ("Sick Leave", 0, 1, 0, 1, 0, 1, "Company-controlled leave; configure credits per employee."),
@@ -754,22 +828,3 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
                 (min_comp, max_comp, msc, ee, er, ec),
             )
             msc += step
-
-    # Demo employees make the prototype useful immediately; user can delete/edit them.
-    if conn.execute("SELECT COUNT(*) FROM employees").fetchone()[0] == 0:
-        demo = [
-            ("EMP-001", "Kate Gumahin", "Reception", "Receptionist", "Hourly", "Active", 75, 600, 13000, 9, 60, 0, 1, 1, 1, 0),
-            ("EMP-002", "Rollan Aranas Enriquez", "Security", "Security", "Hourly", "Active", 70, 560, 12000, 12, 0, 1, 1, 1, 1, 0),
-            ("EMP-003", "Creative Freelancer", "Freelance", "Creative Assistant", "Freelance", "Active", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-        ]
-        for d in demo:
-            conn.execute(
-                """
-                INSERT INTO employees(employee_code, full_name, department, position, employment_type, status,
-                hourly_rate, daily_rate, declared_monthly_base, standard_shift_hours, unpaid_break_minutes,
-                security_no_break, benefits_sss, benefits_philhealth, benefits_pagibig, benefits_tax,
-                created_at, updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (*d, now, now),
-            )
