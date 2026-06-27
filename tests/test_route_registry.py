@@ -28,17 +28,30 @@ class ApiRouteRegistryTests(unittest.TestCase):
         self.assertEqual(duplicates, {})
 
     def test_corrected_override_endpoints_are_active_once(self) -> None:
-        endpoints = {
-            (str(getattr(route, "path", "")), method): getattr(getattr(route, "endpoint", None), "__name__", "")
-            for route in server.app.router.routes
-            for method in getattr(route, "methods", set())
-            if method not in {"HEAD", "OPTIONS"}
-        }
-        self.assertEqual(endpoints[("/api/v1/schedules/shifts", "POST")], "create_validated_shift")
-        self.assertEqual(endpoints[("/api/v1/schedules/day/scheduled", "POST")], "save_validated_day_schedule")
-        self.assertEqual(endpoints[("/api/v1/schedules/day/actual", "POST")], "save_validated_day_actual")
-        self.assertEqual(endpoints[("/api/v1/schedules/day/leave", "POST")], "save_day_leave")
-        self.assertEqual(endpoints[("/api/v1/me/shift-change-requests/{request_id}/attachment", "POST")], "upload_shift_request_attachment")
+        seen: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for route in server.app.router.routes:
+            path = str(getattr(route, "path", ""))
+            endpoint_name = getattr(getattr(route, "endpoint", None), "__name__", "")
+            for method in getattr(route, "methods", set()):
+                if method not in {"HEAD", "OPTIONS"}:
+                    seen[(path, method)].append(endpoint_name)
+
+        def active_endpoint(path_suffix: str, method: str = "POST") -> str:
+            matches = [
+                endpoint
+                for (path, route_method), endpoints in seen.items()
+                for endpoint in endpoints
+                if route_method == method and path.rstrip("/").endswith(path_suffix)
+            ]
+            self.assertEqual(matches.count(matches[0]) if matches else 0, len(matches), matches)
+            self.assertEqual(len(matches), 1, {path_suffix: matches})
+            return matches[0]
+
+        self.assertEqual(active_endpoint("/schedules/shifts"), "create_validated_shift")
+        self.assertEqual(active_endpoint("/schedules/day/scheduled"), "save_validated_day_schedule")
+        self.assertEqual(active_endpoint("/schedules/day/actual"), "save_validated_day_actual")
+        self.assertEqual(active_endpoint("/schedules/day/leave"), "save_day_leave")
+        self.assertEqual(active_endpoint("/me/shift-change-requests/{request_id}/attachment"), "upload_shift_request_attachment")
 
 
 if __name__ == "__main__":
