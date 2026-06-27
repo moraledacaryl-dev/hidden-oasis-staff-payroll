@@ -68,6 +68,9 @@ ROUTERS = (
     production_health_router,
     hr_records_router,
     payslip_distribution_router,
+    # These targeted routes are registered before the legacy routers so exact
+    # path matches use the stricter quality fixes while the rest of the module
+    # remains unchanged.
     schedule_leave_fractional_router,
     schedules_router,
     schedule_actuals_router,
