@@ -64,6 +64,7 @@ jobs:
           STAFF_PAYROLL_API_URL: http://127.0.0.1:8001
           BROWSER_SMOKE_BASE_URL: http://127.0.0.1:3001
           BROWSER_SMOKE_OUTPUT: ${{ runner.temp }}/staff-payroll-browser-smoke
+          BROWSER_SMOKE_PAGES_JSON: '{"owner":["/","/schedule","/hr","/backup","/settings/users","/performance-reviews"],"supervisor":["/","/attendance","/schedule/requests","/cash-advances","/performance-reviews"],"staff":["/me","/settings/security"]}'
         run: |
           set -euo pipefail
           export BROWSER_SMOKE_TOKENS_JSON="$(python scripts/browser_smoke_seed.py)"
