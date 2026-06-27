@@ -34,7 +34,6 @@ class ApiRouteRegistryTests(unittest.TestCase):
             "/api/v1/schedules/day/scheduled": "save_validated_day_schedule",
             "/api/v1/schedules/day/actual": "save_validated_day_actual",
             "/api/v1/schedules/day/leave": "save_day_leave",
-            "/api/v1/me/shift-change-requests/{request_id}/attachment": "upload_shift_request_attachment",
         }
         for path, expected_prefix in expected_operation_prefixes.items():
             self.assertIn(path, paths)
@@ -44,6 +43,13 @@ class ApiRouteRegistryTests(unittest.TestCase):
                 operation_id.startswith(expected_prefix),
                 {"path": path, "operationId": operation_id, "expected_prefix": expected_prefix},
             )
+
+    def test_staff_upload_endpoint_is_canonical(self) -> None:
+        matches = []
+        for route in server.app.router.routes:
+            if getattr(route, "path", "") == "/api/v1/me/shift-change-requests/{request_id}/attachment" and "POST" in getattr(route, "methods", set()):
+                matches.append(getattr(getattr(route, "endpoint", None), "__module__", ""))
+        self.assertEqual(matches, ["api.staff_self_service"])
 
 
 if __name__ == "__main__":
