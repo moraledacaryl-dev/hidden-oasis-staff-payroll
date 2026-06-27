@@ -58,7 +58,7 @@ export const navGroups: NavGroup[] = [
   {
     label: null,
     items: [
-      { href: "/settings/security", label: "Account", roles: ["owner", "payroll", "supervisor", "staff"] },
+      { href: "/settings/password", label: "Account", roles: ["owner", "payroll", "supervisor", "staff"] },
     ],
   },
 ];

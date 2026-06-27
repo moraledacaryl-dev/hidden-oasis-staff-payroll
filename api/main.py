@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
-from core.auth import authenticate_user, verify_totp
+from core.auth import authenticate_user
 from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.login_security import clear_login_failures, lock_remaining_seconds, record_login_failure
@@ -39,7 +39,6 @@ class PayrollPreviewRequest(BaseModel):
 class LoginRequest(BaseModel):
     display_name: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
-    otp: str | None = Field(default=None, min_length=6, max_length=6)
 
 class AttendanceDecisionRequest(BaseModel):
     decision: str = Field(..., description="Approved, Rejected, or Needs Correction")
@@ -108,7 +107,6 @@ def role_to_key(role: str | None) -> str:
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
     role_key = role_to_key(user.get("role"))
-    mfa_enabled = int(user.get("mfa_enabled") or 0)
     return clean_row(
         {
             "id": user.get("id"),
@@ -117,8 +115,8 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
             "role_key": role_key,
             "active": int(user.get("active") or 0),
             "must_change_password": int(user.get("must_change_password") or 0),
-            "mfa_enabled": mfa_enabled,
-            "mfa_setup_required": int(role_key in {ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR} and not mfa_enabled),
+            "mfa_enabled": 0,
+            "mfa_setup_required": 0,
             "employee_id": user.get("employee_id"),
             "session_version": int(user.get("session_version") or 1),
             "last_login_at": user.get("last_login_at"),
@@ -225,9 +223,6 @@ def build_app() -> FastAPI:
             f"{API_PREFIX}/auth/login",
             f"{API_PREFIX}/auth/me",
             f"{API_PREFIX}/auth/change-password",
-            f"{API_PREFIX}/auth/mfa/setup",
-            f"{API_PREFIX}/auth/mfa/confirm",
-            f"{API_PREFIX}/auth/mfa/disable",
         }
         authorization = request.headers.get("Authorization", "")
         if (
@@ -245,12 +240,6 @@ def build_app() -> FastAPI:
                 if user and int(user.get("must_change_password") or 0):
                     return JSONResponse(
                         {"detail": "Change your temporary password first.", "code": "password_change_required"},
-                        status_code=428,
-                    )
-                role_key = role_to_key((user or {}).get("role"))
-                if user and role_key in {ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR} and not int(user.get("mfa_enabled") or 0):
-                    return JSONResponse(
-                        {"detail": "Set up your authenticator first.", "code": "mfa_setup_required"},
                         status_code=428,
                     )
             except HTTPException:
@@ -288,21 +277,6 @@ def build_app() -> FastAPI:
                 )
                 conn.commit()
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
-            if int(user.get("mfa_enabled") or 0) and not verify_totp(user.get("mfa_secret"), payload.otp):
-                record_login_failure(conn, payload.display_name, ip_address)
-                log_audit(
-                    conn,
-                    actor=user.get("display_name"),
-                    action="Login failed",
-                    table_name="app_users",
-                    record_id=int(user["id"]),
-                    details={"ip_address": ip_address, "reason": "invalid_mfa"},
-                )
-                conn.commit()
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="A valid authenticator code is required.",
-                )
             logged_in_at = now_iso()
             conn.execute(
                 "UPDATE app_users SET last_login_at=? WHERE id=?",
