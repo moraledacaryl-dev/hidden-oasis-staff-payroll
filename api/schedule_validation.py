@@ -52,11 +52,6 @@ def validate_ot_hours(value: Any, field_name: str = "approved_ot_hours") -> floa
 def validate_day_editor_leave_fraction(leave_days: Any = None, leave_hours: Any = None, scheduled_paid_hours: float | None = None) -> float:
     days: float | None = None
     hours: float | None = None
-    if leave_days not in (None, ""):
-        try:
-            days = float(leave_days)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail="leave_days must be numeric.") from exc
     if leave_hours not in (None, ""):
         try:
             hours = float(leave_hours)
@@ -64,9 +59,14 @@ def validate_day_editor_leave_fraction(leave_days: Any = None, leave_hours: Any 
             raise HTTPException(status_code=422, detail="leave_hours must be numeric.") from exc
         if hours < 0 or hours > 24:
             raise HTTPException(status_code=422, detail="leave_hours must be between 0 and 24.")
-    if days is None and hours is not None and hours > 0:
+    if hours is not None and hours > 0:
         base_hours = scheduled_paid_hours if scheduled_paid_hours and scheduled_paid_hours > 0 else 8.0
         days = hours / base_hours
+    elif leave_days not in (None, ""):
+        try:
+            days = float(leave_days)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="leave_days must be numeric.") from exc
     if days is None:
         days = 1.0
     if days <= 0 or days > 1:
