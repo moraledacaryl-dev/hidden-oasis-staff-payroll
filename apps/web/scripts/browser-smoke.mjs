@@ -232,6 +232,7 @@ const browser = spawn(
   ],
   { stdio: "ignore" },
 );
+const browserExit = new Promise((resolve) => browser.once("exit", resolve));
 
 const results = [];
 try {
@@ -250,7 +251,17 @@ try {
   }
 } finally {
   browser.kill("SIGTERM");
-  await rm(profileDir, { recursive: true, force: true });
+  await Promise.race([browserExit, delay(5000)]);
+  if (browser.exitCode === null && browser.signalCode === null) {
+    browser.kill("SIGKILL");
+    await Promise.race([browserExit, delay(2000)]);
+  }
+  await rm(profileDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 200,
+  });
 }
 
 console.log(JSON.stringify(results, null, 2));
