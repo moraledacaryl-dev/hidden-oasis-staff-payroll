@@ -34,8 +34,23 @@ jobs:
         working-directory: apps/web
       - run: npm audit --omit=dev --audit-level=high
         working-directory: apps/web
-      - run: npm run lint
+      - name: Run frontend lint
         working-directory: apps/web
+        run: |
+          set +e
+          npm run lint 2>&1 | tee "$RUNNER_TEMP/frontend-lint.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            tail -n 120 "$RUNNER_TEMP/frontend-lint.log"
+            exit "$status"
+          fi
+      - name: Upload frontend lint log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-lint-log
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/frontend-lint.log
       - run: npm run typecheck
         working-directory: apps/web
       - run: npm run build
