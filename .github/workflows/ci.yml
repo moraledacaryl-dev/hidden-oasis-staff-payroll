@@ -10,7 +10,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-api.txt
       - run: pip check
-      - run: PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall -q api core tests
+      - run: PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall -q api core scripts tests
       - run: python -m unittest discover -v
       - uses: actions/setup-node@v4
         with:
@@ -25,3 +25,49 @@ jobs:
         working-directory: apps/web
       - run: npm run build
         working-directory: apps/web
+      - name: Browser smoke
+        env:
+          STAFF_PAYROLL_ENV: test
+          STAFF_PAYROLL_DB_PATH: ${{ runner.temp }}/staff-payroll-browser-smoke.sqlite
+          STAFF_PAYROLL_API_KEY: browser-smoke-api-key
+          STAFF_PAYROLL_SESSION_SECRET: browser-smoke-session-secret
+          STAFF_PAYROLL_API_URL: http://127.0.0.1:8001
+          BROWSER_SMOKE_BASE_URL: http://127.0.0.1:3001
+          BROWSER_SMOKE_OUTPUT: ${{ runner.temp }}/staff-payroll-browser-smoke
+        run: |
+          set -euo pipefail
+          export BROWSER_SMOKE_TOKENS_JSON="$(python scripts/browser_smoke_seed.py)"
+          python -m uvicorn api.server:app --host 127.0.0.1 --port 8001 > "$RUNNER_TEMP/staff-payroll-api.log" 2>&1 &
+          api_pid=$!
+          (
+            cd apps/web
+            npm run start -- -H 127.0.0.1 -p 3001
+          ) > "$RUNNER_TEMP/staff-payroll-web.log" 2>&1 &
+          web_pid=$!
+          cleanup() {
+            kill "$api_pid" "$web_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          for attempt in {1..60}; do
+            if curl --silent --fail http://127.0.0.1:8001/health >/dev/null &&
+               curl --silent --fail http://127.0.0.1:3001/login >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              cat "$RUNNER_TEMP/staff-payroll-api.log"
+              cat "$RUNNER_TEMP/staff-payroll-web.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          npm --prefix apps/web run test:browser
+      - name: Upload browser smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/staff-payroll-browser-smoke
+            ${{ runner.temp }}/staff-payroll-api.log
+            ${{ runner.temp }}/staff-payroll-web.log

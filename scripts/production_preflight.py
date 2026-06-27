@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import importlib
 import os
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 DB = Path(os.getenv("STAFF_PAYROLL_DB_PATH", "data/staff_payroll.sqlite"))
 REQUIRED = [
@@ -36,6 +41,13 @@ def main() -> int:
     failures += print_status(db.exists(), f"database exists: {db}")
     failures += print_status(bool(os.getenv("STAFF_PAYROLL_API_KEY")), "api key configured")
     failures += print_status(bool(os.getenv("STAFF_PAYROLL_SESSION_SECRET")), "session secret configured")
+    try:
+        server = importlib.import_module("api.server")
+        entrypoint_ok = getattr(server, "app", None) is not None
+    except Exception as exc:
+        entrypoint_ok = False
+        print(f"     {exc}")
+    failures += print_status(entrypoint_ok, "canonical API entrypoint api.server:app")
     if not db.exists():
         return failures
 

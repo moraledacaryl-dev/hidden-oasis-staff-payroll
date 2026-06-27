@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,7 +24,7 @@ from core.login_security import (
     record_login_failure,
 )
 from api.server import initialize_runtime
-from api.schedules import schedule_employees
+from api.schedules import DayLeavePayload, save_day_leave, schedule_employees
 
 
 class DatabaseOperationsTests(unittest.TestCase):
@@ -128,6 +129,91 @@ class DatabaseOperationsTests(unittest.TestCase):
             self.assertEqual(
                 [item["full_name"] for item in result["items"]],
                 ["Active Person"],
+            )
+
+    def test_schedule_day_editor_saves_vacation_leave(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "vacation.sqlite"
+            conn = get_conn(db_path)
+            try:
+                init_db(conn)
+                employee_id = int(
+                    conn.execute(
+                        """
+                        INSERT INTO employees(
+                            employee_code, full_name, status, created_at, updated_at
+                        ) VALUES('VL-1','Vacation User','Active',?,?)
+                        """,
+                        (now_iso(), now_iso()),
+                    ).lastrowid
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with (
+                patch("api.schedules.DB_PATH", db_path),
+                patch(
+                    "api.schedules.require_schedule_editor",
+                    return_value={
+                        "id": 2,
+                        "display_name": "General Manager",
+                        "role_key": "supervisor",
+                    },
+                ),
+            ):
+                result = save_day_leave(
+                    DayLeavePayload(
+                        employee_id=employee_id,
+                        shift_date=date(2026, 6, 26),
+                        leave_kind="Vacation Leave",
+                        reason="Planned leave",
+                    ),
+                    authorization=None,
+                    x_api_key=None,
+                )
+
+            self.assertEqual(result["leave"]["leave_type_name"], "Vacation Leave")
+            conn = get_conn(db_path)
+            try:
+                time_log = fetchone(
+                    conn,
+                    """
+                    SELECT is_absent, absence_type, attendance_status
+                    FROM time_logs
+                    WHERE employee_id=? AND work_date='2026-06-26'
+                    """,
+                    (employee_id,),
+                )
+                leave_request = fetchone(
+                    conn,
+                    """
+                    SELECT lt.name AS leave_type_name, lr.status, lr.paid, lr.days
+                    FROM leave_requests lr
+                    JOIN leave_types lt ON lt.id=lr.leave_type_id
+                    WHERE lr.employee_id=? AND lr.start_date='2026-06-26'
+                    """,
+                    (employee_id,),
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual(
+                (
+                    time_log["is_absent"],
+                    time_log["absence_type"],
+                    time_log["attendance_status"],
+                ),
+                (1, "Vacation Leave", "Approved"),
+            )
+            self.assertEqual(
+                (
+                    leave_request["leave_type_name"],
+                    leave_request["status"],
+                    leave_request["paid"],
+                    leave_request["days"],
+                ),
+                ("Vacation Leave", "Approved", 1, 1.0),
             )
 
     def test_final_owner_cannot_be_deactivated_or_demoted(self):

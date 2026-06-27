@@ -104,6 +104,7 @@ npm run build
 ```
 
 The test suite covers authentication, MFA, lockouts, migrations, backups, API contracts, shift swaps, leave workflows, payroll rules, corrections, and integration payloads.
+CI also starts the built web app and API against a disposable database, then checks owner, General Manager, and staff pages at mobile and desktop sizes. Screenshots and service logs are retained as workflow artifacts.
 
 ## Deployment
 
@@ -120,7 +121,7 @@ systemctl restart hidden-oasis-payroll-web
 systemctl reload nginx
 ```
 
-The production API entrypoint is `api.server:app`. Runtime databases, backups, uploads, environment files, and generated builds are ignored by Git.
+The production API entrypoint is `api.server:app`. Before restarting, confirm the systemd unit uses that entrypoint and loads a dedicated `STAFF_PAYROLL_SESSION_SECRET`; `api.server_review:app` is obsolete. Runtime databases, backups, uploads, environment files, and generated builds are ignored by Git.
 
 ## Payroll Safety
 

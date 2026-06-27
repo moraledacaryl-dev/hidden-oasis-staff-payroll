@@ -490,6 +490,24 @@ def ensure_leave_type(conn, name: str, paid: int) -> int:
     return int(cur.lastrowid)
 
 
+DAY_EDITOR_LEAVE_TYPES = {
+    "Sick Leave",
+    "Vacation Leave",
+    "Emergency Leave",
+    "Bereavement Leave",
+    "Official Business",
+    "Other Approved Absence",
+}
+
+DAY_EDITOR_ABSENCE_TYPES = {
+    "None",
+    "Rest Day",
+    "Approved / Excused Absence",
+    "Unexcused Absence",
+    "AWOL",
+}
+
+
 @router.get("/schedules/employees")
 def schedule_employees(authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     require_schedule_viewer(authorization, x_api_key)
@@ -690,19 +708,7 @@ def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(
     user = require_schedule_editor(authorization, x_api_key)
     shift_date = payload.shift_date.isoformat()
     leave_kind = payload.leave_kind.strip() or "None"
-    allowed = {
-        "None",
-        "Rest Day",
-        "Approved / Excused Absence",
-        "Unexcused Absence",
-        "AWOL",
-        "Sick Leave",
-        "Emergency Leave",
-        "Bereavement Leave",
-        "Official Business",
-        "Other Approved Absence",
-    }
-    if leave_kind not in allowed:
+    if leave_kind not in DAY_EDITOR_LEAVE_TYPES | DAY_EDITOR_ABSENCE_TYPES:
         raise HTTPException(status_code=422, detail="Invalid leave or absence type.")
     conn = get_conn(DB_PATH)
     try:
@@ -783,7 +789,7 @@ def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(
                 )
                 log_id = int(cur.lastrowid)
 
-            if leave_kind in {"Sick Leave", "Emergency Leave", "Bereavement Leave", "Official Business", "Other Approved Absence"}:
+            if leave_kind in DAY_EDITOR_LEAVE_TYPES:
                 paid = 0 if leave_kind == "Emergency Leave" else 1
                 leave_type_id = ensure_leave_type(conn, leave_kind, paid)
                 existing_leave = fetch_leave(conn, payload.employee_id, shift_date)

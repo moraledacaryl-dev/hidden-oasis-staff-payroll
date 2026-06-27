@@ -1,10 +1,18 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 const baseUrl = (process.env.BROWSER_SMOKE_BASE_URL || "http://127.0.0.1:3001").replace(/\/$/, "");
-const browserPath = process.env.BROWSER_BIN || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const browserPath = [
+  process.env.BROWSER_BIN,
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+].find((candidate) => candidate && existsSync(candidate));
 const port = Number(process.env.BROWSER_DEBUG_PORT || 9223);
 const outputDir = process.env.BROWSER_SMOKE_OUTPUT || path.join(os.tmpdir(), "staff-payroll-browser-smoke");
 const tokens = JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
@@ -88,8 +96,12 @@ class CdpSession {
     });
   }
 
-  close() {
-    this.socket.close();
+  async close() {
+    try {
+      await this.send("Page.close");
+    } finally {
+      this.socket.close();
+    }
   }
 }
 
@@ -198,6 +210,9 @@ async function inspectPage(session, role, route, viewport) {
 if (!tokens.owner || !tokens.supervisor || !tokens.staff) {
   throw new Error("BROWSER_SMOKE_TOKENS_JSON must include owner, supervisor, and staff tokens.");
 }
+if (!browserPath) {
+  throw new Error("Chrome or Chromium was not found. Set BROWSER_BIN to the browser executable.");
+}
 
 await mkdir(outputDir, { recursive: true });
 const profileDir = await mkdtemp(path.join(os.tmpdir(), "staff-payroll-chrome-"));
@@ -211,6 +226,8 @@ const browser = spawn(
     "--disable-background-networking",
     "--disable-component-update",
     "--disable-default-apps",
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
     "about:blank",
   ],
   { stdio: "ignore" },
@@ -226,7 +243,7 @@ try {
         try {
           results.push(await inspectPage(session, role, route, viewport));
         } finally {
-          session.close();
+          await session.close();
         }
       }
     }
