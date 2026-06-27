@@ -200,12 +200,13 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       setMessage("Choose an employee before saving leave or absence.");
       return;
     }
+    const rawHours = String(formData.get("leave_hours") || "").trim();
     void save("leave", {
       employee_id: Number(employeeId),
       shift_date: shiftDate,
       leave_kind: String(formData.get("leave_kind") || "None"),
-      leave_days: Number(formData.get("leave_days") || 1),
-      leave_hours: Number(formData.get("leave_hours") || 0) || null,
+      leave_days: rawHours ? null : Number(formData.get("leave_days") || 1),
+      leave_hours: rawHours ? Number(rawHours) : null,
       reason: String(formData.get("reason") || "") || null,
       notice_given_at: String(formData.get("notice_given_at") || "") || null,
       notice_timing: String(formData.get("notice_timing") || "") || null,
