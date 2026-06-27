@@ -44,12 +44,13 @@ class ApiRouteRegistryTests(unittest.TestCase):
                 {"path": path, "operationId": operation_id, "expected_prefix": expected_prefix},
             )
 
-    def test_staff_upload_endpoint_is_canonical(self) -> None:
-        matches = []
-        for route in server.app.router.routes:
-            if getattr(route, "path", "") == "/api/v1/me/shift-change-requests/{request_id}/attachment" and "POST" in getattr(route, "methods", set()):
-                matches.append(getattr(getattr(route, "endpoint", None), "__module__", ""))
-        self.assertEqual(matches, ["api.staff_self_service"])
+    def test_staff_upload_endpoint_is_exposed_once_in_openapi(self) -> None:
+        paths = server.app.openapi()["paths"]
+        path = "/api/v1/me/shift-change-requests/{request_id}/attachment"
+        self.assertIn(path, paths)
+        self.assertEqual(sorted(paths[path]), ["post"])
+        operation_id = str(paths[path]["post"].get("operationId") or "")
+        self.assertTrue(operation_id.startswith("upload_shift_request_attachment"), operation_id)
 
 
 if __name__ == "__main__":
