@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from api.main import current_user_from_token, require_api_key
 from api.payroll_drafts import must_be_payroll_user
 from core.audit import log_audit
-from core.backups import backup_path, create_backup, list_backups, verify_backup
+from core.backups import backup_path, create_backup_package, list_backups, verify_backup
 from core.db import DB_PATH, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -49,11 +49,7 @@ def database_checks(conn) -> dict[str, Any]:
     except sqlite3.Error:
         conn.rollback()
     migration = fetchone(conn, "SELECT MAX(version) AS version FROM schema_migrations") if table_exists(conn, "schema_migrations") else None
-    return {
-        "integrity": integrity,
-        "writable": write_ok,
-        "migration_version": int((migration or {}).get("version") or 0),
-    }
+    return {"integrity": integrity, "writable": write_ok, "migration_version": int((migration or {}).get("version") or 0)}
 
 
 @router.get("/production/health")
@@ -108,30 +104,18 @@ def production_health(authorization: str | None = Header(default=None, alias="Au
 
 
 @router.get("/production/backups")
-def backups(
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
+def backups(authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     require_owner(authorization, x_api_key)
     return {"ok": True, "items": list_backups()}
 
 
 @router.post("/production/backups")
-def make_backup(
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
+def make_backup(authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     user = require_owner(authorization, x_api_key)
-    item = create_backup(Path(os.getenv("STAFF_PAYROLL_DB_PATH", str(DB_PATH))).expanduser())
+    item = create_backup_package(Path(os.getenv("STAFF_PAYROLL_DB_PATH", str(DB_PATH))).expanduser())
     conn = get_conn(DB_PATH)
     try:
-        log_audit(
-            conn,
-            actor=user.get("display_name"),
-            action="Database backup created",
-            table_name="backups",
-            details={"name": item["name"], "encrypted": item["encrypted"]},
-        )
+        log_audit(conn, actor=user.get("display_name"), action="Operational backup package created", table_name="backups", details={"name": item["name"], "encrypted": item["encrypted"], "attachment_count": item.get("attachment_count")})
         conn.commit()
     finally:
         conn.close()
@@ -139,11 +123,7 @@ def make_backup(
 
 
 @router.post("/production/backups/{name}/verify")
-def verify_named_backup(
-    name: str,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict[str, Any]:
+def verify_named_backup(name: str, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     user = require_owner(authorization, x_api_key)
     try:
         result = verify_backup(backup_path(name))
@@ -151,13 +131,7 @@ def verify_named_backup(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     conn = get_conn(DB_PATH)
     try:
-        log_audit(
-            conn,
-            actor=user.get("display_name"),
-            action="Database backup verified",
-            table_name="backups",
-            details={"name": name},
-        )
+        log_audit(conn, actor=user.get("display_name"), action="Backup verified", table_name="backups", details={"name": name})
         conn.commit()
     finally:
         conn.close()
@@ -165,11 +139,7 @@ def verify_named_backup(
 
 
 @router.get("/production/backups/{name}/download")
-def download_backup(
-    name: str,
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-):
+def download_backup(name: str, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")):
     require_owner(authorization, x_api_key)
     try:
         path = backup_path(name)
