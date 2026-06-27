@@ -147,6 +147,7 @@ async function inspectPage(session, role, route, viewport) {
     height: viewport.height,
     deviceScaleFactor: viewport.scale,
     mobile: viewport.mobile,
+    scale: viewport.scale,
   });
   await setSessionCookies(session, role, tokens[role]);
 
@@ -203,6 +204,7 @@ async function inspectPage(session, role, route, viewport) {
       result.href?.startsWith(`${baseUrl}${route}`) &&
       !result.pageOverflow &&
       !result.hasNextError &&
+      (result.visibleProblems || []).length === 0 &&
       !/application error|internal server error/i.test(result.text || ""),
   };
 }
@@ -267,6 +269,13 @@ try {
 console.log(JSON.stringify(results, null, 2));
 const failures = results.filter((result) => !result.ok);
 if (failures.length) {
+  for (const failure of failures) {
+    if ((failure.visibleProblems || []).length) {
+      console.error(
+        `Visible layout problems on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.visibleProblems)}`,
+      );
+    }
+  }
   console.error(`Browser smoke failed on ${failures.length} page(s).`);
   process.exitCode = 1;
 }
