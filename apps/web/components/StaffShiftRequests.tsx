@@ -156,7 +156,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkerShi
           <label className="field">Requested date<input type="date" name="requested_date" /></label>
           <div className="grid cols-2"><label className="field">New start<input type="time" name="requested_start_time" /></label><label className="field">New end<input type="time" name="requested_end_time" /></label></div>
           <label className="field">Shift to swap with<select name="proposed_swap_shift_id" defaultValue=""><option value="">Not a swap</option>{coworkerShifts.map((shift) => <option key={shift.id} value={shift.id}>{shift.shift_date} · {shift.start_time}–{shift.end_time} · {shift.full_name}</option>)}</select></label>
-          <label className="field">Supporting document<input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /><span className="muted">Optional. PDF, image, DOC, or DOCX up to 10 MB.</span></label>
+          <label className="field">Supporting document<input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style={{ width: "100%", minWidth: 0, maxWidth: "100%", fontSize: "0.72rem", overflow: "hidden" }} /><span className="muted" style={{ display: "block", maxWidth: "100%", overflowWrap: "anywhere", lineHeight: 1.25 }}>Optional attachment up to 10 MB.</span></label>
           <label className="field" style={{ gridColumn: "1 / -1" }}>Reason<textarea name="reason" rows={4} required minLength={3} /></label>
           <label className="field"><span><input type="checkbox" name="emergency" /> Emergency review priority</span></label>
           <label className="field"><span><input type="checkbox" name="accuracy_confirmed" required /> I confirm that this information is accurate.</span></label>
