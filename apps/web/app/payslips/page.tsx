@@ -48,8 +48,6 @@ function earningsTotal(item: SlipItem) {
 }
 
 function PayslipCopy({ item, run, copyLabel, companyCopy = false }: { item: SlipItem; run: SlipRun; copyLabel: string; companyCopy?: boolean }) {
-  const mandatory = Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0);
-  const other = Number(item.tax || 0) + Number(item.cash_advance_deduction || 0) + Number(item.other_deductions || 0);
   const regularPay = hasValue(item.regular_pay) ? Number(item.regular_pay) : Number(item.gross_pay || 0) - Number(item.ot_pay || 0) - Number(item.night_diff_pay || 0) - Number(item.holiday_pay || 0) - Number(item.paid_leave_pay || 0) - Number(item.freelance_pay || 0) - Number(item.other_earnings || 0);
   const showFallbackGross = Math.abs(earningsTotal(item) - Number(item.gross_pay || 0)) > 0.01;
 

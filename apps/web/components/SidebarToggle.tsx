@@ -6,12 +6,14 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 const KEY = "hidden-oasis-sidebar-collapsed";
 
 export function SidebarToggle() {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(KEY) === "1";
-    setCollapsed(stored);
-    document.documentElement.dataset.sidebar = stored ? "collapsed" : "expanded";
+    const stored = window.localStorage.getItem(KEY);
+    const mobile = window.matchMedia("(max-width: 980px)").matches;
+    const next = stored == null ? mobile : stored === "1";
+    setCollapsed(next);
+    document.documentElement.dataset.sidebar = next ? "collapsed" : "expanded";
   }, []);
 
   function toggle() {

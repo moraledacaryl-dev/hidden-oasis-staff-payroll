@@ -19,6 +19,7 @@ from api.payroll_service import (
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchone, get_conn
 from core.payroll_engine import compute_payroll
+from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 router = APIRouter(prefix="/api/v1")
@@ -127,6 +128,7 @@ def create_payroll_draft(
             "total_deductions","net_pay","warnings",
         ]
         for result in compute_payroll(conn, start, end):
+            result = apply_fractional_paid_leave_adjustment(conn, result, start, end)
             data = item_dict(result)
             values = [run_id] + [data.get(column, 0) for column in columns] + [stamp]
             conn.execute(

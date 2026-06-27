@@ -11,7 +11,22 @@ jobs:
       - run: pip install -r requirements-api.txt
       - run: pip check
       - run: PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall -q api core scripts tests
-      - run: python -m unittest discover -v
+      - name: Run Python unit tests
+        run: |
+          set +e
+          python -m unittest discover -v 2>&1 | tee "$RUNNER_TEMP/unittest.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            tail -n 120 "$RUNNER_TEMP/unittest.log"
+            exit "$status"
+          fi
+      - name: Upload unit test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unittest-log
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/unittest.log
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -19,8 +34,23 @@ jobs:
         working-directory: apps/web
       - run: npm audit --omit=dev --audit-level=high
         working-directory: apps/web
-      - run: npm run lint
+      - name: Run frontend lint
         working-directory: apps/web
+        run: |
+          set +e
+          npm run lint 2>&1 | tee "$RUNNER_TEMP/frontend-lint.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            tail -n 120 "$RUNNER_TEMP/frontend-lint.log"
+            exit "$status"
+          fi
+      - name: Upload frontend lint log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-lint-log
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/frontend-lint.log
       - run: npm run typecheck
         working-directory: apps/web
       - run: npm run build
@@ -34,6 +64,7 @@ jobs:
           STAFF_PAYROLL_API_URL: http://127.0.0.1:8001
           BROWSER_SMOKE_BASE_URL: http://127.0.0.1:3001
           BROWSER_SMOKE_OUTPUT: ${{ runner.temp }}/staff-payroll-browser-smoke
+          BROWSER_SMOKE_PAGES_JSON: '{"owner":["/","/schedule","/hr","/backup","/settings/users","/performance-reviews"],"supervisor":["/","/attendance","/schedule/requests","/cash-advances","/performance-reviews"],"staff":["/me","/settings/security"]}'
         run: |
           set -euo pipefail
           export BROWSER_SMOKE_TOKENS_JSON="$(python scripts/browser_smoke_seed.py)"
@@ -60,7 +91,13 @@ jobs:
             fi
             sleep 1
           done
-          npm --prefix apps/web run test:browser
+          set +e
+          npm --prefix apps/web run test:browser 2>&1 | tee "$RUNNER_TEMP/browser-smoke.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            tail -n 180 "$RUNNER_TEMP/browser-smoke.log"
+            exit "$status"
+          fi
       - name: Upload browser smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -71,3 +108,4 @@ jobs:
             ${{ runner.temp }}/staff-payroll-browser-smoke
             ${{ runner.temp }}/staff-payroll-api.log
             ${{ runner.temp }}/staff-payroll-web.log
+            ${{ runner.temp }}/browser-smoke.log

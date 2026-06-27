@@ -6,7 +6,8 @@ from fastapi import APIRouter, Header, HTTPException
 
 from api.payroll_drafts import must_be_payroll_user, now_iso, totals
 from core.db import DB_PATH, fetchall, fetchone, get_conn
-from core.payroll_engine import add_payroll_lines, compute_payroll
+from core.payroll_engine import add_payroll_lines
+from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 router = APIRouter(prefix="/api/v1")
@@ -83,7 +84,7 @@ def recalculate_draft(
         adjustments = _adjustments(conn, run_id)
         results = [
             _apply_manual(result, adjustments.get(int(result.employee_id)))
-            for result in compute_payroll(conn, run["period_start"], run["period_end"])
+            for result in compute_payroll_with_fractional_leave(conn, run["period_start"], run["period_end"])
         ]
         result_by_employee = {int(result.employee_id): result for result in results}
         existing_items = fetchall(conn, "SELECT * FROM payroll_items WHERE payroll_run_id=?", (run_id,))
@@ -133,7 +134,7 @@ def recalculate_draft(
             "run": updated,
             "checks": checks,
             "preserved_manual_adjustments": len(adjustments),
-            "message": "Draft recalculated from current schedule, attendance, leave, OT, employee settings, and cash-advance data. Saved manual adjustments were preserved.",
+            "message": "Draft recalculated from current schedule, attendance, fractional leave, OT, employee settings, and cash-advance data. Saved manual adjustments were preserved.",
         }
     except HTTPException:
         conn.rollback()

@@ -1,12 +1,28 @@
 from __future__ import annotations
 
+from typing import Any
+
+from fastapi import Depends
+
 from api.attendance_compliance import router as attendance_compliance_router
 from api.cash_advance_corrections import router as cash_advance_corrections_router
 from api.cash_advances import router as cash_advances_router
 from api.cash_repayments import router as cash_repayments_router
 from api.employees import router as employees_router
 from api.hr_records import router as hr_records_router
-from api.main import app, configured_db_path
+from api.main import (
+    API_PREFIX,
+    ROLE_OWNER,
+    ROLE_PAYROLL,
+    PayrollPreviewRequest,
+    app,
+    configured_db_path,
+    db_conn,
+    parse_date_order,
+    payroll_result_to_api,
+    require_api_key,
+    require_roles,
+)
 from api.my_payroll import router as my_payroll_router
 from api.payroll_adjustments import router as payroll_adjustments_router
 from api.payroll_audit_events import router as payroll_audit_events_router
@@ -23,6 +39,8 @@ from api.performance_reviews import router as performance_reviews_router
 from api.production_health import router as production_health_router
 from api.schedule_actuals import router as schedule_actuals_router
 from api.schedule_change_log import ensure_schedule_change_log_schema
+from api.schedule_input_validation_routes import router as schedule_input_validation_router
+from api.schedule_leave_fractional import router as schedule_leave_fractional_router
 from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.schedule_migration import router as schedule_migration_router
 from api.schedule_publication import router as schedule_publication_router
@@ -32,9 +50,12 @@ from api.schedules import router as schedules_router
 from api.sil_leave import router as sil_leave_router
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
+from api.staff_self_service_upload_secure import router as staff_self_service_upload_secure_router
 from api.users import router as users_router
 from api.payroll_revision_service import ensure_workflow_schema
 from core.db import get_conn, init_db
+from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
+from core.quality import build_payroll_preflight_checks, summarize_checks
 from core.runtime_guard import validate_runtime_environment
 
 
@@ -52,6 +73,36 @@ def initialize_runtime() -> None:
         conn.close()
 
 
+@app.post(f"{API_PREFIX}/payroll/preview", dependencies=[Depends(require_api_key)])
+def payroll_preview_fractional(payload: PayrollPreviewRequest, user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict[str, Any]:
+    start, end = parse_date_order(payload.period_start, payload.period_end)
+    with db_conn(read_only=True) as conn:
+        checks = build_payroll_preflight_checks(conn, start, end)
+        results = [payroll_result_to_api(item) for item in compute_payroll_with_fractional_leave(conn, start, end)]
+    totals = {
+        "employees": len(results),
+        "gross_pay": round(sum(float(row.get("gross_pay") or 0) for row in results), 2),
+        "net_pay": round(sum(float(row.get("net_pay") or 0) for row in results), 2),
+        "total_deductions": round(sum(float(row.get("total_deductions") or 0) for row in results), 2),
+        "cash_advance_deduction": round(sum(float(row.get("cash_advance_deduction") or 0) for row in results), 2),
+    }
+    return {"period_start": start, "period_end": end, "summary": summarize_checks(checks), "checks": checks, "totals": totals, "items": results, "mode": "preview_only_no_save"}
+
+
+def _remove_from_router(router: Any, suffix: str, method: str) -> None:
+    router.routes = [
+        route
+        for route in router.routes
+        if not (str(getattr(route, "path", "")).endswith(suffix) and method.upper() in getattr(route, "methods", set()))
+    ]
+
+
+for suffix in ("/schedules/shifts", "/schedules/day/scheduled", "/schedules/day/actual"):
+    _remove_from_router(schedules_router, suffix, "POST")
+_remove_from_router(schedules_router, "/schedules/day/leave", "POST")
+_remove_from_router(staff_self_service_router, "/me/shift-change-requests/{request_id}/attachment", "POST")
+
+
 ROUTERS = (
     payroll_drafts_router,
     payroll_return_router,
@@ -66,6 +117,8 @@ ROUTERS = (
     production_health_router,
     hr_records_router,
     payslip_distribution_router,
+    schedule_input_validation_router,
+    schedule_leave_fractional_router,
     schedules_router,
     schedule_actuals_router,
     schedule_rest_days_router,
@@ -74,6 +127,7 @@ ROUTERS = (
     users_router,
     employees_router,
     schedule_publication_router,
+    staff_self_service_upload_secure_router,
     staff_self_service_router,
     staff_published_portal_router,
     attendance_compliance_router,
@@ -84,6 +138,11 @@ ROUTERS = (
     payroll_adjustments_router,
     payroll_recalculate_router,
 )
+
+app.router.routes = [
+    route for route in app.router.routes
+    if not (getattr(route, "path", "") == f"{API_PREFIX}/payroll/preview" and "POST" in getattr(route, "methods", set()) and getattr(route, "endpoint", None).__name__ != "payroll_preview_fractional")
+]
 
 for router in ROUTERS:
     app.include_router(router)
