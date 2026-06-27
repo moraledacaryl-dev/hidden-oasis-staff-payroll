@@ -23,6 +23,7 @@ from api.performance_reviews import router as performance_reviews_router
 from api.production_health import router as production_health_router
 from api.schedule_actuals import router as schedule_actuals_router
 from api.schedule_change_log import ensure_schedule_change_log_schema
+from api.schedule_leave_fractional import router as schedule_leave_fractional_router
 from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.schedule_migration import router as schedule_migration_router
 from api.schedule_publication import router as schedule_publication_router
@@ -67,6 +68,7 @@ ROUTERS = (
     production_health_router,
     hr_records_router,
     payslip_distribution_router,
+    schedule_leave_fractional_router,
     schedules_router,
     schedule_actuals_router,
     schedule_rest_days_router,
