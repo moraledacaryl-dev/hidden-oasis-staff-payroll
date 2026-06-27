@@ -19,7 +19,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; max-width: 100%; overflow-x: hidden; background: var(--bg); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 a { color: inherit; text-decoration: none; }
-button, input, select { font: inherit; max-width: 100%; }
+button, input, select, textarea { font: inherit; max-width: 100%; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.6; }
 .app-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; width: 100%; max-width: 100%; transition: grid-template-columns 0.18s ease; }
@@ -82,8 +82,9 @@ tr:last-child td { border-bottom: 0; }
 .form-row, .form-grid { display: flex; flex-wrap: wrap; gap: 9px; align-items: flex-end; min-width: 0; }
 .form-grid label, .field { display: grid; gap: 5px; min-width: 150px; flex: 1; }
 .form-grid label, .field label { color: var(--muted); font-size: 0.72rem; font-weight: 820; text-transform: uppercase; letter-spacing: 0; }
-input, select { min-height: 38px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; color: var(--ink); outline: none; }
-input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+input, select, textarea { min-height: 38px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; color: var(--ink); outline: none; }
+textarea { resize: vertical; line-height: 1.35; }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .check-field { display: flex !important; flex-direction: row !important; align-items: center; gap: 8px; min-width: 220px; }
 .check-field input { min-height: auto; width: 16px; height: 16px; }
 .primary-button, .button, .primary-link { min-height: 38px; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
@@ -128,9 +129,21 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
 .payslip-summary span { color: var(--muted); font-size: 0.82rem; }
 .payslip-summary strong { font-size: 0.96rem; }
 .payslip-signature { display: flex; justify-content: space-between; gap: 18px; padding-top: 2px; }
+.review-form { display: grid; gap: 12px; min-width: 0; }
+.review-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.review-form label { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 0.72rem; font-weight: 820; text-transform: uppercase; }
+.review-form input,
+.review-form select,
+.review-form textarea { width: 100%; min-width: 0; }
+.review-log-card { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); min-width: 0; overflow-wrap: anywhere; }
+.review-log-card header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; min-width: 0; }
+.review-log-card p { color: var(--muted); line-height: 1.4; }
+.review-score-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.review-score-card { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.review-score-card strong { display: block; font-size: 1.1rem; }
 @media (max-width: 1180px) { .payslip-grid { grid-template-columns: 1fr; } }
-@media (max-width: 980px) { .app-shell, html[data-sidebar="collapsed"] .app-shell { grid-template-columns: 1fr; } .sidebar, html[data-sidebar="collapsed"] .sidebar { position: static; width: auto; height: auto; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); } .main { grid-column: auto; padding: 18px; } .nav-list { grid-template-columns: 1fr; } .grid.cols-2, .grid.cols-3, .grid.cols-4, .payslip-columns, .payslip-summary { grid-template-columns: 1fr; } html[data-sidebar="collapsed"] .sidebar { padding: 10px 12px; overflow: hidden; } html[data-sidebar="collapsed"] .brand { margin-bottom: 0; justify-content: space-between; } html[data-sidebar="collapsed"] .brand-text, html[data-sidebar="collapsed"] .nav-list, html[data-sidebar="collapsed"] .sidebar-footer { display: none; } html[data-sidebar="collapsed"] .sidebar-toggle { margin-left: auto; } html[data-sidebar="collapsed"] .nav-card::before { content: none; } .coverage-review summary { align-items: flex-start; } }
-@media (max-width: 620px) { h1 { font-size: 1.65rem; } .page-header, .payslip-top, .payslip-signature { display: grid; } .payslip-net { text-align: left; } .card { padding: 12px; } .main { padding: 12px; } .page { gap: 12px; } .modal-backdrop { align-items: stretch; padding: 0; } .modal-panel { width: 100%; max-height: 100vh; border-radius: 0; border-left: 0; border-right: 0; } }
+@media (max-width: 980px) { .app-shell, html[data-sidebar="collapsed"] .app-shell { grid-template-columns: 1fr; } .sidebar, html[data-sidebar="collapsed"] .sidebar { position: static; width: auto; height: auto; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); } .main { grid-column: auto; padding: 18px; } .nav-list { grid-template-columns: 1fr; } .grid.cols-2, .grid.cols-3, .grid.cols-4, .payslip-columns, .payslip-summary, .review-two-col, .review-score-grid { grid-template-columns: 1fr; } html[data-sidebar="collapsed"] .sidebar { padding: 10px 12px; overflow: hidden; } html[data-sidebar="collapsed"] .brand { margin-bottom: 0; justify-content: space-between; } html[data-sidebar="collapsed"] .brand-text, html[data-sidebar="collapsed"] .nav-list, html[data-sidebar="collapsed"] .sidebar-footer { display: none; } html[data-sidebar="collapsed"] .sidebar-toggle { margin-left: auto; } html[data-sidebar="collapsed"] .nav-card::before { content: none; } .coverage-review summary { align-items: flex-start; } }
+@media (max-width: 620px) { h1 { font-size: 1.65rem; } .page-header, .payslip-top, .payslip-signature, .review-log-card header { display: grid; } .payslip-net { text-align: left; } .card { padding: 12px; } .main { padding: 12px; } .page { gap: 12px; } .modal-backdrop { align-items: stretch; padding: 0; } .modal-panel { width: 100%; max-height: 100vh; border-radius: 0; border-left: 0; border-right: 0; } }
 @media print {
   :root { --bg: #fff; --shadow: none; }
   body { background: #fff; }
@@ -154,7 +167,6 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
   table { min-width: 0; }
 }
 
-/* Shared responsive layout */
 .page,
 .card,
 .panel-title,
@@ -165,16 +177,13 @@ input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
 .table-wrap,
 .modal-panel,
 .coverage-review,
-.payslip-card {
-  min-width: 0;
-  max-width: 100%;
-}
+.payslip-card,
+.review-form,
+.review-log-card { min-width: 0; max-width: 100%; }
 
 .card,
 .coverage-review,
 .modal-panel,
 .action-item,
 td,
-th {
-  overflow-wrap: anywhere;
-}
+th { overflow-wrap: anywhere; }
