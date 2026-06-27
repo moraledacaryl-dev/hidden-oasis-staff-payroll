@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from core.backups import create_backup_package
+from core.backups import create_backup_package, verify_backup
 from core.db import get_conn, init_db, now_iso
 
 
@@ -53,13 +53,7 @@ class BackupPackageTests(unittest.TestCase):
                 conn.close()
 
             backup_dir = root / "backups"
-            with patch.dict(
-                os.environ,
-                {
-                    "STAFF_PAYROLL_BACKUP_DIR": str(backup_dir),
-                    "STAFF_UPLOAD_DIR": str(upload_dir),
-                },
-            ):
+            with patch.dict(os.environ, {"STAFF_PAYROLL_BACKUP_DIR": str(backup_dir), "STAFF_UPLOAD_DIR": str(upload_dir)}):
                 result = create_backup_package(db_path)
 
             package_path = Path(result["path"])
@@ -80,6 +74,26 @@ class BackupPackageTests(unittest.TestCase):
                 self.assertEqual(sqlite_conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             finally:
                 sqlite_conn.close()
+
+    def test_created_zip_package_can_be_verified(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "source.sqlite"
+            upload_dir = root / "uploads"
+            upload_dir.mkdir()
+            conn = get_conn(db_path)
+            try:
+                init_db(conn)
+                conn.commit()
+            finally:
+                conn.close()
+            backup_dir = root / "backups"
+            with patch.dict(os.environ, {"STAFF_PAYROLL_BACKUP_DIR": str(backup_dir), "STAFF_UPLOAD_DIR": str(upload_dir)}):
+                result = create_backup_package(db_path)
+                verified = verify_backup(Path(result["path"]))
+            self.assertTrue(verified["ok"])
+            self.assertGreaterEqual(verified["table_count"], 1)
+            self.assertIn("manifest", verified)
 
 
 if __name__ == "__main__":
