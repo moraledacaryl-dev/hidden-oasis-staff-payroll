@@ -8,6 +8,9 @@ WEB_SERVICE="${WEB_SERVICE:-hidden-oasis-payroll-web}"
 API_HEALTH_URL="${API_HEALTH_URL:-http://127.0.0.1:8001/health}"
 WEB_HEALTH_URL="${WEB_HEALTH_URL:-http://127.0.0.1:3001}"
 DEPLOY_STATE_FILE="${DEPLOY_STATE_FILE:-/var/lib/hidden-oasis-payroll/deployed-sha}"
+API_VENV="${API_VENV:-$APP_ROOT/.venv-api}"
+API_PYTHON="$API_VENV/bin/python"
+API_PIP="$API_VENV/bin/pip"
 
 cd "$APP_ROOT"
 
@@ -49,28 +52,34 @@ set -a
 source "$APP_ENV"
 set +a
 
+if [[ ! -x "$API_PYTHON" ]]; then
+  echo "Creating API virtual environment..."
+  python3 -m venv "$API_VENV"
+fi
+
+echo "Installing API dependencies..."
+"$API_PYTHON" -m pip install --upgrade pip
+"$API_PIP" install -r requirements-api.txt
+"$API_PIP" check
+
 echo "Creating database backup..."
-python3 scripts/backup_database.py
+"$API_PYTHON" scripts/backup_database.py
 
 if [[ -f scripts/backup_package.py ]]; then
   echo "Creating database + uploads backup package..."
-  python3 scripts/backup_package.py
+  "$API_PYTHON" scripts/backup_package.py
 fi
 
 echo "Compiling Python..."
-python3 -m compileall api core scripts tests
+"$API_PYTHON" -m compileall api core scripts tests
 
 if [[ -d tests ]]; then
   echo "Running Python tests..."
-  python3 -m unittest discover -s tests
+  "$API_PYTHON" -m unittest discover -s tests
 fi
 
 echo "Running production preflight..."
-if [[ -x .venv-api/bin/python ]]; then
-  .venv-api/bin/python scripts/production_preflight.py
-else
-  python3 scripts/production_preflight.py
-fi
+"$API_PYTHON" scripts/production_preflight.py
 
 echo "Building web app..."
 cd apps/web
