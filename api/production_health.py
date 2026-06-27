@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from api.main import current_user_from_token, require_api_key
 from api.payroll_drafts import must_be_payroll_user
 from core.audit import log_audit
-from core.backups import backup_path, create_backup_package, list_backups, verify_backup
+from core.backups import BackupVerificationError, backup_path, create_backup_package, list_backups, verify_backup
 from core.db import DB_PATH, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -127,7 +127,9 @@ def verify_named_backup(name: str, authorization: str | None = Header(default=No
     user = require_owner(authorization, x_api_key)
     try:
         result = verify_backup(backup_path(name))
-    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (BackupVerificationError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     conn = get_conn(DB_PATH)
     try:
