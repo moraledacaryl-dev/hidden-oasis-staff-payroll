@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -11,12 +10,11 @@ from pydantic import BaseModel, Field
 
 from api.main import current_user_from_token, require_api_key
 from api.schedule_change_log import log_schedule_change
+from api.upload_validation import MAX_UPLOAD_BYTES, validate_upload_bytes
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
 UPLOAD_DIR = Path(os.getenv("STAFF_UPLOAD_DIR", "data/staff_uploads"))
-ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 class ShiftChangeRequestPayload(BaseModel):
@@ -373,6 +371,8 @@ def upload_shift_request_attachment(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
     require_staff_user(x_api_key, user)
+    raw = file.file.read(MAX_UPLOAD_BYTES + 1)
+    suffix = validate_upload_bytes(file.filename, raw)
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
@@ -380,20 +380,10 @@ def upload_shift_request_attachment(
         row = fetchone(conn, "SELECT * FROM shift_change_requests WHERE id=? AND employee_id=?", (request_id, employee["id"]))
         if not row:
             raise HTTPException(status_code=404, detail="Request not found.")
-        suffix = Path(file.filename or "").suffix.lower()
-        if suffix not in ALLOWED_EXTENSIONS:
-            raise HTTPException(status_code=400, detail="Upload PDF, JPG, PNG, DOC, or DOCX only.")
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        target = UPLOAD_DIR / f"shift-request-{request_id}{suffix}"
-        total = 0
-        with target.open("wb") as output:
-            while chunk := file.file.read(1024 * 1024):
-                total += len(chunk)
-                if total > MAX_UPLOAD_BYTES:
-                    output.close()
-                    target.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail="File exceeds the 10 MB limit.")
-                output.write(chunk)
+        target = UPLOAD_DIR / f"shift-request-{request_id}-{now_iso().replace(':', '').replace(' ', '-')}{suffix}"
+        target.write_bytes(raw)
+        target.chmod(0o600)
         conn.execute("UPDATE shift_change_requests SET attachment_path=? WHERE id=?", (str(target), request_id))
         audit(conn, request_id, "Attachment Uploaded", int(user["id"]), int(employee["id"]), file.filename)
         conn.commit()

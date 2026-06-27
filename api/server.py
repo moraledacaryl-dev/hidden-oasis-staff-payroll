@@ -51,7 +51,6 @@ from api.schedules import router as schedules_router
 from api.sil_leave import router as sil_leave_router
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
-from api.staff_self_service_upload_secure import router as staff_self_service_upload_secure_router
 from api.users import router as users_router
 from core.db import get_conn, init_db
 from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
@@ -98,13 +97,7 @@ def _route_key(route: Any) -> tuple[str, str] | None:
 
 
 def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: set[tuple[str, str]]) -> None:
-    """Include a router without mutating the imported router object.
-
-    Some older modules still contain legacy endpoint implementations while the corrected
-    endpoint lives in a focused validation/security router. This copies only the routes
-    that should remain active, avoiding the prior pattern of editing ``router.routes`` in
-    place during API assembly.
-    """
+    """Include a router without mutating the imported router object."""
     filtered = APIRouter()
     filtered.routes.extend(
         route
@@ -119,10 +112,6 @@ SCHEDULES_EXCLUDED_ROUTES = {
     (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
     (f"{API_PREFIX}/schedules/day/actual", "POST"),
     (f"{API_PREFIX}/schedules/day/leave", "POST"),
-}
-
-STAFF_SELF_SERVICE_EXCLUDED_ROUTES = {
-    (f"{API_PREFIX}/me/shift-change-requests/{{request_id}}/attachment", "POST"),
 }
 
 ROUTERS = (
@@ -148,7 +137,6 @@ ROUTERS = (
     users_router,
     employees_router,
     schedule_publication_router,
-    staff_self_service_upload_secure_router,
     staff_published_portal_router,
     attendance_compliance_router,
     cash_advances_router,
@@ -167,4 +155,4 @@ app.router.routes = [
 for router in ROUTERS:
     app.include_router(router)
 _include_router_filtered(app, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
-_include_router_filtered(app, staff_self_service_router, STAFF_SELF_SERVICE_EXCLUDED_ROUTES)
+app.include_router(staff_self_service_router)
