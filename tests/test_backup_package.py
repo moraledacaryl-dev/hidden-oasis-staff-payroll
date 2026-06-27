@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from core.backups import create_backup_package, verify_backup
+from core.backups import BackupVerificationError, create_backup_package, verify_backup
 from core.db import get_conn, init_db, now_iso
 
 
@@ -94,6 +94,22 @@ class BackupPackageTests(unittest.TestCase):
             self.assertTrue(verified["ok"])
             self.assertGreaterEqual(verified["table_count"], 1)
             self.assertIn("manifest", verified)
+
+    def test_corrupted_zip_package_raises_controlled_error(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            corrupt = Path(temp_dir) / "staff-payroll-package-corrupt.zip"
+            corrupt.write_bytes(b"this is not a zip")
+            with self.assertRaises(BackupVerificationError) as err:
+                verify_backup(corrupt)
+            self.assertIn("corrupted", str(err.exception).lower())
+
+    def test_corrupted_sqlite_backup_raises_controlled_error(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            corrupt = Path(temp_dir) / "staff-payroll-corrupt.sqlite"
+            corrupt.write_bytes(b"not sqlite")
+            with self.assertRaises(BackupVerificationError) as err:
+                verify_backup(corrupt)
+            self.assertIn("sqlite", str(err.exception).lower())
 
 
 if __name__ == "__main__":
