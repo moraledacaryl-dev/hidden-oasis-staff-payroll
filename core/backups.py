@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import shutil
 import sqlite3
 import tempfile
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -97,6 +99,101 @@ def create_backup(db_path: Path | str = DB_PATH) -> dict[str, Any]:
     }
 
 
+def _referenced_attachment_paths(db_path: Path) -> tuple[list[Path], list[str]]:
+    if not db_path.exists():
+        return [], []
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    paths: list[Path] = []
+    missing: list[str] = []
+    try:
+        table_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='shift_change_requests'"
+        ).fetchone()
+        if not table_exists:
+            return [], []
+        rows = conn.execute(
+            "SELECT attachment_path FROM shift_change_requests WHERE attachment_path IS NOT NULL AND attachment_path != ''"
+        ).fetchall()
+        for row in rows:
+            path = Path(str(row["attachment_path"])).expanduser()
+            if path.exists() and path.is_file():
+                paths.append(path)
+            else:
+                missing.append(str(path))
+    finally:
+        conn.close()
+    unique: dict[str, Path] = {str(path.resolve()): path for path in paths}
+    return list(unique.values()), missing
+
+
+def _safe_archive_name(path: Path, used: set[str]) -> str:
+    try:
+        upload_root = Path(os.getenv("STAFF_UPLOAD_DIR", "data/staff_uploads")).expanduser().resolve()
+        resolved = path.resolve()
+        if resolved.is_relative_to(upload_root):
+            name = Path("uploads") / resolved.relative_to(upload_root)
+        else:
+            name = Path("uploads") / path.name
+    except Exception:
+        name = Path("uploads") / path.name
+    candidate = str(name).replace("\\", "/")
+    if candidate not in used:
+        used.add(candidate)
+        return candidate
+    stem = Path(candidate).stem
+    suffix = Path(candidate).suffix
+    parent = str(Path(candidate).parent).replace("\\", "/")
+    index = 2
+    while True:
+        deduped = f"{parent}/{stem}-{index}{suffix}" if parent != "." else f"{stem}-{index}{suffix}"
+        if deduped not in used:
+            used.add(deduped)
+            return deduped
+        index += 1
+
+
+def create_backup_package(db_path: Path | str = DB_PATH) -> dict[str, Any]:
+    """Create a ZIP backup containing a consistent SQLite copy plus uploaded staff documents."""
+    source = Path(db_path).expanduser()
+    if not source.exists():
+        raise FileNotFoundError(f"Database not found: {source}")
+
+    directory = backup_directory()
+    directory.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    target = directory / f"staff-payroll-package-{timestamp}.zip"
+
+    with tempfile.TemporaryDirectory(prefix="staff-payroll-package-") as temp_dir:
+        plain = Path(temp_dir) / "staff-payroll.sqlite"
+        _plain_backup(source, plain)
+        attachments, missing = _referenced_attachment_paths(source)
+        manifest = {
+            "generated_at": datetime.now().replace(microsecond=0).isoformat(sep=" "),
+            "db_name": source.name,
+            "database_archive_path": "database/staff-payroll.sqlite",
+            "attachment_count": len(attachments),
+            "missing_attachment_paths": missing,
+        }
+        used_names = {"database/staff-payroll.sqlite", "manifest.json"}
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(plain, "database/staff-payroll.sqlite")
+            for attachment in attachments:
+                archive.write(attachment, _safe_archive_name(attachment, used_names))
+            archive.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
+
+    target.chmod(0o600)
+    return {
+        "name": target.name,
+        "path": str(target),
+        "bytes": target.stat().st_size,
+        "encrypted": False,
+        "attachment_count": len(attachments),
+        "missing_attachment_paths": missing,
+        "created_at": datetime.fromtimestamp(target.stat().st_mtime).replace(microsecond=0).isoformat(sep=" "),
+    }
+
+
 def verify_backup(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError("Backup not found.")
@@ -139,7 +236,7 @@ def list_backups() -> list[dict[str, Any]]:
             "created_at": datetime.fromtimestamp(path.stat().st_mtime).replace(microsecond=0).isoformat(sep=" "),
         }
         for path in sorted(
-            directory.glob("staff-payroll-*.sqlite*"),
+            [*directory.glob("staff-payroll-*.sqlite*"), *directory.glob("staff-payroll-package-*.zip")],
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         )
@@ -148,6 +245,6 @@ def list_backups() -> list[dict[str, Any]]:
 
 def backup_path(name: str) -> Path:
     safe_name = Path(name).name
-    if safe_name != name or not safe_name.startswith("staff-payroll-"):
+    if safe_name != name or not (safe_name.startswith("staff-payroll-") or safe_name.startswith("staff-payroll-package-")):
         raise ValueError("Invalid backup name.")
     return backup_directory() / safe_name
