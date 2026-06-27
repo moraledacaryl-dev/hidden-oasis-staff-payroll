@@ -15,6 +15,10 @@ from typing import Any
 from .db import DB_PATH
 
 
+class BackupVerificationError(RuntimeError):
+    """Raised when a backup exists but cannot be trusted or restored."""
+
+
 def backup_directory() -> Path:
     return Path(os.getenv("STAFF_PAYROLL_BACKUP_DIR", "backups")).expanduser()
 
@@ -29,13 +33,16 @@ def _fernet(secret: str):
 
 
 def _verify_sqlite(path: Path) -> None:
-    conn = sqlite3.connect(str(path))
     try:
-        result = conn.execute("PRAGMA integrity_check").fetchone()
-        if not result or str(result[0]).lower() != "ok":
-            raise RuntimeError(f"SQLite integrity check failed: {result}")
-    finally:
-        conn.close()
+        conn = sqlite3.connect(str(path))
+        try:
+            result = conn.execute("PRAGMA integrity_check").fetchone()
+            if not result or str(result[0]).lower() != "ok":
+                raise BackupVerificationError(f"SQLite integrity check failed: {result}")
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError as exc:
+        raise BackupVerificationError("Backup database is corrupted or not a SQLite database.") from exc
 
 
 def _plain_backup(source: Path, target: Path) -> None:
@@ -220,43 +227,53 @@ def _read_backup_payload(path: Path) -> tuple[bytes, bool]:
         return data, False
     secret = os.getenv("STAFF_PAYROLL_BACKUP_KEY", "").strip()
     if not secret:
-        raise RuntimeError("STAFF_PAYROLL_BACKUP_KEY is required to verify this backup.")
+        raise BackupVerificationError("STAFF_PAYROLL_BACKUP_KEY is required to verify this backup.")
     try:
         return _fernet(secret).decrypt(data), True
     except Exception as exc:
-        raise RuntimeError("Backup decryption failed. Check the backup key.") from exc
+        raise BackupVerificationError("Backup decryption failed. Check the backup key.") from exc
 
 
 def verify_backup(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError("Backup not found.")
-    payload, encrypted = _read_backup_payload(path)
-    with tempfile.TemporaryDirectory(prefix="staff-payroll-verify-") as temp_dir:
-        temp = Path(temp_dir)
-        manifest: dict[str, Any] = {}
-        attachment_count = 0
-        if path.name.endswith(".zip") or path.name.endswith(".zip.fernet"):
-            package = temp / "backup.zip"
-            package.write_bytes(payload)
-            with zipfile.ZipFile(package) as archive:
-                names = set(archive.namelist())
-                if "database/staff-payroll.sqlite" not in names:
-                    raise RuntimeError("Backup package is missing database/staff-payroll.sqlite.")
+    try:
+        payload, encrypted = _read_backup_payload(path)
+        with tempfile.TemporaryDirectory(prefix="staff-payroll-verify-") as temp_dir:
+            temp = Path(temp_dir)
+            manifest: dict[str, Any] = {}
+            attachment_count = 0
+            if path.name.endswith(".zip") or path.name.endswith(".zip.fernet"):
+                package = temp / "backup.zip"
+                package.write_bytes(payload)
+                with zipfile.ZipFile(package) as archive:
+                    names = set(archive.namelist())
+                    if "database/staff-payroll.sqlite" not in names:
+                        raise BackupVerificationError("Backup package is missing database/staff-payroll.sqlite.")
+                    candidate = temp / "verify.sqlite"
+                    candidate.write_bytes(archive.read("database/staff-payroll.sqlite"))
+                    if "manifest.json" in names:
+                        try:
+                            manifest = json.loads(archive.read("manifest.json"))
+                        except json.JSONDecodeError as exc:
+                            raise BackupVerificationError("Backup package manifest is corrupted.") from exc
+                    attachment_count = len([name for name in names if name.startswith("uploads/")])
+            else:
                 candidate = temp / "verify.sqlite"
-                candidate.write_bytes(archive.read("database/staff-payroll.sqlite"))
-                if "manifest.json" in names:
-                    manifest = json.loads(archive.read("manifest.json"))
-                attachment_count = len([name for name in names if name.startswith("uploads/")])
-        else:
-            candidate = temp / "verify.sqlite"
-            candidate.write_bytes(payload)
-        _verify_sqlite(candidate)
-        conn = sqlite3.connect(str(candidate))
-        try:
-            table_count = int(conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchone()[0])
-        finally:
-            conn.close()
-    return {"ok": True, "name": path.name, "encrypted": encrypted, "table_count": table_count, "attachment_count": attachment_count, "manifest": manifest}
+                candidate.write_bytes(payload)
+            _verify_sqlite(candidate)
+            conn = sqlite3.connect(str(candidate))
+            try:
+                table_count = int(conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchone()[0])
+            finally:
+                conn.close()
+        return {"ok": True, "name": path.name, "encrypted": encrypted, "table_count": table_count, "attachment_count": attachment_count, "manifest": manifest}
+    except zipfile.BadZipFile as exc:
+        raise BackupVerificationError("Backup package is corrupted or not a valid ZIP file.") from exc
+    except sqlite3.DatabaseError as exc:
+        raise BackupVerificationError("Backup database is corrupted or not a SQLite database.") from exc
+    except BackupVerificationError:
+        raise
 
 
 def list_backups() -> list[dict[str, Any]]:
