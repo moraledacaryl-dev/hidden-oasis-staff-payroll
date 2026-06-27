@@ -89,6 +89,20 @@ def payroll_preview_fractional(payload: PayrollPreviewRequest, user: dict[str, A
     return {"period_start": start, "period_end": end, "summary": summarize_checks(checks), "checks": checks, "totals": totals, "items": results, "mode": "preview_only_no_save"}
 
 
+def _remove_from_router(router: Any, suffix: str, method: str) -> None:
+    router.routes = [
+        route
+        for route in router.routes
+        if not (str(getattr(route, "path", "")).endswith(suffix) and method.upper() in getattr(route, "methods", set()))
+    ]
+
+
+for suffix in ("/schedules/shifts", "/schedules/day/scheduled", "/schedules/day/actual"):
+    _remove_from_router(schedules_router, suffix, "POST")
+_remove_from_router(schedules_router, "/schedules/day/leave", "POST")
+_remove_from_router(staff_self_service_router, "/me/shift-change-requests/{request_id}/attachment", "POST")
+
+
 ROUTERS = (
     payroll_drafts_router,
     payroll_return_router,
@@ -132,13 +146,3 @@ app.router.routes = [
 
 for router in ROUTERS:
     app.include_router(router)
-
-_known = set()
-_clean = []
-for item in app.router.routes:
-    key = (getattr(item, "path", ""), tuple(sorted(getattr(item, "methods", set()))))
-    if key in _known:
-        continue
-    _known.add(key)
-    _clean.append(item)
-app.router.routes = _clean
