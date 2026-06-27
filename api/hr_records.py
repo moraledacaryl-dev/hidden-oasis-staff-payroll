@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import date
 from typing import Any
 
@@ -71,6 +72,17 @@ def require_payroll_editor(authorization: str | None, x_api_key: str | None) -> 
     if user.get("role_key") not in {"owner", "payroll"}:
         raise HTTPException(status_code=403, detail="Only owner or payroll can edit leave entitlements.")
     return user
+
+
+def _add_column_if_missing(conn, table_name: str, column_name: str, ddl: str) -> None:
+    columns = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table_name})")}
+    if column_name in columns:
+        return
+    try:
+        conn.execute(ddl)
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
 
 
 def ensure_schema(conn) -> None:
@@ -147,9 +159,7 @@ def ensure_schema(conn) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hr_records_employee ON hr_records(employee_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hr_records_type ON hr_records(record_type)")
-    leave_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(leave_requests)")}
-    if "decision_note" not in leave_columns:
-        conn.execute("ALTER TABLE leave_requests ADD COLUMN decision_note TEXT")
+    _add_column_if_missing(conn, "leave_requests", "decision_note", "ALTER TABLE leave_requests ADD COLUMN decision_note TEXT")
     conn.commit()
 
 
@@ -347,21 +357,17 @@ def decide_leave_request(
             action=f"Leave request {decision.lower()}",
             table_name="leave_requests",
             record_id=request_id,
-            details={"employee_id": row.get("employee_id"), "note": payload.decision_note},
+            details={"decision_note": payload.decision_note},
         )
         conn.commit()
-        return {"ok": True, "status": decision}
-    except HTTPException:
-        conn.rollback()
-        raise
+        return {"ok": True, "message": f"Leave request {decision.lower()}."}
     finally:
         conn.close()
 
 
 @router.get("/hr/records")
 def hr_records(
-    employee_id: int | None = Query(default=None),
-    record_type: str | None = Query(default=None),
+    employee_id: int | None = None,
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
@@ -369,32 +375,25 @@ def hr_records(
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        filters: list[str] = []
-        params: list[Any] = []
         if user.get("role_key") == "staff":
-            filters.append("hr.employee_id=?")
-            params.append(int(user["employee_id"]))
-            filters.append("hr.status NOT IN ('Draft','Voided')")
-        elif employee_id:
-            filters.append("hr.employee_id=?")
+            employee_id = int(user["employee_id"])
+        params: list[Any] = []
+        where = "1=1"
+        if employee_id:
+            where += " AND hr.employee_id=?"
             params.append(employee_id)
-        if record_type and record_type != "All":
-            filters.append("hr.record_type=?")
-            params.append(record_type)
-        where = "WHERE " + " AND ".join(filters) if filters else ""
         items = fetchall(
             conn,
             f"""
-            SELECT hr.*, e.full_name AS employee_name, e.employee_code, e.department, e.position
+            SELECT hr.*, e.full_name AS employee_name, e.employee_code, e.department
             FROM hr_records hr
             JOIN employees e ON e.id=hr.employee_id
-            {where}
+            WHERE {where}
             ORDER BY date(hr.record_date) DESC, hr.id DESC
-            LIMIT 500
             """,
             tuple(params),
         )
-        return {"ok": True, "items": items, "record_types": sorted(HR_TYPES)}
+        return {"ok": True, "items": items, "types": sorted(HR_TYPES), "severities": sorted(SEVERITIES), "statuses": sorted(STATUSES)}
     finally:
         conn.close()
 
@@ -417,13 +416,11 @@ def create_hr_record(
         ensure_schema(conn)
         if not fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,)):
             raise HTTPException(status_code=404, detail="Employee not found.")
+        stamp = now_sql(conn)
         cur = conn.execute(
             """
-            INSERT INTO hr_records(
-                employee_id, record_type, record_date, subject, details, severity, status,
-                issued_by, issued_role, review_period_start, review_period_end, rating,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO hr_records(employee_id,record_type,record_date,subject,details,severity,status,issued_by,issued_role,review_period_start,review_period_end,rating,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 payload.employee_id,
@@ -438,24 +435,12 @@ def create_hr_record(
                 payload.review_period_start.isoformat() if payload.review_period_start else None,
                 payload.review_period_end.isoformat() if payload.review_period_end else None,
                 payload.rating,
-                now_sql(conn),
-                now_sql(conn),
+                stamp,
+                stamp,
             ),
         )
-        record_id = int(cur.lastrowid)
-        log_audit(
-            conn,
-            actor=user.get("display_name"),
-            action="HR record created",
-            table_name="hr_records",
-            record_id=record_id,
-            details={
-                "employee_id": payload.employee_id,
-                "record_type": payload.record_type,
-                "status": payload.status,
-            },
-        )
+        log_audit(conn, actor=user.get("display_name"), action="HR record created", table_name="hr_records", record_id=int(cur.lastrowid), details={"employee_id": payload.employee_id, "type": payload.record_type})
         conn.commit()
-        return {"ok": True, "id": record_id, "message": "HR record saved."}
+        return {"ok": True, "id": int(cur.lastrowid), "message": "HR record saved."}
     finally:
         conn.close()
