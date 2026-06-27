@@ -147,7 +147,7 @@ def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start:
     """Correct payroll output when approved paid leave uses fractional stored days.
 
     The legacy payroll engine counted paid leave by unique date count. The day editor now stores
-    fractional leave in leave_requests.days, so drafts must honor that value before saving items.
+    fractional leave in leave_requests.days, so every payroll output path must honor that value.
     """
     employee_id = int(result.employee_id)
     emp = _active_employee(conn, employee_id)
@@ -173,3 +173,13 @@ def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start:
     if abs(old_pay - result.paid_leave_pay) > 0.004:
         _recompute_statutory_and_net(conn, result, emp, period_start)
     return result
+
+
+def apply_fractional_paid_leave_adjustments(conn: Any, results: list[Any], period_start: str, period_end: str) -> list[Any]:
+    return [apply_fractional_paid_leave_adjustment(conn, result, period_start, period_end) for result in results]
+
+
+def compute_payroll_with_fractional_leave(conn: Any, period_start: str, period_end: str) -> list[Any]:
+    from core.payroll_engine import compute_payroll
+
+    return apply_fractional_paid_leave_adjustments(conn, compute_payroll(conn, period_start, period_end), period_start, period_end)
