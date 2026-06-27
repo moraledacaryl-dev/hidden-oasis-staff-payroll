@@ -75,7 +75,9 @@ echo "Compiling Python..."
 
 if [[ -d tests ]]; then
   echo "Running Python tests..."
-  "$API_PYTHON" -m unittest discover -s tests
+  # Unit tests call route functions directly and intentionally pass x_api_key=None.
+  # Keep production env loaded for DB/path parity, but disable API-key enforcement for test execution only.
+  STAFF_PAYROLL_API_KEY="" "$API_PYTHON" -m unittest discover -s tests
 fi
 
 echo "Running production preflight..."
