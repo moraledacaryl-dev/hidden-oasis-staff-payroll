@@ -28,10 +28,18 @@ const viewports = [
   { name: "mobile", width: 390, height: 844, mobile: true, scale: 2 },
   { name: "desktop", width: 1440, height: 900, mobile: false, scale: 1 },
 ];
+const visibleFailurePatterns = [
+  /could not be loaded/i,
+  /backup failed/i,
+  /verification failed/i,
+  /not saved/i,
+  /application error/i,
+  /internal server error/i,
+  /failed to fetch/i,
+  /something went wrong/i,
+];
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 async function waitForChrome() {
   const endpoint = `http://127.0.0.1:${port}/json/version`;
@@ -39,9 +47,7 @@ async function waitForChrome() {
     try {
       const response = await fetch(endpoint);
       if (response.ok) return;
-    } catch {
-      // Chrome is still starting.
-    }
+    } catch {}
     await delay(100);
   }
   throw new Error("Chrome DevTools did not start.");
@@ -54,7 +60,6 @@ class CdpSession {
     this.pending = new Map();
     this.events = new Map();
   }
-
   async open() {
     await new Promise((resolve, reject) => {
       this.socket.addEventListener("open", resolve, { once: true });
@@ -75,7 +80,6 @@ class CdpSession {
       for (const resolve of waiters) resolve(message.params || {});
     });
   }
-
   send(method, params = {}) {
     const id = this.nextId;
     this.nextId += 1;
@@ -84,42 +88,26 @@ class CdpSession {
       this.socket.send(JSON.stringify({ id, method, params }));
     });
   }
-
   waitFor(method, timeoutMs = 10000) {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${method}`)), timeoutMs);
-      const wrapped = (value) => {
-        clearTimeout(timeout);
-        resolve(value);
-      };
+      const wrapped = (value) => { clearTimeout(timeout); resolve(value); };
       this.events.set(method, [...(this.events.get(method) || []), wrapped]);
     });
   }
-
   async close() {
-    try {
-      await this.send("Page.close");
-    } finally {
-      this.socket.close();
-    }
+    try { await this.send("Page.close"); }
+    finally { this.socket.close(); }
   }
 }
 
 async function newPage() {
-  const response = await fetch(
-    `http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`,
-    { method: "PUT" },
-  );
+  const response = await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent("about:blank")}`, { method: "PUT" });
   if (!response.ok) throw new Error(`Could not create Chrome target (${response.status}).`);
   const target = await response.json();
   const session = new CdpSession(target.webSocketDebuggerUrl);
   await session.open();
-  await Promise.all([
-    session.send("Page.enable"),
-    session.send("Network.enable"),
-    session.send("Runtime.enable"),
-    session.send("Log.enable"),
-  ]);
+  await Promise.all([session.send("Page.enable"), session.send("Network.enable"), session.send("Runtime.enable"), session.send("Log.enable")]);
   return session;
 }
 
@@ -130,32 +118,18 @@ async function setSessionCookies(session, role, token) {
     ho_staff_payroll_name: role === "supervisor" ? "General Manager" : role,
   };
   for (const [name, value] of Object.entries(cookieValues)) {
-    const result = await session.send("Network.setCookie", {
-      name,
-      value,
-      url: baseUrl,
-      httpOnly: true,
-      sameSite: "Lax",
-    });
+    const result = await session.send("Network.setCookie", { name, value, url: baseUrl, httpOnly: true, sameSite: "Lax" });
     if (!result.success) throw new Error(`Could not set ${name}.`);
   }
 }
 
 async function inspectPage(session, role, route, viewport) {
-  await session.send("Emulation.setDeviceMetricsOverride", {
-    width: viewport.width,
-    height: viewport.height,
-    deviceScaleFactor: viewport.scale,
-    mobile: viewport.mobile,
-    scale: viewport.scale,
-  });
+  await session.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.scale, mobile: viewport.mobile, scale: viewport.scale });
   await setSessionCookies(session, role, tokens[role]);
-
   const loaded = session.waitFor("Page.loadEventFired");
   await session.send("Page.navigate", { url: `${baseUrl}${route}` });
   await loaded;
   await delay(1200);
-
   const evaluation = await session.send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => {
@@ -168,74 +142,29 @@ async function inspectPage(session, role, route, viewport) {
         if (element.closest(".table-wrap, .boardScroll")) return false;
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && (rect.right > window.innerWidth + 2 || rect.left < -2);
-      }).slice(0, 10).map((element) => ({
-        tag: element.tagName,
-        className: String(element.className || "").slice(0, 100),
-        text: String(element.textContent || "").trim().slice(0, 80),
-      }));
-      return {
-        href: location.href,
-        title: document.title,
-        text: text.slice(0, 300),
-        pageOverflow,
-        scrollWidth: root.scrollWidth,
-        clientWidth: root.clientWidth,
-        visibleProblems,
-        hasNextError: Boolean(document.querySelector("nextjs-portal")),
-      };
+      }).slice(0, 10).map((element) => ({ tag: element.tagName, className: String(element.className || "").slice(0, 100), text: String(element.textContent || "").trim().slice(0, 80) }));
+      return { href: location.href, title: document.title, text, pageOverflow, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth, visibleProblems, hasNextError: Boolean(document.querySelector("nextjs-portal")) };
     })()`,
   });
   const result = evaluation.result?.value || {};
-  const screenshot = await session.send("Page.captureScreenshot", {
-    format: "png",
-    captureBeyondViewport: false,
-  });
+  const matchedFailureText = visibleFailurePatterns.find((pattern) => pattern.test(result.text || ""))?.toString() || null;
+  const screenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
   const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-");
   const file = path.join(outputDir, `${role}-${viewport.name}-${slug}.png`);
   await writeFile(file, Buffer.from(screenshot.data, "base64"));
-
   return {
-    role,
-    route,
-    viewport: viewport.name,
-    screenshot: file,
-    ...result,
-    ok:
-      result.href?.startsWith(`${baseUrl}${route}`) &&
-      !result.pageOverflow &&
-      !result.hasNextError &&
-      (result.visibleProblems || []).length === 0 &&
-      !/application error|internal server error/i.test(result.text || ""),
+    role, route, viewport: viewport.name, screenshot: file, ...result, matchedFailureText,
+    ok: result.href?.startsWith(`${baseUrl}${route}`) && !result.pageOverflow && !result.hasNextError && (result.visibleProblems || []).length === 0 && !matchedFailureText,
   };
 }
 
-if (!tokens.owner || !tokens.supervisor || !tokens.staff) {
-  throw new Error("BROWSER_SMOKE_TOKENS_JSON must include owner, supervisor, and staff tokens.");
-}
-if (!browserPath) {
-  throw new Error("Chrome or Chromium was not found. Set BROWSER_BIN to the browser executable.");
-}
+if (!tokens.owner || !tokens.supervisor || !tokens.staff) throw new Error("BROWSER_SMOKE_TOKENS_JSON must include owner, supervisor, and staff tokens.");
+if (!browserPath) throw new Error("Chrome or Chromium was not found. Set BROWSER_BIN to the browser executable.");
 
 await mkdir(outputDir, { recursive: true });
 const profileDir = await mkdtemp(path.join(os.tmpdir(), "staff-payroll-chrome-"));
-const browser = spawn(
-  browserPath,
-  [
-    "--headless=new",
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profileDir}`,
-    "--no-first-run",
-    "--disable-background-networking",
-    "--disable-component-update",
-    "--disable-default-apps",
-    "--disable-dev-shm-usage",
-    "--no-sandbox",
-    "about:blank",
-  ],
-  { stdio: "ignore" },
-);
+const browser = spawn(browserPath, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, "--no-first-run", "--disable-background-networking", "--disable-component-update", "--disable-default-apps", "--disable-dev-shm-usage", "--no-sandbox", "about:blank"], { stdio: "ignore" });
 const browserExit = new Promise((resolve) => browser.once("exit", resolve));
-
 const results = [];
 try {
   await waitForChrome();
@@ -243,11 +172,8 @@ try {
     for (const [role, routes] of Object.entries(pages)) {
       for (const route of routes) {
         const session = await newPage();
-        try {
-          results.push(await inspectPage(session, role, route, viewport));
-        } finally {
-          await session.close();
-        }
+        try { results.push(await inspectPage(session, role, route, viewport)); }
+        finally { await session.close(); }
       }
     }
   }
@@ -258,23 +184,15 @@ try {
     browser.kill("SIGKILL");
     await Promise.race([browserExit, delay(2000)]);
   }
-  await rm(profileDir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 200,
-  });
+  await rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 console.log(JSON.stringify(results, null, 2));
 const failures = results.filter((result) => !result.ok);
 if (failures.length) {
   for (const failure of failures) {
-    if ((failure.visibleProblems || []).length) {
-      console.error(
-        `Visible layout problems on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.visibleProblems)}`,
-      );
-    }
+    if ((failure.visibleProblems || []).length) console.error(`Visible layout problems on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.visibleProblems)}`);
+    if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
   }
   console.error(`Browser smoke failed on ${failures.length} page(s).`);
   process.exitCode = 1;
