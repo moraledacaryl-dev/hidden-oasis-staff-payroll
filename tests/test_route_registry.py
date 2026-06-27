@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import unittest
+from collections import defaultdict
+
+import api.server as server
+
+
+class ApiRouteRegistryTests(unittest.TestCase):
+    def test_no_duplicate_http_method_routes(self) -> None:
+        seen: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for route in server.app.router.routes:
+            path = getattr(route, "path", None)
+            methods = getattr(route, "methods", None)
+            endpoint = getattr(route, "endpoint", None)
+            if not path or not methods:
+                continue
+            endpoint_name = getattr(endpoint, "__name__", repr(endpoint))
+            for method in methods:
+                if method in {"HEAD", "OPTIONS"}:
+                    continue
+                seen[(str(path), str(method).upper())].append(endpoint_name)
+        duplicates = {
+            f"{method} {path}": endpoints
+            for (path, method), endpoints in sorted(seen.items())
+            if len(endpoints) > 1
+        }
+        self.assertEqual(duplicates, {})
+
+    def test_corrected_override_endpoints_are_exposed_once_in_openapi(self) -> None:
+        paths = server.app.openapi()["paths"]
+        expected_operation_prefixes = {
+            "/api/v1/schedules/shifts": "create_validated_shift",
+            "/api/v1/schedules/day/scheduled": "save_validated_day_schedule",
+            "/api/v1/schedules/day/actual": "save_validated_day_actual",
+            "/api/v1/schedules/day/leave": "save_day_leave",
+            "/api/v1/me/shift-change-requests/{request_id}/attachment": "upload_shift_request_attachment",
+        }
+        for path, expected_prefix in expected_operation_prefixes.items():
+            self.assertIn(path, paths)
+            self.assertIn("post", paths[path])
+            operation_id = str(paths[path]["post"].get("operationId") or "")
+            self.assertTrue(
+                operation_id.startswith(expected_prefix),
+                {"path": path, "operationId": operation_id, "expected_prefix": expected_prefix},
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

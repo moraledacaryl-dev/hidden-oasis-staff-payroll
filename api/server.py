@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends
+from fastapi import APIRouter, Depends, FastAPI
 
 from api.attendance_compliance import router as attendance_compliance_router
 from api.cash_advance_corrections import router as cash_advance_corrections_router
@@ -33,6 +33,7 @@ from api.payroll_recalculate import router as payroll_recalculate_router
 from api.payroll_return import router as payroll_return_router
 from api.payroll_review import router as payroll_review_router
 from api.payroll_revision_controls import router as revision_controls_router
+from api.payroll_revision_service import ensure_workflow_schema
 from api.payroll_revision_workflow import router as revision_workflow_router
 from api.payslip_distribution import router as payslip_distribution_router
 from api.performance_reviews import router as performance_reviews_router
@@ -52,7 +53,6 @@ from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
 from api.staff_self_service_upload_secure import router as staff_self_service_upload_secure_router
 from api.users import router as users_router
-from api.payroll_revision_service import ensure_workflow_schema
 from core.db import get_conn, init_db
 from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 from core.quality import build_payroll_preflight_checks, summarize_checks
@@ -89,19 +89,41 @@ def payroll_preview_fractional(payload: PayrollPreviewRequest, user: dict[str, A
     return {"period_start": start, "period_end": end, "summary": summarize_checks(checks), "checks": checks, "totals": totals, "items": results, "mode": "preview_only_no_save"}
 
 
-def _remove_from_router(router: Any, suffix: str, method: str) -> None:
-    router.routes = [
+def _route_key(route: Any) -> tuple[str, str] | None:
+    methods = getattr(route, "methods", None)
+    path = getattr(route, "path", None)
+    if not path or not methods:
+        return None
+    return str(path), ",".join(sorted(str(method).upper() for method in methods))
+
+
+def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: set[tuple[str, str]]) -> None:
+    """Include a router without mutating the imported router object.
+
+    Some older modules still contain legacy endpoint implementations while the corrected
+    endpoint lives in a focused validation/security router. This copies only the routes
+    that should remain active, avoiding the prior pattern of editing ``router.routes`` in
+    place during API assembly.
+    """
+    filtered = APIRouter()
+    filtered.routes.extend(
         route
-        for route in router.routes
-        if not (str(getattr(route, "path", "")).endswith(suffix) and method.upper() in getattr(route, "methods", set()))
-    ]
+        for route in source.routes
+        if (_route_key(route) not in excluded)
+    )
+    application.include_router(filtered)
 
 
-for suffix in ("/schedules/shifts", "/schedules/day/scheduled", "/schedules/day/actual"):
-    _remove_from_router(schedules_router, suffix, "POST")
-_remove_from_router(schedules_router, "/schedules/day/leave", "POST")
-_remove_from_router(staff_self_service_router, "/me/shift-change-requests/{request_id}/attachment", "POST")
+SCHEDULES_EXCLUDED_ROUTES = {
+    (f"{API_PREFIX}/schedules/shifts", "POST"),
+    (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
+    (f"{API_PREFIX}/schedules/day/actual", "POST"),
+    (f"{API_PREFIX}/schedules/day/leave", "POST"),
+}
 
+STAFF_SELF_SERVICE_EXCLUDED_ROUTES = {
+    (f"{API_PREFIX}/me/shift-change-requests/{{request_id}}/attachment", "POST"),
+}
 
 ROUTERS = (
     payroll_drafts_router,
@@ -119,7 +141,6 @@ ROUTERS = (
     payslip_distribution_router,
     schedule_input_validation_router,
     schedule_leave_fractional_router,
-    schedules_router,
     schedule_actuals_router,
     schedule_rest_days_router,
     schedule_leave_statuses_router,
@@ -128,7 +149,6 @@ ROUTERS = (
     employees_router,
     schedule_publication_router,
     staff_self_service_upload_secure_router,
-    staff_self_service_router,
     staff_published_portal_router,
     attendance_compliance_router,
     cash_advances_router,
@@ -146,3 +166,5 @@ app.router.routes = [
 
 for router in ROUTERS:
     app.include_router(router)
+_include_router_filtered(app, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
+_include_router_filtered(app, staff_self_service_router, STAFF_SELF_SERVICE_EXCLUDED_ROUTES)
