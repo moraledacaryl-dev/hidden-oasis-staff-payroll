@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Header, Query
 
-from api.schedule_day_reset import ResetDayPayload, reset_day
+from api.schedule_day_reset_safe import ResetDayPayload, reset_day
 from api.schedules import require_schedule_viewer
 from core.db import DB_PATH, fetchall, get_conn
 
