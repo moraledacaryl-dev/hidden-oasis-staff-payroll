@@ -80,7 +80,16 @@ function PayslipCopy({ item, run, copyLabel, companyCopy = false }: { item: Slip
           {showFallbackGross ? <p><span>Other gross pay</span><strong>{peso(Number(item.gross_pay || 0) - earningsTotal(item))}</strong></p> : null}
           <p className="total-line"><span>Gross pay</span><strong>{peso(item.gross_pay)}</strong></p>
         </section>
-        <section><h3>Deductions</h3><p><span>Mandatory</span><strong>{peso(mandatory)}</strong></p><p><span>Tax / advances / other</span><strong>{peso(other)}</strong></p><p className="total-line"><span>Total deductions</span><strong>{peso(item.total_deductions)}</strong></p></section>
+        <section>
+          <h3>Deductions</h3>
+          {hasValue(item.sss_ee) ? <p><span>SSS</span><strong>{peso(item.sss_ee)}</strong></p> : null}
+          {hasValue(item.philhealth_ee) ? <p><span>PhilHealth</span><strong>{peso(item.philhealth_ee)}</strong></p> : null}
+          {hasValue(item.pagibig_ee) ? <p><span>Pag-IBIG</span><strong>{peso(item.pagibig_ee)}</strong></p> : null}
+          {hasValue(item.tax) ? <p><span>Withholding tax</span><strong>{peso(item.tax)}</strong></p> : null}
+          {hasValue(item.cash_advance_deduction) ? <p><span>Cash advance</span><strong>{peso(item.cash_advance_deduction)}</strong></p> : null}
+          {hasValue(item.other_deductions) ? <p><span>Other deductions</span><strong>{peso(item.other_deductions)}</strong></p> : null}
+          <p className="total-line"><span>Total deductions</span><strong>{peso(item.total_deductions)}</strong></p>
+        </section>
       </div>
       <div className="payslip-signature"><span>Received by: __________________________</span><span>Date: _______________</span></div>
     </div>
