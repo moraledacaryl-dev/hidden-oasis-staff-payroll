@@ -23,6 +23,7 @@ from api.performance_reviews import router as performance_reviews_router
 from api.production_health import router as production_health_router
 from api.schedule_actuals import router as schedule_actuals_router
 from api.schedule_change_log import ensure_schedule_change_log_schema
+from api.schedule_input_validation_routes import router as schedule_input_validation_router
 from api.schedule_leave_fractional import router as schedule_leave_fractional_router
 from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.schedule_migration import router as schedule_migration_router
@@ -68,8 +69,7 @@ ROUTERS = (
     production_health_router,
     hr_records_router,
     payslip_distribution_router,
-    # Targeted quality routes are registered before the broader legacy routers
-    # so exact path matches use the stricter fixes while the rest remains stable.
+    schedule_input_validation_router,
     schedule_leave_fractional_router,
     schedules_router,
     schedule_actuals_router,
