@@ -144,34 +144,35 @@
 .printTable span { color: #555; font-size: 8px; }
 
 @media (max-width: 1100px) {
-  .boardScroll { max-height: calc(100vh - 180px); }
+  .boardScroll { max-height: calc(100vh - 180px); overflow-x: auto; }
   .scheduleGrid { grid-template-columns: repeat(7, minmax(150px, 1fr)); }
-  .matrixGrid { grid-template-columns: minmax(96px, 0.95fr) repeat(7, minmax(42px, 1fr)); gap: 4px; width: 100%; min-width: 0; }
+  .matrixGrid { grid-template-columns: minmax(140px, 160px) repeat(7, minmax(112px, 1fr)); gap: 5px; min-width: 940px; width: max-content; }
   .matrixCorner,
-  .matrixHeader { padding: 6px 3px; font-size: 0.58rem; line-height: 1.05; }
-  .employeeCell { min-height: 92px; padding: 6px 4px; font-size: 0.68rem; }
-  .employeeCell span { font-size: 0.58rem; }
-  .scheduleCell { min-height: 92px; padding: 3px; }
-  .shiftCard { padding: 5px; border-left-width: 3px; font-size: 0.66rem; gap: 4px; }
-  .shiftTop { grid-template-columns: 1fr; gap: 3px; }
-  .shiftTop span { justify-self: stretch; width: 100%; min-width: 0; padding: 2px 3px; font-size: 0.52rem; text-align: center; white-space: normal; overflow-wrap: anywhere; }
-  .actualLine { grid-template-columns: 1fr; gap: 2px; padding: 4px; font-size: 0.58rem; }
+  .matrixHeader { padding: 7px 6px; font-size: 0.66rem; line-height: 1.08; }
+  .employeeCell { min-height: 98px; padding: 7px 6px; font-size: 0.72rem; }
+  .employeeCell span { font-size: 0.64rem; }
+  .scheduleCell { min-height: 98px; padding: 5px; }
+  .shiftCard { padding: 6px; border-left-width: 3px; font-size: 0.7rem; gap: 5px; }
+  .shiftTop { grid-template-columns: 1fr; gap: 4px; }
+  .shiftTop span { justify-self: start; width: auto; min-width: 56px; padding: 2px 6px; font-size: 0.62rem; text-align: center; white-space: nowrap; }
+  .actualLine { grid-template-columns: 1fr; gap: 2px; padding: 5px; font-size: 0.64rem; }
   .actualLine span { text-align: left; white-space: normal; }
-  .actualLine strong, .actualStatus, .legacyNote, .shiftCard p { font-size: 0.56rem; white-space: normal; }
+  .actualLine strong, .actualStatus, .legacyNote, .shiftCard p { font-size: 0.62rem; white-space: normal; }
   .filterGrid { grid-template-columns: 1fr; }
   .compactAddShift :global(.form-grid) { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 620px) {
-  .boardScroll { overflow-x: hidden; }
-  .matrixGrid { grid-template-columns: minmax(84px, 1fr) repeat(7, minmax(32px, 1fr)); }
+  .boardScroll { overflow-x: auto; padding-bottom: 12px; }
+  .boardScroll::before { content: "Swipe horizontally to inspect all days"; display: block; margin: 0 0 8px; color: var(--muted); font-size: 0.72rem; font-weight: 760; }
+  .matrixGrid { grid-template-columns: minmax(118px, 130px) repeat(7, minmax(108px, 116px)); min-width: 888px; width: max-content; }
   .matrixCorner,
-  .matrixHeader { border-radius: 6px; padding: 5px 2px; font-size: 0.5rem; }
-  .employeeCell { border-radius: 6px; min-height: 86px; padding: 5px 3px; }
-  .employeeCell strong { font-size: 0.58rem; }
-  .employeeCell span { font-size: 0.5rem; }
-  .scheduleCell { border-radius: 6px; min-height: 86px; padding: 2px; }
-  .shiftTop span { font-size: 0.48rem; line-height: 1.05; padding: 2px; }
+  .matrixHeader { border-radius: 6px; padding: 6px 5px; font-size: 0.62rem; }
+  .employeeCell { border-radius: 6px; min-height: 92px; padding: 6px 5px; }
+  .employeeCell strong { font-size: 0.68rem; }
+  .employeeCell span { font-size: 0.58rem; }
+  .scheduleCell { border-radius: 6px; min-height: 92px; padding: 4px; }
+  .shiftTop span { font-size: 0.6rem; line-height: 1.05; padding: 2px 5px; white-space: nowrap; }
 }
 
 @media print {
