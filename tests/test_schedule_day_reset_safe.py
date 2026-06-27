@@ -16,12 +16,19 @@ class SafeDayResetTests(unittest.TestCase):
         conn = get_conn(db_path)
         init_db(conn)
         conn.execute("INSERT INTO employees(employee_code, full_name, status, created_at, updated_at) VALUES('R-1','Reset User','Active',?,?)", (now_iso(), now_iso()))
-        conn.execute("INSERT INTO leave_types(name, paid, active) VALUES('Vacation Leave', 1, 1)")
+        conn.execute("INSERT OR IGNORE INTO leave_types(name, paid, active) VALUES('Vacation Leave', 1, 1)")
         conn.commit()
         return conn
 
+    def _leave_type_id(self, conn: sqlite3.Connection) -> int:
+        row = conn.execute("SELECT id FROM leave_types WHERE name='Vacation Leave'").fetchone()
+        return int(row[0])
+
     def _leave(self, conn: sqlite3.Connection, start: str, end: str, days: float) -> dict:
-        conn.execute("INSERT INTO leave_requests(employee_id, leave_type_id, start_date, end_date, days, paid, status, reason, created_at) VALUES(1, 1, ?, ?, ?, 1, 'Approved', 'Trip', ?)", (start, end, days, now_iso()))
+        conn.execute(
+            "INSERT INTO leave_requests(employee_id, leave_type_id, start_date, end_date, days, paid, status, reason, created_at) VALUES(1, ?, ?, ?, ?, 1, 'Approved', 'Trip', ?)",
+            (self._leave_type_id(conn), start, end, days, now_iso()),
+        )
         conn.commit()
         row = conn.execute("SELECT * FROM leave_requests ORDER BY id DESC LIMIT 1").fetchone()
         return dict(row)
