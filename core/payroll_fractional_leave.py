@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from calendar import monthrange
 from typing import Any
 
 from core.db import fetchall, fetchone, get_setting
