@@ -138,10 +138,17 @@ async function inspectPage(session, role, route, viewport) {
       const root = document.documentElement;
       const text = document.body?.innerText || "";
       const pageOverflow = root.scrollWidth > window.innerWidth + 1;
+      const isIntentionalScrollRegion = (element) => {
+        for (let node = element; node && node !== document.body; node = node.parentElement) {
+          const classes = String(node.className || "");
+          if (classes.includes("boardScroll") || classes.includes("matrixGrid") || node.classList?.contains("table-wrap")) return true;
+        }
+        return false;
+      };
       const visibleProblems = [...document.querySelectorAll("body *")].filter((element) => {
         const style = getComputedStyle(element);
         if (style.position === "fixed" || style.position === "absolute") return false;
-        if (element.closest(".table-wrap, .boardScroll")) return false;
+        if (isIntentionalScrollRegion(element)) return false;
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && (rect.right > window.innerWidth + 2 || rect.left < -2);
       }).slice(0, 10).map((element) => ({ tag: element.tagName, className: String(element.className || "").slice(0, 100), text: String(element.textContent || "").trim().slice(0, 80) }));
