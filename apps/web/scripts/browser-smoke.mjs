@@ -43,14 +43,16 @@ function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 async function waitForChrome() {
   const endpoint = `http://127.0.0.1:${port}/json/version`;
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       const response = await fetch(endpoint);
       if (response.ok) return;
-    } catch {}
-    await delay(100);
+    } catch {
+      // Chrome is still starting.
+    }
+    await delay(150);
   }
-  throw new Error("Chrome DevTools did not start.");
+  throw new Error(`Chrome DevTools did not start on port ${port}.`);
 }
 
 class CdpSession {
@@ -152,10 +154,7 @@ async function inspectPage(session, role, route, viewport) {
   const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-");
   const file = path.join(outputDir, `${role}-${viewport.name}-${slug}.png`);
   await writeFile(file, Buffer.from(screenshot.data, "base64"));
-  return {
-    role, route, viewport: viewport.name, screenshot: file, ...result, matchedFailureText,
-    ok: result.href?.startsWith(`${baseUrl}${route}`) && !result.pageOverflow && !result.hasNextError && (result.visibleProblems || []).length === 0 && !matchedFailureText,
-  };
+  return { role, route, viewport: viewport.name, screenshot: file, ...result, matchedFailureText, ok: result.href?.startsWith(`${baseUrl}${route}`) && !result.pageOverflow && !result.hasNextError && (result.visibleProblems || []).length === 0 && !matchedFailureText };
 }
 
 if (!tokens.owner || !tokens.supervisor || !tokens.staff) throw new Error("BROWSER_SMOKE_TOKENS_JSON must include owner, supervisor, and staff tokens.");
