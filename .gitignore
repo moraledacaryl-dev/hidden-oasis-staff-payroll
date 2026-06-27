@@ -38,3 +38,7 @@ apps/web/.env.local
 *.broken-now-*
 *.before-*
 latest_local_fix.patch
+
+# SQLite runtime sidecar files
+data/*.sqlite-shm
+data/*.sqlite-wal
