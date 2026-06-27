@@ -5,12 +5,14 @@ from datetime import date
 
 from fastapi import HTTPException
 
-from api.schedule_input_validation_routes import (
-    create_validated_shift,
-    save_validated_day_actual,
-    save_validated_day_schedule,
+from api.schedules import (
+    DayActualPayload,
+    DaySchedulePayload,
+    ShiftPayload,
+    create_shift,
+    save_day_actual,
+    save_day_schedule,
 )
-from api.schedules import DayActualPayload, DaySchedulePayload, ShiftPayload
 
 
 class ScheduleValidationRouteTests(unittest.TestCase):
@@ -22,7 +24,7 @@ class ScheduleValidationRouteTests(unittest.TestCase):
 
     def test_create_shift_rejects_non_positive_employee_id_before_persistence(self) -> None:
         error = self.assert_validation_error(
-            lambda: create_validated_shift(
+            lambda: create_shift(
                 ShiftPayload(
                     employee_id=0,
                     shift_date=date(2026, 7, 1),
@@ -36,7 +38,7 @@ class ScheduleValidationRouteTests(unittest.TestCase):
 
     def test_create_shift_rejects_invalid_start_time_before_persistence(self) -> None:
         error = self.assert_validation_error(
-            lambda: create_validated_shift(
+            lambda: create_shift(
                 ShiftPayload(
                     employee_id=1,
                     shift_date=date(2026, 7, 1),
@@ -50,7 +52,7 @@ class ScheduleValidationRouteTests(unittest.TestCase):
 
     def test_day_schedule_rejects_invalid_break_minutes_before_persistence(self) -> None:
         error = self.assert_validation_error(
-            lambda: save_validated_day_schedule(
+            lambda: save_day_schedule(
                 DaySchedulePayload(
                     employee_id=1,
                     shift_date=date(2026, 7, 1),
@@ -65,7 +67,7 @@ class ScheduleValidationRouteTests(unittest.TestCase):
 
     def test_day_actual_rejects_invalid_actual_time_before_persistence(self) -> None:
         error = self.assert_validation_error(
-            lambda: save_validated_day_actual(
+            lambda: save_day_actual(
                 DayActualPayload(
                     employee_id=1,
                     shift_date=date(2026, 7, 1),
@@ -79,7 +81,7 @@ class ScheduleValidationRouteTests(unittest.TestCase):
 
     def test_day_actual_rejects_invalid_ot_hours_before_persistence(self) -> None:
         error = self.assert_validation_error(
-            lambda: save_validated_day_actual(
+            lambda: save_day_actual(
                 DayActualPayload(
                     employee_id=1,
                     shift_date=date(2026, 7, 1),

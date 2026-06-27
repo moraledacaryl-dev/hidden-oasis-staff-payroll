@@ -30,9 +30,9 @@ class ApiRouteRegistryTests(unittest.TestCase):
     def test_corrected_override_endpoints_are_exposed_once_in_openapi(self) -> None:
         paths = server.app.openapi()["paths"]
         expected_operation_prefixes = {
-            "/api/v1/schedules/shifts": "create_validated_shift",
-            "/api/v1/schedules/day/scheduled": "save_validated_day_schedule",
-            "/api/v1/schedules/day/actual": "save_validated_day_actual",
+            "/api/v1/schedules/shifts": "create_shift",
+            "/api/v1/schedules/day/scheduled": "save_day_schedule",
+            "/api/v1/schedules/day/actual": "save_day_actual",
             "/api/v1/schedules/day/leave": "save_day_leave",
         }
         for path, expected_prefix in expected_operation_prefixes.items():

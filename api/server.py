@@ -40,7 +40,6 @@ from api.performance_reviews import router as performance_reviews_router
 from api.production_health import router as production_health_router
 from api.schedule_actuals import router as schedule_actuals_router
 from api.schedule_change_log import ensure_schedule_change_log_schema
-from api.schedule_input_validation_routes import router as schedule_input_validation_router
 from api.schedule_leave_fractional import router as schedule_leave_fractional_router
 from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.schedule_migration import router as schedule_migration_router
@@ -108,9 +107,6 @@ def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: 
 
 
 SCHEDULES_EXCLUDED_ROUTES = {
-    (f"{API_PREFIX}/schedules/shifts", "POST"),
-    (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
-    (f"{API_PREFIX}/schedules/day/actual", "POST"),
     (f"{API_PREFIX}/schedules/day/leave", "POST"),
 }
 
@@ -128,7 +124,6 @@ ROUTERS = (
     production_health_router,
     hr_records_router,
     payslip_distribution_router,
-    schedule_input_validation_router,
     schedule_leave_fractional_router,
     schedule_actuals_router,
     schedule_rest_days_router,

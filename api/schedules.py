@@ -8,6 +8,12 @@ from pydantic import BaseModel
 
 from api.main import current_user_from_token, require_api_key
 from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
+from api.schedule_validation import (
+    validate_break_minutes,
+    validate_ot_hours,
+    validate_positive_employee_id,
+    validate_time,
+)
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -69,6 +75,13 @@ class DayLeavePayload(BaseModel):
     notice_given_at: str | None = None
     notice_timing: str | None = None
     evidence_ref: str | None = None
+
+
+def validate_planned_shift_payload(payload: Any) -> None:
+    validate_positive_employee_id(getattr(payload, "employee_id", None))
+    validate_time(getattr(payload, "start_time", None), "start_time")
+    validate_time(getattr(payload, "end_time", None), "end_time")
+    validate_break_minutes(getattr(payload, "break_minutes", 60))
 
 
 def now_iso() -> str:
@@ -583,6 +596,7 @@ def schedule_day(shift_date: date = Query(...), employee_id: int | None = Query(
 
 @router.post("/schedules/shifts")
 def create_shift(payload: ShiftPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    validate_planned_shift_payload(payload)
     user = require_schedule_editor(authorization, x_api_key)
     if payload.position not in POSITIONS:
         raise HTTPException(status_code=422, detail="Invalid position.")
@@ -611,6 +625,7 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
 
 @router.post("/schedules/day/scheduled")
 def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    validate_planned_shift_payload(payload)
     user = require_schedule_editor(authorization, x_api_key)
     if payload.position not in POSITIONS:
         raise HTTPException(status_code=422, detail="Invalid position.")
@@ -656,6 +671,10 @@ def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = H
 
 @router.post("/schedules/day/actual")
 def save_day_actual(payload: DayActualPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    validate_positive_employee_id(payload.employee_id)
+    validate_time(payload.actual_in, "actual_in")
+    validate_time(payload.actual_out, "actual_out")
+    validate_ot_hours(payload.approved_ot_hours)
     user = require_schedule_editor(authorization, x_api_key)
     shift_date = payload.shift_date.isoformat()
     status_value = payload.attendance_status.strip() or "Pending"
