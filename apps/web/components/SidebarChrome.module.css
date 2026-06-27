@@ -78,6 +78,14 @@
   display: block !important;
   margin-top: auto !important;
   padding-top: 10px;
+  overflow: visible;
+}
+
+:global(html[data-sidebar="collapsed"]) .footer :global(.grid),
+:global(html[data-sidebar="collapsed"]) .footer :global(.eyebrow),
+:global(html[data-sidebar="collapsed"]) .footer :global(.badge-row),
+:global(html[data-sidebar="collapsed"]) .footer :global(.primary-link) {
+  display: none !important;
 }
 
 :global(html[data-sidebar="collapsed"]) .footer :global(.sidebar-button) {
@@ -120,6 +128,13 @@
     width: 30px;
     height: 30px;
     margin: 0;
+  }
+
+  :global(html[data-sidebar="collapsed"]) .footer :global(.grid),
+  :global(html[data-sidebar="collapsed"]) .footer :global(.eyebrow),
+  :global(html[data-sidebar="collapsed"]) .footer :global(.badge-row),
+  :global(html[data-sidebar="collapsed"]) .footer :global(.primary-link) {
+    display: revert !important;
   }
 
   :global(html[data-sidebar="collapsed"]) .footer :global(.sidebar-button) {
