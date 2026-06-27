@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./auth.css";
 import "./print-payslips.css";
+import "./responsive-quality.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",
