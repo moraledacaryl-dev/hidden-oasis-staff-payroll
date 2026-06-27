@@ -4,17 +4,15 @@ This app previously carried several focused compatibility routers for urgent pro
 
 ## Current state
 
-The API registry avoids in-place edits to imported router route lists. Remaining compatibility routers are included before filtered canonical routers so the corrected endpoints stay active.
+The API registry avoids in-place edits to imported router route lists. Schedule create, day-scheduled, and day-actual validation now lives directly in `api.schedules`.
 
 Remaining compatibility domains:
 
-- `api.schedule_input_validation_routes` for validated schedule create/day-scheduled/day-actual endpoints.
 - `api.schedule_leave_fractional` for fractional day-editor leave handling.
 - `api.staff_self_service_upload_secure` for secure staff attachment upload handling.
 
 ## Target state
 
-- `api.schedules` owns schedule create/day-scheduled/day-actual validation directly.
 - `api.schedules` owns fractional day-editor leave directly.
 - `api.staff_self_service` owns secure attachment validation directly.
 - `api.server` includes each domain router once without filtered route exclusions.
