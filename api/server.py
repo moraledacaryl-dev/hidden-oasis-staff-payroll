@@ -39,8 +39,6 @@ from api.performance_reviews import router as performance_reviews_router
 from api.production_health import router as production_health_router
 from api.schedule_actuals import router as schedule_actuals_router
 from api.schedule_change_log import ensure_schedule_change_log_schema
-from api.schedule_input_validation_routes import router as schedule_input_validation_router
-from api.schedule_leave_fractional import router as schedule_leave_fractional_router
 from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.schedule_migration import router as schedule_migration_router
 from api.schedule_publication import router as schedule_publication_router
@@ -50,7 +48,6 @@ from api.schedules import router as schedules_router
 from api.sil_leave import router as sil_leave_router
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
-from api.staff_self_service_upload_secure import router as staff_self_service_upload_secure_router
 from api.users import router as users_router
 from api.payroll_revision_service import ensure_workflow_schema
 from core.db import get_conn, init_db
@@ -103,8 +100,6 @@ ROUTERS = (
     production_health_router,
     hr_records_router,
     payslip_distribution_router,
-    schedule_input_validation_router,
-    schedule_leave_fractional_router,
     schedules_router,
     schedule_actuals_router,
     schedule_rest_days_router,
@@ -113,7 +108,6 @@ ROUTERS = (
     users_router,
     employees_router,
     schedule_publication_router,
-    staff_self_service_upload_secure_router,
     staff_self_service_router,
     staff_published_portal_router,
     attendance_compliance_router,
