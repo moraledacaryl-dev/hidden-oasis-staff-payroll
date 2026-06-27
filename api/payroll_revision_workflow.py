@@ -7,7 +7,7 @@ from api.payroll_adjustments import ensure_schema as ensure_adjustment_schema
 from api.payroll_drafts import must_be_payroll_user, totals
 from api.payroll_revision_controls import PAYROLL_ITEM_COLS, changes_for_run, ensure_revision_schema, item_dict, now_iso
 from core.db import DB_PATH, fetchall, fetchone, get_conn
-from core.payroll_engine import compute_payroll
+from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 
 router = APIRouter(prefix="/api/v1")
 
@@ -138,7 +138,7 @@ def save_controlled_revision(
         ))
         new_run_id = int(cur.lastrowid)
 
-        for result in compute_payroll(conn, run["period_start"], run["period_end"]):
+        for result in compute_payroll_with_fractional_leave(conn, run["period_start"], run["period_end"]):
             data = item_dict(result)
             values = [new_run_id] + [data.get(column, 0) for column in PAYROLL_ITEM_COLS] + [stamp]
             conn.execute(f"INSERT INTO payroll_items (payroll_run_id,{','.join(PAYROLL_ITEM_COLS)},created_at) VALUES ({','.join('?' for _ in values)})", values)
