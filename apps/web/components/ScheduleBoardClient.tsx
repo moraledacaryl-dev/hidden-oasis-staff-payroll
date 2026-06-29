@@ -1,9 +1,11 @@
 "use client";
 
+import { StickyNote } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { moveScheduledShift } from "@/app/schedule/actions";
 import { ScheduleDayEditorModal } from "@/components/ScheduleDayEditorModal";
+import { formatIsoDay } from "@/lib/period";
 import type {
   ScheduleEmployee,
   ScheduleLeaveStatus,
@@ -24,10 +26,6 @@ type Props = {
 
 function numberText(value: number | null | undefined, digits = 2): string {
   return Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-}
-
-function dayLabel(iso: string) {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" });
 }
 
 function actualText(shift: ScheduleShift) {
@@ -162,7 +160,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
       {(isPending || message) ? <div className={styles.boardHint}>{isPending ? "Saving…" : message}</div> : null}
       <div className={styles.matrixGrid}>
         <div className={styles.matrixCorner}>Staff</div>
-        {days.map((day) => <div className={styles.matrixHeader} key={day}>{dayLabel(day)}</div>)}
+        {days.map((day) => <div className={styles.matrixHeader} key={day}>{formatIsoDay(day)}</div>)}
         {rows.map((row) => (
           <div className={styles.matrixRow} key={row.id || "unassigned"}>
             <div className={styles.employeeCell}>
@@ -196,24 +194,52 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
                       </div>
                     ) : null}
 
-                    {!leave ? cellShifts.map((shift) => (
-                      <button
-                        type="button"
-                        className={`${styles.shiftCard} ${dragId === shift.id ? styles.dragging : ""}`}
-                        draggable={canEdit && shift.id > 0 && shift.movable !== false}
-                        key={shift.id}
-                        onClick={() => setEditor({ day, shift })}
-                        onDragStart={() => { if (canEdit && shift.id > 0 && shift.movable !== false) setDragId(shift.id); }}
-                        onDragEnd={() => { setDragId(null); setOverDay(null); }}
-                      >
-                        <div className={styles.shiftTop}><strong>Sched {shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</strong><span>{shift.position}</span></div>
-                        <span>{numberText(shift.planned_paid_hours)} hrs scheduled · break {shift.break_minutes}m</span>
-                        <div className={`${styles.actualLine} ${actualTone(shift)}`}><strong>Actual</strong><span>{actualText(shift)}</span></div>
-                        {shift.actual_status ? <span className={styles.actualStatus}>{shift.actual_status}{shift.actual_source === "legacy_schedule" ? " · legacy" : ""}</span> : null}
-                        {shift.source === "imported" ? <span className={styles.legacyNote}>Legacy imported row</span> : null}
-                        {shift.notes ? <p className="muted">{shift.notes}</p> : null}
-                      </button>
-                    )) : null}
+                    {!leave ? cellShifts.map((shift) => {
+                      const approvedOtHours = Number(shift.approved_ot_hours || 0);
+                      const noteText = [
+                        shift.notes ? `Schedule: ${shift.notes}` : "",
+                        shift.actual_notes ? `Actual: ${shift.actual_notes}` : "",
+                      ].filter(Boolean).join("\n");
+                      return (
+                        <button
+                          type="button"
+                          className={`${styles.shiftCard} ${dragId === shift.id ? styles.dragging : ""}`}
+                          draggable={canEdit && shift.id > 0 && shift.movable !== false}
+                          key={shift.id}
+                          onClick={() => setEditor({ day, shift })}
+                          onDragStart={() => { if (canEdit && shift.id > 0 && shift.movable !== false) setDragId(shift.id); }}
+                          onDragEnd={() => { setDragId(null); setOverDay(null); }}
+                        >
+                          <div className={styles.shiftHeader}>
+                            <span className={styles.shiftLabel}>Scheduled</span>
+                            <strong className={styles.shiftTime} data-schedule-cell-text>
+                              {shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}
+                            </strong>
+                          </div>
+                          <span className={styles.shiftPosition} data-schedule-cell-text>{shift.position || "Other"}</span>
+                          <div className={styles.shiftMeta}>
+                            <span>{numberText(shift.planned_paid_hours)}h</span>
+                            <span>{shift.break_minutes}m break</span>
+                          </div>
+                          <div className={`${styles.actualLine} ${actualTone(shift)}`}>
+                            <span className={styles.actualLabel}>Actual</span>
+                            <strong className={styles.actualValue} data-schedule-cell-text>{actualText(shift)}</strong>
+                          </div>
+                          <div className={styles.shiftFlags}>
+                            {shift.actual_status ? <span className={styles.actualStatus} data-schedule-cell-text>{shift.actual_status}</span> : null}
+                            {approvedOtHours > 0 ? <span className={styles.otFlag}>OT {numberText(approvedOtHours)}h</span> : null}
+                            {shift.actual_source === "legacy_schedule" ? <span className={styles.legacyNote}>Legacy actual</span> : null}
+                            {shift.source === "imported" ? <span className={styles.legacyNote}>Imported shift</span> : null}
+                          </div>
+                          {noteText ? (
+                            <span aria-label={noteText} className={styles.noteFlag} title={noteText}>
+                              <StickyNote aria-hidden="true" size={13} />
+                              Note
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    }) : null}
 
                     {!leave && cellShifts.length === 0 && isRestDay ? (
                       <div className={restStyles.restDayCard}>

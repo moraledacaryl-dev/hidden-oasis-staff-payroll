@@ -152,7 +152,17 @@ async function inspectPage(session, role, route, viewport) {
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && (rect.right > window.innerWidth + 2 || rect.left < -2);
       }).slice(0, 10).map((element) => ({ tag: element.tagName, className: String(element.className || "").slice(0, 100), text: String(element.textContent || "").trim().slice(0, 80) }));
-      return { href: location.href, title: document.title, text, pageOverflow, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth, visibleProblems, hasNextError: Boolean(document.querySelector("nextjs-portal")) };
+      const scheduleClippingProblems = [...document.querySelectorAll("[data-schedule-cell-text]")].filter((element) => (
+        element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1
+      )).slice(0, 10).map((element) => ({
+        className: String(element.className || "").slice(0, 100),
+        text: String(element.textContent || "").trim().slice(0, 80),
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      }));
+      return { href: location.href, title: document.title, text, pageOverflow, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth, visibleProblems, scheduleClippingProblems, hasNextError: Boolean(document.querySelector("nextjs-portal")) };
     })()`,
   });
   const result = evaluation.result?.value || {};
@@ -161,7 +171,20 @@ async function inspectPage(session, role, route, viewport) {
   const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-");
   const file = path.join(outputDir, `${role}-${viewport.name}-${slug}.png`);
   await writeFile(file, Buffer.from(screenshot.data, "base64"));
-  return { role, route, viewport: viewport.name, screenshot: file, ...result, matchedFailureText, ok: result.href?.startsWith(`${baseUrl}${route}`) && !result.pageOverflow && !result.hasNextError && (result.visibleProblems || []).length === 0 && !matchedFailureText };
+  return {
+    role,
+    route,
+    viewport: viewport.name,
+    screenshot: file,
+    ...result,
+    matchedFailureText,
+    ok: result.href?.startsWith(`${baseUrl}${route}`) &&
+      !result.pageOverflow &&
+      !result.hasNextError &&
+      (result.visibleProblems || []).length === 0 &&
+      (result.scheduleClippingProblems || []).length === 0 &&
+      !matchedFailureText,
+  };
 }
 
 if (!tokens.owner || !tokens.supervisor || !tokens.staff) throw new Error("BROWSER_SMOKE_TOKENS_JSON must include owner, supervisor, and staff tokens.");
@@ -198,6 +221,7 @@ const failures = results.filter((result) => !result.ok);
 if (failures.length) {
   for (const failure of failures) {
     if ((failure.visibleProblems || []).length) console.error(`Visible layout problems on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.visibleProblems)}`);
+    if ((failure.scheduleClippingProblems || []).length) console.error(`Clipped schedule text on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleClippingProblems)}`);
     if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
   }
   console.error(`Browser smoke failed on ${failures.length} page(s).`);

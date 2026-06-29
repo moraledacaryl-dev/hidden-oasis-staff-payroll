@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +90,70 @@ def main() -> int:
                 "Staff": "staff",
             }[role]
             user_ids[role_key] = user_id
+
+        week_start = date.today() - timedelta(days=date.today().weekday())
+        monday = week_start.isoformat()
+        tuesday = (week_start + timedelta(days=1)).isoformat()
+        conn.executemany(
+            """
+            INSERT INTO scheduled_shifts(
+                employee_id, shift_date, start_time, end_time, position, department,
+                break_minutes, status, notes, source
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, 'Draft', ?, ?)
+            """,
+            (
+                (
+                    supervisor_employee_id, monday, "07:30", "18:45",
+                    "Guest Experience Supervisor", "Operations", 90,
+                    "Coordinate VIP arrivals, airport transfers, and afternoon event turnover.",
+                    "planned",
+                ),
+                (
+                    supervisor_employee_id, tuesday, "22:00", "06:30",
+                    "Night Operations Manager", "Operations", 45,
+                    "Overnight coverage with end-of-day reconciliation and security handoff.",
+                    "planned",
+                ),
+                (
+                    staff_employee_id, monday, "08:15", "17:45",
+                    "Front Desk Receptionist", "Operations", 60,
+                    "Morning opening, guest check-ins, phone coverage, and booking updates.",
+                    "planned",
+                ),
+                (
+                    staff_employee_id, tuesday, "10:00", "19:30",
+                    "Reservations and Guest Services", "Operations", 30,
+                    "Group reservation follow-ups and late-arrival coordination.",
+                    "imported",
+                ),
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO time_logs(
+                employee_id, work_date, actual_in, actual_out, source,
+                approved_ot_hours, attendance_status, notes, created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                (
+                    supervisor_employee_id, monday, "07:24", "19:18", "manual",
+                    1.25, "Approved", "Extended shift for event turnover.", created_at, created_at,
+                ),
+                (
+                    supervisor_employee_id, tuesday, "21:52", "06:47", "manual",
+                    0.5, "For Review", "Overnight actual awaiting final review.", created_at, created_at,
+                ),
+                (
+                    staff_employee_id, monday, "08:22", "18:03", "manual",
+                    0.75, "Approved", "Late checkout support.", created_at, created_at,
+                ),
+                (
+                    staff_employee_id, tuesday, "10:08", "19:51", "biometric",
+                    0.25, "Pending", "Biometric import pending supervisor review.", created_at, created_at,
+                ),
+            ),
+        )
         conn.commit()
     finally:
         conn.close()

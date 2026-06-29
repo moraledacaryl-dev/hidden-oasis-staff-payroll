@@ -17,9 +17,9 @@
 
 .matrixGrid {
   display: grid;
-  grid-template-columns: minmax(130px, 0.9fr) repeat(7, minmax(92px, 1fr));
+  grid-template-columns: minmax(154px, 0.9fr) repeat(7, minmax(150px, 1fr));
   gap: 6px;
-  min-width: 0;
+  min-width: 1246px;
   width: 100%;
   padding-bottom: 4px;
 }
@@ -88,12 +88,12 @@
   width: 100%;
   min-width: 0;
   text-align: left;
-  gap: 7px;
+  gap: 6px;
   border: 1px solid rgba(49, 91, 70, 0.18);
   border-left: 4px solid var(--accent);
   border-radius: 8px;
   background: white;
-  padding: 9px;
+  padding: 8px;
   box-shadow: 0 8px 16px rgba(31, 35, 32, 0.04);
   font-size: 0.8rem;
   line-height: 1.3;
@@ -104,21 +104,28 @@
 .shiftCard:disabled { cursor: default; }
 .shiftCard:active { cursor: grabbing; }
 .dragging { opacity: 0.48; transform: scale(0.99); }
-.shiftTop { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; }
-.shiftTop strong { min-width: 0; line-height: 1.15; white-space: normal; }
-.shiftTop span { border-radius: 999px; background: var(--accent-soft); color: var(--accent); padding: 3px 8px; font-size: 0.7rem; line-height: 1.2; white-space: nowrap; }
+.shiftHeader { display: grid; gap: 1px; min-width: 0; }
+.shiftLabel, .actualLabel { color: var(--muted); font-size: 0.62rem; font-weight: 850; line-height: 1.1; text-transform: uppercase; }
+.shiftTime { display: block; min-width: 0; font-size: 0.82rem; line-height: 1.15; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.shiftPosition { display: block; min-width: 0; padding: 4px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 0.7rem; font-weight: 760; line-height: 1.2; overflow-wrap: anywhere; }
+.shiftMeta { display: flex; flex-wrap: wrap; gap: 3px 8px; color: var(--muted); font-size: 0.68rem; font-weight: 700; line-height: 1.2; }
+.shiftMeta span { white-space: nowrap; }
 
-.actualLine { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; border-radius: 8px; border: 1px solid var(--line); padding: 7px 8px; font-size: 0.78rem; }
-.actualLine strong { text-transform: uppercase; letter-spacing: 0; font-size: 0.68rem; white-space: nowrap; }
-.actualLine span { min-width: 0; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.actualLine { display: grid; gap: 2px; min-width: 0; border-radius: 6px; border: 1px solid var(--line); padding: 6px; }
+.actualValue { display: block; min-width: 0; font-size: 0.75rem; line-height: 1.15; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .actualOk { background: var(--ok-soft); border-color: #b8ddc6; color: var(--ok); }
 .actualLegacy { background: var(--accent-soft); border-color: rgba(49, 91, 70, 0.25); color: var(--accent); }
 .actualMissing { background: var(--warning-soft); border-color: #edd19c; color: var(--warning); }
 .actualDanger { background: var(--danger-soft); border-color: #e7b8b8; color: var(--danger); }
-.actualStatus { color: var(--muted); font-size: 0.72rem; font-weight: 760; white-space: nowrap; }
-.shiftCard p { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font-size: 0.74rem; line-height: 1.3; }
+.actualLine .actualLabel { color: currentColor; opacity: 0.86; }
+.shiftFlags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.actualStatus { display: block; min-width: 0; color: var(--muted); font-size: 0.66rem; font-weight: 760; line-height: 1.2; overflow-wrap: anywhere; }
+.otFlag, .legacyNote, .noteFlag { display: inline-flex; align-items: center; gap: 3px; width: fit-content; max-width: 100%; border-radius: 999px; padding: 3px 6px; font-size: 0.62rem; font-weight: 800; line-height: 1.1; }
+.otFlag { background: var(--warning-soft); color: var(--warning); }
+.legacyNote { background: var(--surface-soft); color: var(--warning); border: 1px solid var(--line); white-space: normal; }
+.noteFlag { background: var(--surface-soft); color: var(--muted); border: 1px solid var(--line); }
+.noteFlag svg { flex: 0 0 auto; }
 .emptyDay { width: 100%; background: transparent; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); padding: 14px 8px; text-align: center; font-size: 0.84rem; }
-.legacyNote { color: var(--warning); font-size: 0.72rem; font-weight: 800; white-space: nowrap; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .filterGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
 .employeeFilter { grid-column: 1 / -1; min-width: 0; }
@@ -146,18 +153,15 @@
 @media (max-width: 1100px) {
   .boardScroll { max-height: calc(100vh - 180px); overflow-x: auto; }
   .scheduleGrid { grid-template-columns: repeat(7, minmax(150px, 1fr)); }
-  .matrixGrid { grid-template-columns: minmax(140px, 160px) repeat(7, minmax(112px, 1fr)); gap: 5px; min-width: 940px; width: max-content; }
+  .matrixGrid { grid-template-columns: minmax(140px, 150px) repeat(7, minmax(148px, 1fr)); gap: 5px; min-width: 1221px; width: max-content; }
   .matrixCorner,
   .matrixHeader { padding: 7px 6px; font-size: 0.66rem; line-height: 1.08; }
   .employeeCell { min-height: 98px; padding: 7px 6px; font-size: 0.72rem; }
   .employeeCell span { font-size: 0.64rem; }
   .scheduleCell { min-height: 98px; padding: 5px; }
-  .shiftCard { padding: 6px; border-left-width: 3px; font-size: 0.7rem; gap: 5px; }
-  .shiftTop { grid-template-columns: 1fr; gap: 4px; }
-  .shiftTop span { justify-self: start; width: auto; min-width: 56px; padding: 2px 6px; font-size: 0.62rem; text-align: center; white-space: nowrap; }
-  .actualLine { grid-template-columns: 1fr; gap: 2px; padding: 5px; font-size: 0.64rem; }
-  .actualLine span { text-align: left; white-space: normal; }
-  .actualLine strong, .actualStatus, .legacyNote, .shiftCard p { font-size: 0.62rem; white-space: normal; }
+  .shiftCard { padding: 7px; border-left-width: 3px; gap: 5px; }
+  .shiftTime { font-size: 0.78rem; }
+  .actualValue { font-size: 0.72rem; }
   .filterGrid { grid-template-columns: 1fr; }
   .compactAddShift :global(.form-grid) { grid-template-columns: 1fr; }
 }
@@ -165,14 +169,14 @@
 @media (max-width: 620px) {
   .boardScroll { overflow-x: auto; padding-bottom: 12px; }
   .boardScroll::before { content: "Swipe horizontally to inspect all days"; display: block; margin: 0 0 8px; color: var(--muted); font-size: 0.72rem; font-weight: 760; }
-  .matrixGrid { grid-template-columns: minmax(118px, 130px) repeat(7, minmax(108px, 116px)); min-width: 888px; width: max-content; }
+  .matrixGrid { grid-template-columns: minmax(126px, 132px) repeat(7, minmax(146px, 1fr)); min-width: 1183px; width: max-content; }
   .matrixCorner,
   .matrixHeader { border-radius: 6px; padding: 6px 5px; font-size: 0.62rem; }
   .employeeCell { border-radius: 6px; min-height: 92px; padding: 6px 5px; }
   .employeeCell strong { font-size: 0.68rem; }
   .employeeCell span { font-size: 0.58rem; }
   .scheduleCell { border-radius: 6px; min-height: 92px; padding: 4px; }
-  .shiftTop span { font-size: 0.6rem; line-height: 1.05; padding: 2px 5px; white-space: nowrap; }
+  .shiftPosition { font-size: 0.66rem; }
 }
 
 @media print {
