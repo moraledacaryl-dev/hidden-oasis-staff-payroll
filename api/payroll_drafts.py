@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException
 
@@ -23,6 +24,10 @@ from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 router = APIRouter(prefix="/api/v1")
+
+
+def payroll_business_date() -> date:
+    return datetime.now(ZoneInfo("Asia/Manila")).date()
 
 
 def _validate_semimonthly_period(start: date, end: date) -> None:
@@ -79,7 +84,7 @@ def create_payroll_draft(
 
     if end_date < start_date:
         raise HTTPException(status_code=422, detail="End date cannot be before start date.")
-    if end_date >= date.today():
+    if end_date >= payroll_business_date():
         raise HTTPException(status_code=409, detail="Payroll can only be created after the payroll period has fully ended.")
     if payload.payout_date < end_date:
         raise HTTPException(status_code=422, detail="Payout date cannot be before the payroll period ends.")
