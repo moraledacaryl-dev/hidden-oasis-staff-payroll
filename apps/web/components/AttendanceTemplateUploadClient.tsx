@@ -185,12 +185,17 @@ export function AttendanceTemplateUploadClient() {
           </div>
         </div>
         <div className="grid" style={{ gap: 10 }}>
-          <input type="file" accept=".csv,text/csv" onChange={(event) => void handleFile(event.target.files?.[0] || null)} />
+          <input
+            className="attendance-import-file"
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(event) => void handleFile(event.target.files?.[0] || null)}
+          />
           {fileName ? <p className="muted">Selected: {fileName} · {rows.length} rows</p> : null}
           {missingColumns.length && columns.length ? (
             <p className="error-text">Missing columns: {missingColumns.join(", ")}</p>
           ) : null}
-          <div className="badge-row">
+          <div className="attendance-import-actions">
             <button className="primary-link" disabled={isPending || !rows.length || Boolean(missingColumns.length)} onClick={() => submit(true)} type="button">
               Preview / Validate
             </button>
