@@ -16,7 +16,7 @@ import {
 } from "@/lib/period";
 import { currentSession } from "@/lib/session";
 import type { AttendanceException, PayrollRun } from "@/lib/api";
-import type { ScheduleShift } from "@/lib/schedule-types";
+import type { ScheduleActual, ScheduleShift } from "@/lib/schedule-types";
 import type { PayrollPreview } from "@/lib/types";
 
 type CutoffPageProps = {
@@ -24,15 +24,19 @@ type CutoffPageProps = {
 };
 
 type WeekResponse = { ok: boolean; week_start: string; week_end: string; items: ScheduleShift[]; mode: string };
+type ActualsResponse = { ok: boolean; week_start: string; week_end: string; items: ScheduleActual[]; mode: string };
 
 function metricTone(kind: "default" | "warning" | "danger" | "ok") {
   return `cutoff-metric ${kind}`;
 }
 
-function attendanceReason(item: AttendanceException, schedule?: ScheduleShift) {
-  if (!schedule && item.actual_in) return "Rest day punch";
-  if (Number(item.is_absent || 0) === 1) return "Scheduled absent";
-  if (!item.actual_in || !item.actual_out) return "Missing log";
+function attendanceReason(item: AttendanceException, schedule?: ScheduleShift, actual?: ScheduleActual) {
+  const actualIn = actual?.actual_in || item.actual_in;
+  const actualOut = actual?.actual_out || item.actual_out;
+  const absent = Number(actual?.is_absent ?? item.is_absent ?? 0) === 1;
+  if (!schedule && actualIn) return "Rest day punch";
+  if (absent) return "Scheduled absent";
+  if (!actualIn || !actualOut) return "Missing log";
   if (item.ot_status === "Pending") return "OT review";
   if (item.attendance_status === "Needs Correction" || item.attendance_status === "Rejected") return "Correction";
   return "For review";
@@ -42,6 +46,14 @@ function scheduledText(schedule?: ScheduleShift) {
   if (!schedule) return "Rest day / no shift";
   const context = schedule.status || schedule.position || schedule.notes || "Scheduled";
   return `${schedule.start_time || "—"}–${schedule.end_time || "—"}${schedule.is_overnight ? " +1" : ""} · ${context}`;
+}
+
+function actualText(item: AttendanceException, actual?: ScheduleActual) {
+  const actualIn = actual?.actual_in || item.actual_in || "—";
+  const actualOut = actual?.actual_out || item.actual_out || "—";
+  const status = actual?.attendance_status || item.attendance_status || "For review";
+  const source = actual?.source ? ` · ${actual.source}` : "";
+  return { time: `${actualIn}–${actualOut}`, status: `${status}${source}` };
 }
 
 function scheduleKey(employeeId: number, workDate: string) {
@@ -71,6 +83,19 @@ async function loadScheduleRange(periodStart: string, periodEnd: string): Promis
   return weeks.flat().filter((shift) => shift.shift_date >= periodStart && shift.shift_date <= periodEnd);
 }
 
+async function loadActualRange(periodStart: string, periodEnd: string): Promise<ScheduleActual[]> {
+  const headers = await backendHeaders();
+  const weeks = await Promise.all(
+    weekStartsForRange(periodStart, periodEnd).map(async (weekStart) => {
+      const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/actuals/week?week_start=${weekStart}`, { headers, cache: "no-store" });
+      if (!response.ok) return [] as ScheduleActual[];
+      const data = (await response.json()) as ActualsResponse;
+      return data.items || [];
+    }),
+  );
+  return weeks.flat().filter((actual) => actual.work_date >= periodStart && actual.work_date <= periodEnd);
+}
+
 export default async function CutoffPage({ searchParams }: CutoffPageProps) {
   const session = await currentSession();
   if (!session) redirect("/login");
@@ -87,14 +112,26 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
   let exceptions: AttendanceException[] = [];
   let runs: PayrollRun[] = [];
   let schedules: ScheduleShift[] = [];
+  let actuals: ScheduleActual[] = [];
   if (canSeePayroll && canReviewAttendance) {
-    [preview, runs, exceptions, schedules] = await Promise.all([getPayrollPreview(periodStart, periodEnd), getPayrollRuns(), getAttendanceExceptions(periodStart, periodEnd), loadScheduleRange(periodStart, periodEnd)]);
+    [preview, runs, exceptions, schedules, actuals] = await Promise.all([
+      getPayrollPreview(periodStart, periodEnd),
+      getPayrollRuns(),
+      getAttendanceExceptions(periodStart, periodEnd),
+      loadScheduleRange(periodStart, periodEnd),
+      loadActualRange(periodStart, periodEnd),
+    ]);
   } else if (canSeePayroll) {
     [preview, runs] = await Promise.all([getPayrollPreview(periodStart, periodEnd), getPayrollRuns()]);
   } else if (canReviewAttendance) {
-    [exceptions, schedules] = await Promise.all([getAttendanceExceptions(periodStart, periodEnd), loadScheduleRange(periodStart, periodEnd)]);
+    [exceptions, schedules, actuals] = await Promise.all([
+      getAttendanceExceptions(periodStart, periodEnd),
+      loadScheduleRange(periodStart, periodEnd),
+      loadActualRange(periodStart, periodEnd),
+    ]);
   }
   const scheduleMap = new Map(schedules.map((row) => [scheduleKey(Number(row.employee_id), row.shift_date), row]));
+  const actualMap = new Map(actuals.map((row) => [scheduleKey(Number(row.employee_id), row.work_date), row]));
   const blockers = preview?.checks.filter((check) => check.severity === "Blocker") || [];
   const warnings = preview?.checks.filter((check) => check.severity !== "Blocker") || [];
   const reviewItems = blockers.length + exceptions.length;
@@ -125,7 +162,7 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
 
         {canSeePayroll && preview ? <section className="cutoff-action-grid"><div className="card cutoff-draft-card" data-create-draft="true" data-create-payroll-draft="true"><div><span className="eyebrow">Next action</span><h2>Draft payroll run</h2><p className="muted">Create a saved payroll draft for review.</p></div><PayrollDraftButton periodStart={periodStart} periodEnd={periodEnd} payoutDate={payoutDate} /></div><div className="card cutoff-total-card"><span className="eyebrow">Payroll total</span><h2>{peso(grossPay)} gross</h2><p>{peso(netPay)} net after deductions</p></div></section> : null}
 
-        <section className="card cutoff-review-card"><div className="panel-title"><div><span className="eyebrow">Review</span><h2>Review Queue</h2><p className="muted">Actual attendance is compared against the weekly schedule source. Normal matches are pre-approved.</p></div></div><div className="review-rule-strip"><span>Auto-approved: normal match</span><span>Review: major variance</span><span>Review: scheduled absent</span><span>Review: rest-day punch</span></div>{reviewItems ? <div className="table-wrap"><table><thead><tr><th>Issue</th><th>Employee</th><th>Scheduled</th><th>Actual</th><th>Action</th></tr></thead><tbody>{blockers.map((check, index) => (<tr key={`blocker-${check.category}-${index}`}><td><StatusBadge label="Blocker" tone="danger" /></td><td><strong>{check.category}</strong><p className="muted">{check.issue}</p></td><td colSpan={2}>{check.recommended_action}</td><td>—</td></tr>))}{canReviewAttendance ? exceptions.slice(0, 25).map((item) => { const schedule = scheduleMap.get(scheduleKey(Number(item.employee_id), item.work_date)); return <tr key={`attendance-${item.id}`}><td><StatusBadge label={attendanceReason(item, schedule)} tone="warning" /></td><td><strong>{item.full_name}</strong><p className="muted">{item.work_date}</p></td><td>{scheduledText(schedule)}</td><td>{item.actual_in || "—"}–{item.actual_out || "—"}<p className="muted">OT {numberText(item.detected_ot_hours)}</p></td><td><AttendanceDecisionButtons timeLogId={item.id} detectedOtHours={Number(item.detected_ot_hours || 0)} /></td></tr>; }) : null}</tbody></table></div> : <div className="empty-state"><strong>No review items</strong><p>Attendance is pre-approved and there are no payroll blockers for this cutoff.</p></div>}{exceptions.length > 25 ? <p className="muted">Showing first 25 review items.</p> : null}{warnings.length ? <details className="coverage-review soft"><summary><div><h2>Warnings not blocking draft</h2><p className="muted">{warnings.length} warning{warnings.length === 1 ? "" : "s"} for awareness.</p></div></summary><div className="coverage-review-body action-list">{warnings.map((check, index) => (<div className="action-item" key={`warning-${check.category}-${index}`}><StatusBadge label={check.severity} tone="warning" /><strong>{check.category}</strong><p>{check.issue}</p><p className="muted">{check.recommended_action}</p></div>))}</div></details> : null}</section>
+        <section className="card cutoff-review-card"><div className="panel-title"><div><span className="eyebrow">Review</span><h2>Review Queue</h2><p className="muted">Actual attendance is compared against the weekly schedule and weekly actuals source. Normal matches are pre-approved.</p></div></div><div className="review-rule-strip"><span>Auto-approved: normal match</span><span>Review: major variance</span><span>Review: scheduled absent</span><span>Review: rest-day punch</span></div>{reviewItems ? <div className="table-wrap"><table><thead><tr><th>Issue</th><th>Employee</th><th>Scheduled</th><th>Actual</th><th>Action</th></tr></thead><tbody>{blockers.map((check, index) => (<tr key={`blocker-${check.category}-${index}`}><td><StatusBadge label="Blocker" tone="danger" /></td><td><strong>{check.category}</strong><p className="muted">{check.issue}</p></td><td colSpan={2}>{check.recommended_action}</td><td>—</td></tr>))}{canReviewAttendance ? exceptions.slice(0, 25).map((item) => { const key = scheduleKey(Number(item.employee_id), item.work_date); const schedule = scheduleMap.get(key); const actual = actualMap.get(key); const actualDisplay = actualText(item, actual); return <tr key={`attendance-${item.id}`}><td><StatusBadge label={attendanceReason(item, schedule, actual)} tone="warning" /></td><td><strong>{item.full_name}</strong><p className="muted">{item.work_date}</p></td><td>{scheduledText(schedule)}</td><td>{actualDisplay.time}<p className="muted">{actualDisplay.status} · OT {numberText(actual?.approved_ot_hours ?? item.detected_ot_hours)}</p></td><td><AttendanceDecisionButtons timeLogId={item.id} detectedOtHours={Number(actual?.approved_ot_hours ?? item.detected_ot_hours ?? 0)} /></td></tr>; }) : null}</tbody></table></div> : <div className="empty-state"><strong>No review items</strong><p>Attendance is pre-approved and there are no payroll blockers for this cutoff.</p></div>}{exceptions.length > 25 ? <p className="muted">Showing first 25 review items.</p> : null}{warnings.length ? <details className="coverage-review soft"><summary><div><h2>Warnings not blocking draft</h2><p className="muted">{warnings.length} warning{warnings.length === 1 ? "" : "s"} for awareness.</p></div></summary><div className="coverage-review-body action-list">{warnings.map((check, index) => (<div className="action-item" key={`warning-${check.category}-${index}`}><StatusBadge label={check.severity} tone="warning" /><strong>{check.category}</strong><p>{check.issue}</p><p className="muted">{check.recommended_action}</p></div>))}</div></details> : null}</section>
 
         {canSeePayroll ? <section className="card"><div className="panel-title"><div><h2>Saved payroll runs</h2><p className="muted">Draft, review, approve, reopen.</p></div></div>{matchingRuns.length ? <div className="table-wrap"><table><thead><tr><th>ID</th><th>Label</th><th>Status</th><th>Prepared by</th><th>Employees</th><th>Net</th><th>Created</th><th>Action</th></tr></thead><tbody>{matchingRuns.map((run) => (<tr key={run.id}><td>{run.id}</td><td>{run.run_label}</td><td>{run.status}</td><td>{run.prepared_by || "—"}</td><td>{run.totals?.employees ?? 0}</td><td>{peso(run.totals?.net_pay || 0)}</td><td>{run.created_at}</td><td><PayrollLifecycleButtons runId={run.id} status={run.status} role={session.role_key} /></td></tr>))}</tbody></table></div> : <div className="empty-state"><strong>No payroll draft yet</strong><p>Create a draft after reviewing blockers and review queue items.</p></div>}</section> : null}
       </div>
