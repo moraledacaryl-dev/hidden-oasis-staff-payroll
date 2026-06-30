@@ -17,6 +17,8 @@ class ApiContractTests(unittest.TestCase):
             "/api/v1/users",
             "/api/v1/staff/employees",
             "/api/v1/schedules/shifts",
+            "/api/v1/schedules/shifts/{shift_id}/move",
+            "/api/v1/schedules/shifts/{shift_id}/duplicate",
             "/api/v1/schedule/change-requests/{request_id}/decision",
             "/api/v1/me/published-self-service",
             "/api/v1/me/leave-requests",

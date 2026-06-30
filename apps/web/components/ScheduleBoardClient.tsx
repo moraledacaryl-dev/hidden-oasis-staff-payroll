@@ -1,9 +1,9 @@
 "use client";
 
-import { StickyNote } from "lucide-react";
+import { Copy as CopyIcon, MoveRight, StickyNote, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import { moveScheduledShift } from "@/app/schedule/actions";
+import { copyScheduledShift, moveScheduledShift } from "@/app/schedule/actions";
 import { ScheduleDayEditorModal } from "@/components/ScheduleDayEditorModal";
 import { formatIsoDay } from "@/lib/period";
 import type {
@@ -16,6 +16,12 @@ import styles from "@/app/schedule/page.module.css";
 import restStyles from "./ScheduleRestDay.module.css";
 
 type EditorState = { day: string; shift: ScheduleShift | null; employeeId?: number | null; initialTab?: "scheduled" | "actual" | "leave" };
+type DropPrompt = {
+  source: ScheduleShift;
+  targetDay: string;
+  targetEmployeeId: number | null;
+  targetEmployeeName: string;
+};
 
 type Props = {
   days: string[];
@@ -51,6 +57,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   const [overDay, setOverDay] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [dropPrompt, setDropPrompt] = useState<DropPrompt | null>(null);
   const [restDays, setRestDays] = useState<ScheduleRestDay[]>([]);
   const [leaveStatuses, setLeaveStatuses] = useState<ScheduleLeaveStatus[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -72,6 +79,15 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   useEffect(() => {
     void loadDayStates();
   }, [loadDayStates]);
+
+  useEffect(() => {
+    if (!dropPrompt) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setDropPrompt(null);
+    }
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [dropPrompt]);
 
   const visibleShifts = useMemo(() => {
     const plannedKeys = new Set(shifts.filter((shift) => shift.id > 0).map(shiftIdentity));
@@ -101,16 +117,36 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
     return `${employeeId || "unassigned"}:${day}`;
   }
 
-  function onDrop(day: string) {
+  function onDrop(targetEmployeeId: number | null, targetEmployeeName: string, day: string) {
     if (!canEdit || !dragId) return;
     const source = visibleShifts.find((item) => item.id === dragId);
     setOverDay(null);
     setDragId(null);
-    if (!source || source.shift_date === day) return;
+    if (!source) return;
+    const sourceEmployeeId = source.employee_id || null;
+    if (source.shift_date === day && sourceEmployeeId === targetEmployeeId) return;
+    setMessage("");
+    setDropPrompt({
+      source,
+      targetDay: day,
+      targetEmployeeId,
+      targetEmployeeName,
+    });
+  }
+
+  function applyDrop(operation: "move" | "copy") {
+    if (!dropPrompt) return;
+    const pending = dropPrompt;
+    setDropPrompt(null);
     startTransition(async () => {
-      const result = await moveScheduledShift(source.id, day);
-      if (!result?.ok) { setMessage(result?.message || "Could not move shift."); return; }
-      setMessage("Shift moved.");
+      const result = operation === "move"
+        ? await moveScheduledShift(pending.source.id, pending.targetDay, pending.targetEmployeeId)
+        : await copyScheduledShift(pending.source.id, pending.targetDay, pending.targetEmployeeId);
+      if (!result?.ok) {
+        setMessage(result?.message || `Could not ${operation} shift.`);
+        return;
+      }
+      setMessage(operation === "move" ? "Shift moved." : "Shift copied.");
       router.refresh();
     });
   }
@@ -177,6 +213,8 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
               return (
                 <div
                   className={`${styles.scheduleCell} ${isOver ? styles.dropTarget : ""} ${isUnavailable ? restStyles.restDayCell : ""}`}
+                  data-drop-enabled={canEdit && !isUnavailable ? "true" : undefined}
+                  data-schedule-cell={`${row.id ?? "unassigned"}:${day}`}
                   key={`${row.id || "unassigned"}-${day}`}
                   onDragOver={(event) => {
                     if (!canEdit || isUnavailable) return;
@@ -184,7 +222,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
                     setOverDay(`${row.id || "unassigned"}:${day}`);
                   }}
                   onDragLeave={() => setOverDay(null)}
-                  onDrop={() => !isUnavailable && onDrop(day)}
+                  onDrop={() => !isUnavailable && onDrop(row.id, row.name, day)}
                 >
                   <div className={styles.scheduleStack}>
                     {leave ? (
@@ -204,6 +242,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
                         <button
                           type="button"
                           className={`${styles.shiftCard} ${dragId === shift.id ? styles.dragging : ""}`}
+                          data-schedule-shift={shift.id}
                           draggable={canEdit && shift.id > 0 && shift.movable !== false}
                           key={shift.id}
                           onClick={() => setEditor({ day, shift })}
@@ -262,6 +301,64 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
           </div>
         ))}
       </div>
+      {dropPrompt ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setDropPrompt(null);
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="schedule-drop-title"
+            aria-modal="true"
+            className="modal-panel compact-modal"
+            role="dialog"
+          >
+            <div className="panel-title">
+              <div>
+                <span className="eyebrow">Schedule</span>
+                <h2 id="schedule-drop-title">Move or copy shift?</h2>
+              </div>
+              <button
+                aria-label="Close"
+                className="button ghost small"
+                onClick={() => setDropPrompt(null)}
+                title="Close"
+                type="button"
+              >
+                <X aria-hidden="true" size={16} />
+              </button>
+            </div>
+            <div className={styles.dropSummary}>
+              <div className={styles.dropEndpoint}>
+                <span>From</span>
+                <strong>{dropPrompt.source.employee_name || "Unassigned"} · {formatIsoDay(dropPrompt.source.shift_date)}</strong>
+                <small>{dropPrompt.source.start_time}–{dropPrompt.source.end_time} · {dropPrompt.source.position || "Other"}</small>
+              </div>
+              <MoveRight aria-hidden="true" className={styles.dropArrow} size={20} />
+              <div className={styles.dropEndpoint}>
+                <span>To</span>
+                <strong>{dropPrompt.targetEmployeeName} · {formatIsoDay(dropPrompt.targetDay)}</strong>
+                <small>{dropPrompt.source.start_time}–{dropPrompt.source.end_time} · {dropPrompt.source.position || "Other"}</small>
+              </div>
+            </div>
+            <div className={`action-row ${styles.dropActions}`}>
+              <button autoFocus className="button" disabled={isPending} onClick={() => applyDrop("move")} type="button">
+                <MoveRight aria-hidden="true" size={16} />
+                Move
+              </button>
+              <button className="button ghost" disabled={isPending} onClick={() => applyDrop("copy")} type="button">
+                <CopyIcon aria-hidden="true" size={16} />
+                Copy
+              </button>
+              <button className="button ghost" disabled={isPending} onClick={() => setDropPrompt(null)} type="button">
+                Cancel
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       <ScheduleDayEditorModal
         open={Boolean(editor)}
         day={editor?.day || days[0]}

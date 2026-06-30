@@ -34,10 +34,12 @@ class ShiftPayload(BaseModel):
 
 class MoveShiftPayload(BaseModel):
     shift_date: date
+    employee_id: int | None = None
 
 
 class DuplicateShiftPayload(BaseModel):
     shift_date: date | None = None
+    employee_id: int | None = None
 
 
 class CopyWeekPayload(BaseModel):
@@ -218,6 +220,65 @@ def require_schedule_editor(authorization: str | None, x_api_key: str | None) ->
 
 def employee_exists(conn, employee_id: int) -> bool:
     return bool(fetchone(conn, "SELECT id FROM employees WHERE id=?", (employee_id,)))
+
+
+def destination_employee_id(payload: MoveShiftPayload | DuplicateShiftPayload, before: dict[str, Any]) -> int | None:
+    if "employee_id" not in payload.model_fields_set:
+        value = before.get("employee_id")
+    else:
+        value = payload.employee_id
+    validate_positive_employee_id(value)
+    return int(value) if value is not None else None
+
+
+def shift_interval(shift_date: str, start_time: str, end_time: str) -> tuple[datetime, datetime]:
+    start = datetime.fromisoformat(f"{shift_date}T{start_time}")
+    end = datetime.fromisoformat(f"{shift_date}T{end_time}")
+    if end <= start:
+        end += timedelta(days=1)
+    return start, end
+
+
+def ensure_shift_destination_available(
+    conn,
+    employee_id: int | None,
+    shift_date: str,
+    start_time: str,
+    end_time: str,
+    *,
+    exclude_shift_id: int | None = None,
+) -> None:
+    if employee_id is None:
+        return
+    target_day = date.fromisoformat(shift_date)
+    target_start, target_end = shift_interval(shift_date, start_time, end_time)
+    rows = fetchall(
+        conn,
+        """
+        SELECT id, shift_date, start_time, end_time
+        FROM scheduled_shifts
+        WHERE employee_id=?
+          AND date(shift_date) BETWEEN date(?) AND date(?)
+        """,
+        (
+            employee_id,
+            (target_day - timedelta(days=1)).isoformat(),
+            (target_day + timedelta(days=1)).isoformat(),
+        ),
+    )
+    for row in rows:
+        if exclude_shift_id is not None and int(row["id"]) == exclude_shift_id:
+            continue
+        existing_start, existing_end = shift_interval(
+            str(row["shift_date"]),
+            str(row["start_time"]),
+            str(row["end_time"]),
+        )
+        if target_start < existing_end and existing_start < target_end:
+            raise HTTPException(
+                status_code=409,
+                detail="Destination overlaps another scheduled shift for this employee.",
+            )
 
 
 def first_existing(cols: set[str], names: list[str]) -> str | None:
@@ -833,6 +894,8 @@ def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(
 
 @router.post("/schedules/shifts/{shift_id}/move")
 def move_shift(shift_id: int, payload: MoveShiftPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    if "employee_id" in payload.model_fields_set:
+        validate_positive_employee_id(payload.employee_id)
     user = require_schedule_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
@@ -840,9 +903,24 @@ def move_shift(shift_id: int, payload: MoveShiftPayload, authorization: str | No
         before = schedule_row(conn, shift_id)
         if not before:
             raise HTTPException(status_code=404, detail="Shift not found.")
-        conn.execute("UPDATE scheduled_shifts SET shift_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (payload.shift_date.isoformat(), shift_id))
+        target_date = payload.shift_date.isoformat()
+        target_employee_id = destination_employee_id(payload, before)
+        if target_employee_id and not employee_exists(conn, target_employee_id):
+            raise HTTPException(status_code=404, detail="Employee not found.")
+        ensure_shift_destination_available(
+            conn,
+            target_employee_id,
+            target_date,
+            str(before.get("start_time")),
+            str(before.get("end_time")),
+            exclude_shift_id=shift_id,
+        )
+        conn.execute(
+            "UPDATE scheduled_shifts SET employee_id=?, shift_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (target_employee_id, target_date, shift_id),
+        )
         after = schedule_row(conn, shift_id)
-        log_schedule_change(conn, change_type="move_schedule", entity_type="scheduled_shift", entity_id=shift_id, employee_id=int(after.get("employee_id") or 0) if after else None, work_date=payload.shift_date.isoformat(), before=before, after=after, changed_by=user.get("display_name"))
+        log_schedule_change(conn, change_type="move_schedule", entity_type="scheduled_shift", entity_id=shift_id, employee_id=int(after.get("employee_id") or 0) if after else None, work_date=target_date, before=before, after=after, changed_by=user.get("display_name"))
         conn.commit()
         return {"ok": True, "shift": clean_shift(after or {}), "mode": "planned_shift_moved_not_payroll"}
     finally:
@@ -877,6 +955,8 @@ def delete_shift(shift_id: int, authorization: str | None = Header(default=None,
 
 @router.post("/schedules/shifts/{shift_id}/duplicate")
 def duplicate_shift(shift_id: int, payload: DuplicateShiftPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+    if "employee_id" in payload.model_fields_set:
+        validate_positive_employee_id(payload.employee_id)
     user = require_schedule_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
@@ -885,7 +965,17 @@ def duplicate_shift(shift_id: int, payload: DuplicateShiftPayload, authorization
         if not before:
             raise HTTPException(status_code=404, detail="Shift not found.")
         target_date = payload.shift_date.isoformat() if payload.shift_date else str(before.get("shift_date"))
-        cur = conn.execute("INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?, 'planned', ?, ?)", (before.get("employee_id"), target_date, before.get("start_time"), before.get("end_time"), before.get("position") or "Other", before.get("department"), int(before.get("break_minutes") or 0), before.get("notes"), now_iso(), now_iso()))
+        target_employee_id = destination_employee_id(payload, before)
+        if target_employee_id and not employee_exists(conn, target_employee_id):
+            raise HTTPException(status_code=404, detail="Employee not found.")
+        ensure_shift_destination_available(
+            conn,
+            target_employee_id,
+            target_date,
+            str(before.get("start_time")),
+            str(before.get("end_time")),
+        )
+        cur = conn.execute("INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?, 'planned', ?, ?)", (target_employee_id, target_date, before.get("start_time"), before.get("end_time"), before.get("position") or "Other", before.get("department"), int(before.get("break_minutes") or 0), before.get("notes"), now_iso(), now_iso()))
         new_id = int(cur.lastrowid)
         after = schedule_row(conn, new_id)
         log_schedule_change(conn, change_type="duplicate_schedule", entity_type="scheduled_shift", entity_id=new_id, employee_id=int(after.get("employee_id") or 0) if after else None, work_date=target_date, before=None, after=after, changed_by=user.get("display_name"))

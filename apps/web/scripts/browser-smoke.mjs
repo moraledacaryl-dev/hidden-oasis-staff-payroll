@@ -171,6 +171,60 @@ async function inspectPage(session, role, route, viewport) {
   const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-");
   const file = path.join(outputDir, `${role}-${viewport.name}-${slug}.png`);
   await writeFile(file, Buffer.from(screenshot.data, "base64"));
+  let scheduleDropPrompt = null;
+  if (role === "owner" && route === "/schedule") {
+    const dragStartEvaluation = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const source = document.querySelector('[data-schedule-shift][draggable="true"]');
+        if (!source) return { started: false };
+        source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+        return { started: true };
+      })()`,
+    });
+    await delay(100);
+    const dragEvaluation = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const source = document.querySelector('[data-schedule-shift][draggable="true"]');
+        const sourceCell = source?.closest("[data-schedule-cell]");
+        const target = [...document.querySelectorAll('[data-schedule-cell][data-drop-enabled="true"]')].find((cell) => (
+          cell !== sourceCell &&
+          !cell.querySelector("[data-schedule-shift]")
+        ));
+        if (!${Boolean(dragStartEvaluation.result?.value?.started)} || !source || !target) return { dispatched: false };
+        const transfer = new DataTransfer();
+        target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+        target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+        source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+        return { dispatched: true };
+      })()`,
+    });
+    await delay(200);
+    const promptEvaluation = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const dialog = document.querySelector('[role="dialog"][aria-labelledby="schedule-drop-title"]');
+        const buttons = dialog ? [...dialog.querySelectorAll("button")].map((button) => button.textContent?.trim() || button.getAttribute("aria-label")) : [];
+        const rect = dialog?.getBoundingClientRect();
+        return {
+          dispatched: ${Boolean(dragEvaluation.result?.value?.dispatched)},
+          visible: Boolean(dialog && rect && rect.width > 0 && rect.height > 0),
+          buttons,
+          fitsViewport: Boolean(rect && rect.left >= 0 && rect.top >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight),
+        };
+      })()`,
+    });
+    scheduleDropPrompt = promptEvaluation.result?.value || {};
+    const promptScreenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    await writeFile(
+      path.join(outputDir, `${role}-${viewport.name}-${slug}-move-copy.png`),
+      Buffer.from(promptScreenshot.data, "base64"),
+    );
+    await session.send("Runtime.evaluate", {
+      expression: `document.querySelector('[role="dialog"] button:last-of-type')?.click()`,
+    });
+  }
   return {
     role,
     route,
@@ -178,12 +232,19 @@ async function inspectPage(session, role, route, viewport) {
     screenshot: file,
     ...result,
     matchedFailureText,
+    scheduleDropPrompt,
     ok: result.href?.startsWith(`${baseUrl}${route}`) &&
       !result.pageOverflow &&
       !result.hasNextError &&
       (result.visibleProblems || []).length === 0 &&
       (result.scheduleClippingProblems || []).length === 0 &&
-      !matchedFailureText,
+      !matchedFailureText &&
+      (!scheduleDropPrompt || (
+        scheduleDropPrompt.dispatched &&
+        scheduleDropPrompt.visible &&
+        scheduleDropPrompt.fitsViewport &&
+        ["Move", "Copy", "Cancel"].every((label) => scheduleDropPrompt.buttons.includes(label))
+      )),
   };
 }
 
@@ -223,6 +284,7 @@ if (failures.length) {
     if ((failure.visibleProblems || []).length) console.error(`Visible layout problems on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.visibleProblems)}`);
     if ((failure.scheduleClippingProblems || []).length) console.error(`Clipped schedule text on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleClippingProblems)}`);
     if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
+    if (failure.scheduleDropPrompt) console.error(`Move/copy prompt problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleDropPrompt)}`);
   }
   console.error(`Browser smoke failed on ${failures.length} page(s).`);
   process.exitCode = 1;
