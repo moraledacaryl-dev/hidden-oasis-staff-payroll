@@ -28,7 +28,7 @@ function attendanceReason(item: AttendanceException) {
   if (!item.actual_in || !item.actual_out) return "Missing time log";
   if (item.ot_status === "Pending") return "OT review";
   if (item.attendance_status === "Needs Correction" || item.attendance_status === "Rejected") return "Correction needed";
-  return "Needs review";
+  return "For review";
 }
 
 export default async function CutoffPage({ searchParams }: CutoffPageProps) {
@@ -103,7 +103,7 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
           <div>
             <span className="eyebrow">Cutoff review</span>
             <h2>{ready ? "Ready" : "Needs attention"}</h2>
-            <p>{ready ? "All normal attendance is pre-approved and no blockers remain." : "Accept items yourself or leave them as Needs Review for supervisor checking."}</p>
+            <p>{ready ? "All normal attendance is pre-approved and no blockers remain." : "Accept items yourself or leave them For review."}</p>
           </div>
           <strong>{statusText}</strong>
         </section>
@@ -111,7 +111,7 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
         <section className="cutoff-metrics">
           {preview ? <div className={metricTone("default")}><span>Net payroll</span><strong>{peso(netPay)}</strong><small>Calculated</small></div> : <div className={metricTone("default")}><span>Payroll</span><strong>Restricted</strong><small>Operations view</small></div>}
           <div className={metricTone(blockers.length ? "danger" : "ok")}><span>Blockers</span><strong>{blockers.length}</strong><small>{blockers.length ? "Must clear" : "Clear"}</small></div>
-          <div className={metricTone(exceptions.length ? "warning" : "ok")}><span>Supervisor queue</span><strong>{exceptions.length}</strong><small>{exceptions.length ? "Needs review" : "None"}</small></div>
+          <div className={metricTone(exceptions.length ? "warning" : "ok")}><span>Review queue</span><strong>{exceptions.length}</strong><small>{exceptions.length ? "For review" : "None"}</small></div>
           <div className={metricTone(matchingRuns.length ? "ok" : "default")}><span>Saved runs</span><strong>{matchingRuns.length}</strong><small>This cutoff</small></div>
         </section>
 
@@ -120,8 +120,8 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
         <section className="card cutoff-review-card">
           <div className="panel-title">
             <div>
-              <span className="eyebrow">One review queue</span>
-              <h2>Cutoff Review Queue</h2>
+              <span className="eyebrow">Review</span>
+              <h2>Review Queue</h2>
               <p className="muted">Payroll blockers plus only attendance that needs human checking. Normal matched attendance is already pre-approved.</p>
             </div>
           </div>
@@ -145,16 +145,16 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
                 <StatusBadge label={attendanceReason(item)} tone="warning" />
                 <strong>{item.full_name}</strong>
                 <p>{item.work_date} · {item.actual_in || "—"}–{item.actual_out || "—"} · OT {numberText(item.detected_ot_hours)}</p>
-                <p className="muted">Accept it yourself, or leave it as Needs Review so it stays visible to the supervisor.</p>
+                <p className="muted">Accept it yourself, or leave it For review.</p>
                 <AttendanceDecisionButtons timeLogId={item.id} detectedOtHours={Number(item.detected_ot_hours || 0)} />
               </div>
             )) : null}
-            {exceptions.length > 25 ? <p className="muted">Showing first 25 supervisor review items.</p> : null}
+            {exceptions.length > 25 ? <p className="muted">Showing first 25 review items.</p> : null}
           </div> : <div className="empty-state"><strong>No review items</strong><p>Attendance is pre-approved and there are no payroll blockers for this cutoff.</p></div>}
           {warnings.length ? <details className="coverage-review soft"><summary><div><h2>Warnings not blocking draft</h2><p className="muted">{warnings.length} warning{warnings.length === 1 ? "" : "s"} for awareness.</p></div></summary><div className="coverage-review-body action-list">{warnings.map((check, index) => (<div className="action-item" key={`warning-${check.category}-${index}`}><StatusBadge label={check.severity} tone="warning" /><strong>{check.category}</strong><p>{check.issue}</p><p className="muted">{check.recommended_action}</p></div>))}</div></details> : null}
         </section>
 
-        {canSeePayroll ? <section className="card"><div className="panel-title"><div><h2>Saved payroll runs</h2><p className="muted">Draft, review, approve, reopen.</p></div></div>{matchingRuns.length ? <div className="table-wrap"><table><thead><tr><th>ID</th><th>Label</th><th>Status</th><th>Prepared by</th><th>Employees</th><th>Net</th><th>Created</th><th>Action</th></tr></thead><tbody>{matchingRuns.map((run) => (<tr key={run.id}><td>{run.id}</td><td>{run.run_label}</td><td>{run.status}</td><td>{run.prepared_by || "—"}</td><td>{run.totals?.employees ?? 0}</td><td>{peso(run.totals?.net_pay || 0)}</td><td>{run.created_at}</td><td><PayrollLifecycleButtons runId={run.id} status={run.status} role={session.role_key} /></td></tr>))}</tbody></table></div> : <div className="empty-state"><strong>No payroll draft yet</strong><p>Create a draft after reviewing blockers and supervisor queue items.</p></div>}</section> : null}
+        {canSeePayroll ? <section className="card"><div className="panel-title"><div><h2>Saved payroll runs</h2><p className="muted">Draft, review, approve, reopen.</p></div></div>{matchingRuns.length ? <div className="table-wrap"><table><thead><tr><th>ID</th><th>Label</th><th>Status</th><th>Prepared by</th><th>Employees</th><th>Net</th><th>Created</th><th>Action</th></tr></thead><tbody>{matchingRuns.map((run) => (<tr key={run.id}><td>{run.id}</td><td>{run.run_label}</td><td>{run.status}</td><td>{run.prepared_by || "—"}</td><td>{run.totals?.employees ?? 0}</td><td>{peso(run.totals?.net_pay || 0)}</td><td>{run.created_at}</td><td><PayrollLifecycleButtons runId={run.id} status={run.status} role={session.role_key} /></td></tr>))}</tbody></table></div> : <div className="empty-state"><strong>No payroll draft yet</strong><p>Create a draft after reviewing blockers and review queue items.</p></div>}</section> : null}
       </div>
     </Shell>
   );
