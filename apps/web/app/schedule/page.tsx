@@ -78,6 +78,8 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
 
           <div className={`${styles.screenOnly} ${styles.filterPanel}`}><div className={styles.filterGrid}><div><strong>Department</strong><div className={styles.chips}><Link className={selectedDepartment === "all" ? styles.activeChip : styles.chip} href={filterHref("all", selectedPosition)}>All</Link>{departments.map((dept) => (<Link className={selectedDepartment === dept ? styles.activeChip : styles.chip} href={filterHref(dept, selectedPosition)} key={dept}>{dept}</Link>))}</div></div><div><strong>Position</strong><div className={styles.chips}><Link className={selectedPosition === "all" ? styles.activeChip : styles.chip} href={filterHref(selectedDepartment, "all")}>All</Link>{positions.map((pos) => (<Link className={selectedPosition === pos ? styles.activeChip : styles.chip} href={filterHref(selectedDepartment, pos)} key={pos}>{pos}</Link>))}</div></div><ScheduleEmployeeFilter employees={employeeOptions} selectedEmployeeId={selectedEmployeeId} weekStart={week.week_start} department={selectedDepartment} position={selectedPosition} /></div></div>
 
+          {canEditSchedule ? <section className={`card ${styles.compactAddShift}`}><div className="panel-title"><h2>Add shift</h2></div><ScheduleShiftForm weekStart={week.week_start} employees={employees} /></section> : null}
+
           <div className={styles.boardScroll}><ScheduleBoardClient days={days} shifts={filteredItems} employees={boardEmployees} canEdit={canEditSchedule} /></div>
         </section>
 
@@ -86,7 +88,6 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
         <section className={`${styles.screenOnly} ${styles.secondaryPanels}`}>
           {canEditSchedule ? <SchedulePublishControl weekStart={week.week_start} /> : null}
           <ScheduleRiskPanel days={days} shifts={filteredItems} employees={employees} />
-          {canEditSchedule ? <section className={`card ${styles.compactAddShift}`}><div className="panel-title"><h2>Add shift</h2></div><ScheduleShiftForm weekStart={week.week_start} employees={employees} /></section> : null}
         </section>
 
         <section className={styles.printSchedule}><div className={styles.printHeader}><div><span>Hidden Oasis</span><h2>Weekly Schedule</h2><p>{week.week_start} to {week.week_end}</p></div><div><strong>{selectedDepartment === "all" ? "All Departments" : selectedDepartment}</strong><p>{selectedPosition === "all" ? "All Positions" : selectedPosition}</p></div></div><table className={styles.printTable}><thead><tr><th>Employee</th>{days.map((day) => <th key={day}>{formatIsoDay(day)}<br />{day}</th>)}</tr></thead><tbody>{printRows.map(({ employee, days: rowDays }) => <tr key={employee.id}><td><strong>{employee.full_name}</strong><br /><span>{employee.department || "—"} · {employee.position || "—"}</span></td>{rowDays.map((shifts, index) => <td key={`${employee.id}-${index}`}>{scheduleCellText(shifts)}</td>)}</tr>)}{printRows.length === 0 ? <tr><td colSpan={8}>No scheduled shifts for this filter.</td></tr> : null}</tbody></table></section>
