@@ -25,7 +25,14 @@ def _columns(conn, table: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def _sync_legacy_fields(conn, advance_id: int, amount: float, deduction: float, balance: float) -> None:
+def _advance_date(value: str | None) -> str:
+    text = (value or "").strip()[:10]
+    if not text:
+        raise HTTPException(status_code=422, detail="Advance date is required.")
+    return text
+
+
+def _sync_legacy_fields(conn, advance_id: int, amount: float, deduction: float, balance: float, advance_date: str | None = None) -> None:
     columns = _columns(conn, "cash_advances")
     assignments: list[str] = []
     values: list[Any] = []
@@ -42,9 +49,49 @@ def _sync_legacy_fields(conn, advance_id: int, amount: float, deduction: float, 
             assignments.append(f"{column}=?")
             values.append(round(float(value or 0), 2))
 
+    if advance_date:
+        for column in ("advance_date", "request_date"):
+            if column in columns:
+                assignments.append(f"{column}=?")
+                values.append(advance_date)
+
     if assignments:
         values.append(advance_id)
         conn.execute(f"UPDATE cash_advances SET {', '.join(assignments)} WHERE id=?", values)
+
+
+def _insert_cash_advance(conn, payload: CashAdvancePayload, amount: float, deduction: float, method: str, user_name: str | None, stamp: str) -> int:
+    columns = _columns(conn, "cash_advances")
+    advance_date = _advance_date(payload.advance_date)
+    values_by_column: dict[str, Any] = {
+        "employee_id": payload.employee_id,
+        "advance_date": advance_date,
+        "request_date": advance_date,
+        "amount": amount,
+        "reason": payload.reason,
+        "approved_by": payload.approved_by,
+        "repayment_method": method,
+        "deduction_per_payroll": deduction,
+        "repayment_per_cutoff": deduction,
+        "remaining_balance": amount,
+        "outstanding_balance": amount,
+        "ledger_opening_balance": amount,
+        "status": "Active",
+        "notes": payload.notes,
+        "created_by": user_name,
+        "created_at": stamp,
+        "updated_by": user_name,
+        "updated_at": stamp,
+    }
+    insert_columns = [column for column in values_by_column if column in columns]
+    if "request_date" in columns and "request_date" not in insert_columns:
+        insert_columns.append("request_date")
+    placeholders = ",".join("?" for _ in insert_columns)
+    cur = conn.execute(
+        f"INSERT INTO cash_advances({','.join(insert_columns)}) VALUES({placeholders})",
+        [values_by_column[column] for column in insert_columns],
+    )
+    return int(cur.lastrowid)
 
 
 @router.get("/cash-advances")
@@ -56,7 +103,7 @@ def list_cash_advances(
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        items = fetchall(conn, "SELECT ca.*,e.full_name,e.employee_code,e.department,e.position FROM cash_advances ca LEFT JOIN employees e ON e.id=ca.employee_id ORDER BY date(ca.advance_date) DESC,ca.id DESC")
+        items = fetchall(conn, "SELECT ca.*,COALESCE(ca.advance_date,ca.request_date) AS advance_date,e.full_name,e.employee_code,e.department,e.position FROM cash_advances ca LEFT JOIN employees e ON e.id=ca.employee_id ORDER BY date(COALESCE(ca.advance_date,ca.request_date)) DESC,ca.id DESC")
         for item in items:
             summary = recalculate_balance(conn, int(item["id"]))
             item.update({"remaining_balance":summary["balance"],"status":summary["status"],"total_repaid":summary["paid"]})
@@ -76,6 +123,7 @@ def save_cash_advance(
     user = require_cash_advance_editor(authorization, x_api_key) if payload.id else require_cash_advance_creator(authorization, x_api_key)
     amount = round(float(payload.amount or 0), 2)
     deduction = round(float(payload.deduction_per_payroll or 0), 2)
+    advance_date = _advance_date(payload.advance_date)
     if amount <= 0:
         raise HTTPException(status_code=422, detail="Cash advance amount must be greater than zero.")
     if deduction < 0:
@@ -96,26 +144,36 @@ def save_cash_advance(
             paid_to_date = round(max(0.0, previous_amount - previous_opening), 2)
             new_opening = round(max(0.0, amount - paid_to_date), 2)
 
+            columns = _columns(conn, "cash_advances")
+            values_by_column: dict[str, Any] = {
+                "employee_id": payload.employee_id,
+                "advance_date": advance_date,
+                "request_date": advance_date,
+                "reason": payload.reason,
+                "approved_by": payload.approved_by,
+                "repayment_method": method,
+                "status": payload.status,
+                "notes": payload.notes,
+                "updated_by": user.get("display_name"),
+                "updated_at": stamp,
+            }
+            update_columns = [column for column in values_by_column if column in columns]
             conn.execute(
-                "UPDATE cash_advances SET employee_id=?,advance_date=?,reason=?,approved_by=?,repayment_method=?,status=?,notes=?,updated_by=?,updated_at=? WHERE id=?",
-                (payload.employee_id,payload.advance_date,payload.reason,payload.approved_by,method,payload.status,payload.notes,user.get("display_name"),stamp,payload.id),
+                f"UPDATE cash_advances SET {','.join(f'{column}=?' for column in update_columns)} WHERE id=?",
+                [values_by_column[column] for column in update_columns] + [payload.id],
             )
-            _sync_legacy_fields(conn, int(payload.id), amount, deduction, new_opening)
+            _sync_legacy_fields(conn, int(payload.id), amount, deduction, new_opening, advance_date)
             advance_id = int(payload.id)
         else:
             if not fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,)):
                 raise HTTPException(status_code=404, detail="Employee not found.")
-            cur = conn.execute(
-                "INSERT INTO cash_advances(employee_id,advance_date,amount,reason,approved_by,repayment_method,deduction_per_payroll,remaining_balance,ledger_opening_balance,status,notes,created_by,created_at,updated_by,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (payload.employee_id,payload.advance_date,amount,payload.reason,payload.approved_by,method,deduction,amount,amount,"Active",payload.notes,user.get("display_name"),stamp,user.get("display_name"),stamp),
-            )
-            advance_id = int(cur.lastrowid)
-            _sync_legacy_fields(conn, advance_id, amount, deduction, amount)
+            advance_id = _insert_cash_advance(conn, payload, amount, deduction, method, user.get("display_name"), stamp)
+            _sync_legacy_fields(conn, advance_id, amount, deduction, amount, advance_date)
 
         summary = recalculate_balance(conn, advance_id)
-        _sync_legacy_fields(conn, advance_id, amount, deduction, summary["balance"])
+        _sync_legacy_fields(conn, advance_id, amount, deduction, summary["balance"], advance_date)
         conn.commit()
-        item = fetchone(conn, "SELECT ca.*,e.full_name,e.employee_code,e.department,e.position FROM cash_advances ca LEFT JOIN employees e ON e.id=ca.employee_id WHERE ca.id=?", (advance_id,)) or {}
+        item = fetchone(conn, "SELECT ca.*,COALESCE(ca.advance_date,ca.request_date) AS advance_date,e.full_name,e.employee_code,e.department,e.position FROM cash_advances ca LEFT JOIN employees e ON e.id=ca.employee_id WHERE ca.id=?", (advance_id,)) or {}
         item.update({"remaining_balance":summary["balance"],"status":summary["status"],"total_repaid":summary["paid"],"repayments":repayment_history(conn,advance_id)})
         return {"ok": True, "item": item}
     except HTTPException:
