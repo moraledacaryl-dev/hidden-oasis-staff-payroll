@@ -92,7 +92,16 @@ export function AttendanceTemplateUploadClient() {
   const [fileName, setFileName] = useState("");
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [templateStart, setTemplateStart] = useState("");
+  const [templateDays, setTemplateDays] = useState("7");
   const [isPending, startTransition] = useTransition();
+
+  const templateHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (templateStart) params.set("start", templateStart);
+    params.set("days", templateDays || "7");
+    return `/api/attendance-template/download?${params.toString()}`;
+  }, [templateStart, templateDays]);
 
   const missingColumns = useMemo(
     () => REQUIRED_COLUMNS.filter((column) => !columns.includes(column)),
@@ -140,15 +149,30 @@ export function AttendanceTemplateUploadClient() {
         <div className="panel-title">
           <div>
             <span className="eyebrow">Template</span>
-            <h2>Download and complete the CSV</h2>
+            <h2>Download employee grid CSV</h2>
           </div>
-          <a className="primary-link" href="/templates/attendance-upload-template.csv" download>
-            Download template
+          <a className="primary-link" href={templateHref} download>
+            Download grid template
           </a>
         </div>
+        <div className="grid cols-2" style={{ gap: 12 }}>
+          <label className="grid" style={{ gap: 6 }}>
+            <strong>Start date</strong>
+            <input type="date" value={templateStart} onChange={(event) => setTemplateStart(event.target.value)} />
+          </label>
+          <label className="grid" style={{ gap: 6 }}>
+            <strong>Days</strong>
+            <select value={templateDays} onChange={(event) => setTemplateDays(event.target.value)}>
+              <option value="1">1 day</option>
+              <option value="7">7 days</option>
+              <option value="15">15 days</option>
+              <option value="31">31 days</option>
+            </select>
+          </label>
+        </div>
         <p className="muted">
-          Use one row per employee per work date. For overnight shifts, set time_out_date to the next day.
-          Keep biometric raw files separately; this upload is the clean payroll-ready template.
+          The download now includes every active employee name and employee code for each selected date.
+          Leave time_in/time_out blank until you update them from the biometric/manual log.
         </p>
       </section>
 
