@@ -79,8 +79,8 @@ def create_payroll_draft(
 
     if end_date < start_date:
         raise HTTPException(status_code=422, detail="End date cannot be before start date.")
-    if end_date >= date.today():
-        raise HTTPException(status_code=409, detail="Payroll can only be created after the payroll period has fully ended.")
+    if start_date > date.today():
+        raise HTTPException(status_code=409, detail="Payroll draft cannot be created before the payroll period starts.")
     if payload.payout_date < end_date:
         raise HTTPException(status_code=422, detail="Payout date cannot be before the payroll period ends.")
 
@@ -109,6 +109,9 @@ def create_payroll_draft(
             raise HTTPException(status_code=409, detail={"message": "Draft blocked by payroll QA blockers.", "checks": checks})
 
         stamp = now_iso()
+        summary = summarize_checks(checks)
+        if end_date >= date.today():
+            summary = f"In-period draft: attendance and deductions may still change. {summary}"
         cursor = conn.execute(
             """
             INSERT INTO payroll_runs(
@@ -116,7 +119,7 @@ def create_payroll_draft(
                 prepared_by,validation_summary,created_at
             ) VALUES(?,?,?,?,'Draft',?,?,?)
             """,
-            (start, end, payload.payout_date.isoformat(), label, user.get("display_name"), summarize_checks(checks), stamp),
+            (start, end, payload.payout_date.isoformat(), label, user.get("display_name"), summary, stamp),
         )
         run_id = int(cursor.lastrowid)
         columns = [

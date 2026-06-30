@@ -30,6 +30,7 @@ from api.payroll_audit_events import router as payroll_audit_events_router
 from api.payroll_corrections import router as payroll_corrections_router
 from api.payroll_drafts import router as payroll_drafts_router
 from api.payroll_mark_paid import router as payroll_mark_paid_router
+from api.payroll_qa import router as payroll_qa_router
 from api.payroll_recalculate import router as payroll_recalculate_router
 from api.payroll_return import router as payroll_return_router
 from api.payroll_review import router as payroll_review_router
@@ -119,6 +120,7 @@ ROUTERS = (
     payroll_mark_paid_router,
     payroll_corrections_router,
     payroll_audit_events_router,
+    payroll_qa_router,
     schedule_migration_router,
     revision_controls_router,
     revision_workflow_router,
