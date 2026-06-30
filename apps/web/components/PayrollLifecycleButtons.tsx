@@ -9,9 +9,10 @@ export function PayrollLifecycleButtons({ runId, status, role = "owner" }: { run
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function submit(action: "lock" | "approve" | "reopen") {
+  async function submit(action: "lock" | "approve" | "paid" | "reopen") {
     const reason = action === "reopen" ? window.prompt("Reason for reopening this payroll run:") : "";
     if (action === "reopen" && (!reason || reason.trim().length < 3)) return;
+    if (action === "paid" && !window.confirm("Mark this payroll run as paid? This applies cash advance repayments and reduces outstanding balances.")) return;
     setBusy(action);
     setMessage(null);
     const response = await fetch("/api/payroll/lifecycle", {
@@ -34,7 +35,8 @@ export function PayrollLifecycleButtons({ runId, status, role = "owner" }: { run
     <div className="action-row">
       {status === "Draft" ? <button className="button small" disabled={!!busy} onClick={() => submit("lock")}>{busy === "lock" ? "Locking..." : "Lock"}</button> : null}
       {role === "owner" && status === "For Owner Review" ? <button className="button small" disabled={!!busy} onClick={() => submit("approve")}>{busy === "approve" ? "Approving..." : "Approve"}</button> : null}
-      {role === "owner" && (status === "For Owner Review" || status === "Approved") ? <button className="button small ghost" disabled={!!busy} onClick={() => submit("reopen")}>{busy === "reopen" ? "Reopening..." : "Reopen"}</button> : null}
+      {role === "owner" && status === "Approved" ? <button className="button small" disabled={!!busy} onClick={() => submit("paid")}>{busy === "paid" ? "Marking paid..." : "Mark Paid"}</button> : null}
+      {role === "owner" && (status === "For Owner Review" || status === "Approved" || status === "Paid") ? <button className="button small ghost" disabled={!!busy} onClick={() => submit("reopen")}>{busy === "reopen" ? "Reopening..." : "Reopen"}</button> : null}
       {message ? <span className="muted">{message}</span> : null}
     </div>
   );
