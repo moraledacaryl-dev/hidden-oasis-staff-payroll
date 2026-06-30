@@ -1,0 +1,13 @@
+Attendance upload template notes
+
+Required CSV columns:
+work_date, employee_name, biometric_id, time_in, time_out, time_out_date, break_minutes, attendance_status, remarks, is_absent, is_halfday, is_ot, ot_hours, ot_reason, needs_review, review_note
+
+Rules:
+- Use one row per employee per work date.
+- Match by employee_name or biometric_id / employee_code.
+- Use YYYY-MM-DD dates when possible.
+- Use AM/PM or 24-hour time.
+- For overnight duty, set time_out_date to the next calendar date.
+- Set needs_review to 1 for halfday, unclear punches, missing time out, name mismatch, OT, or manual correction.
+- Upload the completed CSV at Schedule > Attendance Upload.
