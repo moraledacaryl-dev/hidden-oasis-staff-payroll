@@ -86,6 +86,12 @@ function parseCsv(text: string): { rows: AttendanceTemplateRow[]; columns: strin
   return { rows, columns };
 }
 
+function normalizeTemplateDays(value: string) {
+  const parsed = Number(value || 16);
+  if (!Number.isFinite(parsed)) return "16";
+  return String(Math.min(31, Math.max(1, Math.trunc(parsed))));
+}
+
 export function AttendanceTemplateUploadClient() {
   const [rows, setRows] = useState<AttendanceTemplateRow[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
@@ -93,13 +99,13 @@ export function AttendanceTemplateUploadClient() {
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [templateStart, setTemplateStart] = useState("");
-  const [templateDays, setTemplateDays] = useState("7");
+  const [templateDays, setTemplateDays] = useState("16");
   const [isPending, startTransition] = useTransition();
 
   const templateHref = useMemo(() => {
     const params = new URLSearchParams();
     if (templateStart) params.set("start", templateStart);
-    params.set("days", templateDays || "7");
+    params.set("days", normalizeTemplateDays(templateDays));
     return `/api/attendance-template/download?${params.toString()}`;
   }, [templateStart, templateDays]);
 
@@ -162,16 +168,19 @@ export function AttendanceTemplateUploadClient() {
           </label>
           <label className="grid" style={{ gap: 6 }}>
             <strong>Days</strong>
-            <select value={templateDays} onChange={(event) => setTemplateDays(event.target.value)}>
-              <option value="1">1 day</option>
-              <option value="7">7 days</option>
-              <option value="15">15 days</option>
-              <option value="31">31 days</option>
-            </select>
+            <input
+              inputMode="numeric"
+              min="1"
+              max="31"
+              type="number"
+              value={templateDays}
+              onBlur={() => setTemplateDays((value) => normalizeTemplateDays(value))}
+              onChange={(event) => setTemplateDays(event.target.value)}
+            />
           </label>
         </div>
         <p className="muted">
-          The download now includes every active employee name and employee code for each selected date.
+          Enter any day count from 1 to 31. The download includes every active employee name and employee code for each selected date.
           Leave time_in/time_out blank until you update them from the biometric/manual log.
         </p>
       </section>
