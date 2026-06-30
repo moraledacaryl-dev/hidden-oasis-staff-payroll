@@ -196,11 +196,11 @@ def attendance_exception_sql() -> str:
         JOIN employees e ON e.id=tl.employee_id
         WHERE tl.work_date BETWEEN ? AND ?
           AND (
-            COALESCE(tl.attendance_status, 'Pending') != 'Approved'
-            OR COALESCE(tl.ot_status, 'None') = 'Pending'
+            COALESCE(tl.is_absent, 0) = 1
             OR tl.actual_in IS NULL
             OR tl.actual_out IS NULL
-            OR COALESCE(tl.is_absent, 0) = 1
+            OR COALESCE(tl.ot_status, 'None') = 'Pending'
+            OR COALESCE(tl.attendance_status, '') IN ('Needs Review', 'Needs Correction', 'Rejected')
           )
     """
 
@@ -277,25 +277,26 @@ def build_app() -> FastAPI:
                 )
                 conn.commit()
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
-            logged_in_at = now_iso()
-            conn.execute(
-                "UPDATE app_users SET last_login_at=? WHERE id=?",
-                (logged_in_at, user["id"]),
-            )
-            user["last_login_at"] = logged_in_at
             clear_login_failures(conn, payload.display_name, ip_address)
+            public = public_user(user)
+            token = sign_payload(
+                {
+                    "sub": user["id"],
+                    "role": public["role_key"],
+                    "sv": int(user.get("session_version") or 1),
+                    "exp": int(time.time()) + SESSION_TTL_SECONDS,
+                }
+            )
             log_audit(
                 conn,
-                actor=user.get("display_name"),
-                action="Login succeeded",
+                actor=public["display_name"],
+                action="Login success",
                 table_name="app_users",
-                record_id=int(user["id"]),
+                record_id=user["id"],
                 details={"ip_address": ip_address},
             )
             conn.commit()
-        safe_user = public_user(user); now = int(time.time())
-        token = sign_payload({"sub": safe_user["id"], "role": safe_user["role_key"], "sv": safe_user["session_version"], "iat": now, "exp": now + SESSION_TTL_SECONDS})
-        return {"access_token": token, "token_type": "bearer", "expires_in": SESSION_TTL_SECONDS, "user": safe_user}
+        return {"access_token": token, "token_type": "bearer", "user": public, "expires_in": SESSION_TTL_SECONDS}
 
     @app.get(f"{API_PREFIX}/auth/me", dependencies=[Depends(require_api_key)])
     def auth_me(user: dict[str, Any] = Depends(current_user_from_token)) -> dict[str, Any]:
@@ -390,7 +391,7 @@ def build_app() -> FastAPI:
             columns = table_columns(conn, "employees"); departments = department_lookup(conn)
             sql = "SELECT * FROM employees WHERE 1=1"; params: list[Any] = []
             if status_filter and "status" in columns: sql += " AND status=?"; params.append(status_filter)
-            if department_id is not None and "department_id" in columns: sql += " AND department_id=?"; params.append(department_id)
+            if department_id is not None and "department_id" in columns: sql += " AND e.department_id=?"; params.append(department_id)
             sql += f" ORDER BY {'full_name' if 'full_name' in columns else 'id'}"
             rows = fetchall(conn, sql, params)
             include_private = user.get("role_key") in {ROLE_OWNER, ROLE_PAYROLL}
