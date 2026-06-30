@@ -19,7 +19,7 @@ from api.payroll_service import (
 )
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchone, get_conn
-from core.payroll_engine import compute_payroll
+from core.payroll_engine import compute_payroll, update_payroll_status
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
@@ -161,6 +161,33 @@ def approve_payroll_run(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     return approve_payroll_run_v1(run_id, authorization, x_api_key)
+
+
+@router.post("/payroll/runs/{run_id}/paid")
+def mark_payroll_run_paid(
+    run_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    user = must_be_payroll_user(authorization, x_api_key)
+    if user.get("role_key") != "owner":
+        raise HTTPException(status_code=403, detail="Only owner can mark payroll as paid.")
+    conn = get_conn(DB_PATH)
+    try:
+        run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
+        if not run:
+            raise HTTPException(status_code=404, detail="Payroll run not found.")
+        if run.get("status") != "Approved":
+            raise HTTPException(status_code=409, detail="Only approved payroll runs can be marked paid.")
+        try:
+            update_payroll_status(conn, run_id, "Paid", str(user.get("display_name") or "Owner"))
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
+        updated["totals"] = totals(conn, run_id)
+        return {"ok": True, "run": updated, "mode": "paid_cash_advances_applied"}
+    finally:
+        conn.close()
 
 
 @router.post("/payroll/runs/{run_id}/lock")
