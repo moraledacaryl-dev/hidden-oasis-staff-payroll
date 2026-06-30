@@ -93,7 +93,7 @@ export function AttendanceTemplateUploadClient() {
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [templateStart, setTemplateStart] = useState("");
-  const [templateDays, setTemplateDays] = useState("7");
+  const [templateDays, setTemplateDays] = useState("16");
   const [isPending, startTransition] = useTransition();
 
   const templateHref = useMemo(() => {
@@ -161,13 +161,14 @@ export function AttendanceTemplateUploadClient() {
             <input type="date" value={templateStart} onChange={(event) => setTemplateStart(event.target.value)} />
           </label>
           <label className="grid" style={{ gap: 6 }}>
-            <strong>Days</strong>
-            <select value={templateDays} onChange={(event) => setTemplateDays(event.target.value)}>
-              <option value="1">1 day</option>
-              <option value="7">7 days</option>
-              <option value="15">15 days</option>
-              <option value="31">31 days</option>
-            </select>
+            <strong>Payroll days</strong>
+            <input
+              min="1"
+              max="31"
+              type="number"
+              value={templateDays}
+              onChange={(event) => setTemplateDays(event.target.value)}
+            />
           </label>
         </div>
         <p className="muted">
