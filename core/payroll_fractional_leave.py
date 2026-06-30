@@ -5,55 +5,61 @@ from typing import Any
 from core.db import fetchall, fetchone, get_setting
 from core.payroll_leave_days import paid_leave_days_for_cutoff
 
+PAID_LEAVE_NAMES = {
+    "sick leave",
+    "sick",
+    "sl",
+    "bereavement",
+    "bereavement leave",
+    "sil",
+    "service incentive leave",
+    "service incentive leave (sil)",
+}
+EXCLUDED_LEAVE_STATUSES = {"rejected", "cancelled", "canceled", "voided", "denied"}
+
 
 def _active_employee(conn: Any, employee_id: int) -> dict[str, Any] | None:
     return fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,))
 
 
-def _entitled(conn: Any, employee_id: int, leave_type_id: int, leave_year: int) -> tuple[bool, str | None]:
-    row = fetchone(
-        conn,
-        """
-        SELECT * FROM employee_leave_entitlements
-        WHERE employee_id=? AND leave_type_id=? AND year=?
-        """,
-        (employee_id, leave_type_id, leave_year),
-    )
-    if not row or not int(row.get("entitled") or 0):
-        return False, "not_entitled"
-    if float(row.get("used") or 0) > float(row.get("credits") or 0) + 0.001:
-        return False, "over_credit"
-    return True, None
+def _is_payable_leave(row: dict[str, Any]) -> bool:
+    name = str(row.get("leave_name") or "").strip().lower()
+    status = str(row.get("status") or "").strip().lower()
+    if status in EXCLUDED_LEAVE_STATUSES:
+        return False
+    return int(row.get("paid") or 0) == 1 or name in PAID_LEAVE_NAMES
 
 
-def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, period_end: str) -> float:
+def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, period_end: str) -> tuple[float, list[str]]:
     rows = fetchall(
         conn,
         """
         SELECT lr.*, lt.paid, lt.name AS leave_name
         FROM leave_requests lr
         JOIN leave_types lt ON lt.id=lr.leave_type_id
-        WHERE lr.employee_id=? AND lr.status='Approved'
+        WHERE lr.employee_id=?
           AND lr.start_date <= ? AND lr.end_date >= ?
         ORDER BY lr.start_date, lr.id
         """,
         (employee_id, period_end, period_start),
     )
     paid_dates: set[str] = set()
+    leave_names: list[str] = []
     total = 0.0
     for row in rows:
-        if not int(row.get("paid") or 0):
-            continue
-        leave_year = int(str(row["start_date"])[:4])
-        ok, _ = _entitled(conn, employee_id, int(row["leave_type_id"]), leave_year)
-        if not ok:
+        if not _is_payable_leave(row):
             continue
         days, dates = paid_leave_days_for_cutoff(row, period_start, period_end, paid_dates)
         if days <= 0:
             continue
         total += days
         paid_dates.update(dates)
-    return round(total, 4)
+        label = str(row.get("leave_name") or "Paid leave").strip() or "Paid leave"
+        status = str(row.get("status") or "").strip()
+        if status:
+            label = f"{label} ({status})"
+        leave_names.append(f"{label}: {days:g} day(s)")
+    return round(total, 4), leave_names
 
 
 def _recompute_statutory_and_net(conn: Any, result: Any, emp: dict[str, Any], period_start: str) -> None:
@@ -124,19 +130,20 @@ def _recompute_statutory_and_net(conn: Any, result: Any, emp: dict[str, Any], pe
         conn,
         """
         SELECT * FROM cash_advances
-        WHERE employee_id=? AND outstanding_balance > 0
-          AND status IN ('Released','Partially Paid','Approved')
-        ORDER BY request_date, id
+        WHERE employee_id=? AND COALESCE(outstanding_balance, remaining_balance, 0) > 0
+          AND status IN ('Released','Partially Paid','Approved','Active')
+        ORDER BY COALESCE(request_date, advance_date), id
         """,
         (emp["id"],),
     )
     ca_deduction = 0.0
     for ca in ca_rows:
         raw = ca.get("custom_next_deduction")
-        scheduled = float(raw) if raw not in (None, "") else float(ca.get("repayment_per_cutoff") or 0)
+        scheduled = float(raw) if raw not in (None, "") else float(ca.get("repayment_per_cutoff") or ca.get("deduction_per_payroll") or 0)
+        balance = float(ca.get("outstanding_balance") if ca.get("outstanding_balance") is not None else ca.get("remaining_balance") or 0)
         if scheduled <= 0 or ca_capacity <= ca_deduction:
             continue
-        amount = min(float(ca["outstanding_balance"]), scheduled, ca_capacity - ca_deduction)
+        amount = min(balance, scheduled, ca_capacity - ca_deduction)
         ca_deduction += amount
     result.cash_advance_deduction = round(ca_deduction, 2)
     result.total_deductions = round(statutory_and_manual + result.cash_advance_deduction, 2)
@@ -144,17 +151,18 @@ def _recompute_statutory_and_net(conn: Any, result: Any, emp: dict[str, Any], pe
 
 
 def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start: str, period_end: str) -> Any:
-    """Correct payroll output when approved paid leave uses fractional stored days.
+    """Make preview/drafts count payable leave rows for the cutoff.
 
-    The legacy payroll engine counted paid leave by unique date count. The day editor now stores
-    fractional leave in leave_requests.days, so every payroll output path must honor that value.
+    Payroll should show paid leave from leave_requests when the leave type is paid, Sick Leave,
+    Bereavement, or SIL. Rejected/cancelled/voided leave is excluded; pending/approved recorded
+    paid leave stays visible in preview so payroll can be reviewed before final approval.
     """
     employee_id = int(result.employee_id)
     emp = _active_employee(conn, employee_id)
     if not emp:
         return result
 
-    corrected_days = _correct_paid_leave_days(conn, employee_id, period_start, period_end)
+    corrected_days, leave_names = _correct_paid_leave_days(conn, employee_id, period_start, period_end)
     if abs(corrected_days - float(result.paid_leave_days or 0)) <= 0.0001:
         return result
 
@@ -167,8 +175,9 @@ def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start:
     result.paid_leave_pay = round(corrected_days * standard_paid_hours * hourly_rate, 2)
     if result.warnings is None:
         result.warnings = []
+    detail = "; ".join(leave_names) if leave_names else "leave_requests rows"
     result.warnings.append(
-        f"Paid leave was prorated from {old_days:g} to {result.paid_leave_days:g} day(s) using leave_requests.days."
+        f"Paid leave was read from {detail}; adjusted from {old_days:g} to {result.paid_leave_days:g} day(s)."
     )
     if abs(old_pay - result.paid_leave_pay) > 0.004:
         _recompute_statutory_and_net(conn, result, emp, period_start)
