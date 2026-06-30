@@ -2,13 +2,25 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { mondayOfWeek } from "@/lib/period";
 
-export function AttendanceDecisionButtons({ timeLogId, detectedOtHours }: { timeLogId: number; detectedOtHours: number }) {
+export function AttendanceDecisionButtons({
+  timeLogId,
+  detectedOtHours,
+  workDate,
+  employeeId,
+}: {
+  timeLogId: number;
+  detectedOtHours: number;
+  workDate?: string;
+  employeeId?: number;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  async function decide(decision: "Approved" | "Rejected" | "Needs Correction") {
+  async function decide(decision: "Approved" | "Rejected") {
+    if (decision === "Rejected" && !window.confirm("Reject this attendance record? Use this only for an invalid/wrong punch or invalid OT.")) return;
     setBusy(decision);
     setError("");
     const response = await fetch("/api/attendance/decision", {
@@ -27,6 +39,17 @@ export function AttendanceDecisionButtons({ timeLogId, detectedOtHours }: { time
       return;
     }
     router.refresh();
+  }
+
+  function openSchedule() {
+    if (!workDate) {
+      router.push("/schedule");
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("week_start", mondayOfWeek(workDate));
+    if (employeeId) params.set("employee_id", String(employeeId));
+    router.push(`/schedule?${params.toString()}`);
   }
 
   const baseButton = {
@@ -51,7 +74,7 @@ export function AttendanceDecisionButtons({ timeLogId, detectedOtHours }: { time
       </button>
       <button
         disabled={Boolean(busy)}
-        onClick={() => decide("Needs Correction")}
+        onClick={openSchedule}
         style={{ ...baseButton, border: "1px solid var(--line-strong)", background: "#fff", color: "var(--ink)" }}
         type="button"
       >
