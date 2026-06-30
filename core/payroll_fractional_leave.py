@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from core.db import fetchall, fetchone, get_setting
 from core.payroll_leave_days import paid_leave_days_for_cutoff
+
+LeaveMode = Literal["preview", "final"]
 
 PAID_LEAVE_NAMES = {
     "sick leave",
@@ -16,21 +18,46 @@ PAID_LEAVE_NAMES = {
     "service incentive leave (sil)",
 }
 EXCLUDED_LEAVE_STATUSES = {"rejected", "cancelled", "canceled", "voided", "denied"}
+FINAL_PAYABLE_STATUSES = {"approved", "reviewed"}
 
 
 def _active_employee(conn: Any, employee_id: int) -> dict[str, Any] | None:
     return fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,))
 
 
-def _is_payable_leave(row: dict[str, Any]) -> bool:
+def _is_named_paid_leave(row: dict[str, Any]) -> bool:
     name = str(row.get("leave_name") or "").strip().lower()
+    return name in PAID_LEAVE_NAMES
+
+
+def _is_payable_leave(row: dict[str, Any], mode: LeaveMode) -> bool:
     status = str(row.get("status") or "").strip().lower()
     if status in EXCLUDED_LEAVE_STATUSES:
         return False
-    return int(row.get("paid") or 0) == 1 or name in PAID_LEAVE_NAMES
+    if mode == "final" and status not in FINAL_PAYABLE_STATUSES:
+        return False
+    return int(row.get("paid") or 0) == 1 or _is_named_paid_leave(row)
 
 
-def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, period_end: str) -> tuple[float, list[str]]:
+def _leave_credit_cap(conn: Any, employee_id: int, leave_type_id: int, leave_year: int) -> float | None:
+    row = fetchone(
+        conn,
+        """
+        SELECT * FROM employee_leave_entitlements
+        WHERE employee_id=? AND leave_type_id=? AND year=?
+        """,
+        (employee_id, leave_type_id, leave_year),
+    )
+    if not row:
+        return None
+    if not int(row.get("entitled") or 0):
+        return 0.0
+    credits = float(row.get("credits") or 0)
+    used = float(row.get("used") or 0)
+    return round(max(0.0, credits - used), 4)
+
+
+def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, period_end: str, mode: LeaveMode) -> tuple[float, list[str]]:
     rows = fetchall(
         conn,
         """
@@ -45,20 +72,38 @@ def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, per
     )
     paid_dates: set[str] = set()
     leave_names: list[str] = []
+    remaining_by_type_year: dict[tuple[int, int], float | None] = {}
     total = 0.0
     for row in rows:
-        if not _is_payable_leave(row):
+        if not _is_payable_leave(row, mode):
             continue
         days, dates = paid_leave_days_for_cutoff(row, period_start, period_end, paid_dates)
         if days <= 0:
             continue
-        total += days
+        payable_days = days
+        credit_note = ""
+        if mode == "final":
+            leave_year = int(str(row["start_date"])[:4])
+            credit_key = (int(row["leave_type_id"]), leave_year)
+            if credit_key not in remaining_by_type_year:
+                remaining_by_type_year[credit_key] = _leave_credit_cap(conn, employee_id, int(row["leave_type_id"]), leave_year)
+            remaining = remaining_by_type_year[credit_key]
+            if remaining is not None:
+                payable_days = round(min(days, max(0.0, remaining)), 4)
+                remaining_by_type_year[credit_key] = round(max(0.0, remaining - payable_days), 4)
+                if payable_days < days:
+                    credit_note = f"; capped by remaining credits {payable_days:g}/{days:g}"
+            if payable_days <= 0:
+                label = str(row.get("leave_name") or "Paid leave").strip() or "Paid leave"
+                leave_names.append(f"{label}: 0 paid day(s); no remaining credits")
+                continue
+        total += payable_days
         paid_dates.update(dates)
         label = str(row.get("leave_name") or "Paid leave").strip() or "Paid leave"
         status = str(row.get("status") or "").strip()
         if status:
             label = f"{label} ({status})"
-        leave_names.append(f"{label}: {days:g} day(s)")
+        leave_names.append(f"{label}: {payable_days:g} day(s){credit_note}")
     return round(total, 4), leave_names
 
 
@@ -150,19 +195,19 @@ def _recompute_statutory_and_net(conn: Any, result: Any, emp: dict[str, Any], pe
     result.net_pay = round(result.gross_pay - result.total_deductions, 2)
 
 
-def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start: str, period_end: str) -> Any:
-    """Make preview/drafts count payable leave rows for the cutoff.
+def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start: str, period_end: str, mode: LeaveMode = "final") -> Any:
+    """Apply paid leave rules for preview or final payroll.
 
-    Payroll should show paid leave from leave_requests when the leave type is paid, Sick Leave,
-    Bereavement, or SIL. Rejected/cancelled/voided leave is excluded; pending/approved recorded
-    paid leave stays visible in preview so payroll can be reviewed before final approval.
+    Preview mode shows all recorded payable leave in the period except rejected/cancelled/voided rows.
+    Final mode pays only approved/reviewed payable leave and caps paid days by remaining leave credits
+    when an entitlement row exists.
     """
     employee_id = int(result.employee_id)
     emp = _active_employee(conn, employee_id)
     if not emp:
         return result
 
-    corrected_days, leave_names = _correct_paid_leave_days(conn, employee_id, period_start, period_end)
+    corrected_days, leave_names = _correct_paid_leave_days(conn, employee_id, period_start, period_end, mode)
     if abs(corrected_days - float(result.paid_leave_days or 0)) <= 0.0001:
         return result
 
@@ -176,19 +221,20 @@ def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start:
     if result.warnings is None:
         result.warnings = []
     detail = "; ".join(leave_names) if leave_names else "leave_requests rows"
+    mode_label = "Preview" if mode == "preview" else "Final"
     result.warnings.append(
-        f"Paid leave was read from {detail}; adjusted from {old_days:g} to {result.paid_leave_days:g} day(s)."
+        f"{mode_label} paid leave was read from {detail}; adjusted from {old_days:g} to {result.paid_leave_days:g} day(s)."
     )
     if abs(old_pay - result.paid_leave_pay) > 0.004:
         _recompute_statutory_and_net(conn, result, emp, period_start)
     return result
 
 
-def apply_fractional_paid_leave_adjustments(conn: Any, results: list[Any], period_start: str, period_end: str) -> list[Any]:
-    return [apply_fractional_paid_leave_adjustment(conn, result, period_start, period_end) for result in results]
+def apply_fractional_paid_leave_adjustments(conn: Any, results: list[Any], period_start: str, period_end: str, mode: LeaveMode = "final") -> list[Any]:
+    return [apply_fractional_paid_leave_adjustment(conn, result, period_start, period_end, mode) for result in results]
 
 
 def compute_payroll_with_fractional_leave(conn: Any, period_start: str, period_end: str) -> list[Any]:
     from core.payroll_engine import compute_payroll
 
-    return apply_fractional_paid_leave_adjustments(conn, compute_payroll(conn, period_start, period_end), period_start, period_end)
+    return apply_fractional_paid_leave_adjustments(conn, compute_payroll(conn, period_start, period_end), period_start, period_end, mode="preview")
