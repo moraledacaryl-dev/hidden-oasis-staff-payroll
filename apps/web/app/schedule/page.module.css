@@ -1,11 +1,48 @@
 .boardScroll {
   width: 100%;
   max-width: 100%;
-  max-height: calc(100vh - 220px);
+  max-height: calc(100vh - 260px);
   overflow: auto;
   overscroll-behavior: contain;
   padding-bottom: 6px;
   position: relative;
+}
+
+.scheduleHero { margin-bottom: 8px; }
+
+.calendarWorkspace {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.calendarHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.weekSummary {
+  display: grid;
+  gap: 3px;
+  min-width: 220px;
+}
+
+.weekSummary h2 {
+  margin: 0;
+}
+
+.filterPanel {
+  padding: 10px 0 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.secondaryPanels {
+  display: grid;
+  gap: 12px;
 }
 
 .scheduleGrid {
@@ -126,10 +163,10 @@
 .noteFlag { background: var(--surface-soft); color: var(--muted); border: 1px solid var(--line); }
 .noteFlag svg { flex: 0 0 auto; }
 .emptyDay { width: 100%; background: transparent; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); padding: 14px 8px; text-align: center; font-size: 0.84rem; }
-.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
 .filterGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
 .employeeFilter { grid-column: 1 / -1; min-width: 0; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-height: 164px; overflow-y: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-height: 110px; overflow-y: auto; }
 .chip, .activeChip { border-radius: 999px; border: 1px solid var(--line); padding: 6px 10px; text-decoration: none; font-size: 0.8rem; }
 .chip { color: var(--muted); background: white; }
 .activeChip { color: white; background: var(--accent); border-color: var(--accent); }
@@ -159,7 +196,9 @@
 .printTable span { color: #555; font-size: 8px; }
 
 @media (max-width: 1100px) {
-  .boardScroll { max-height: calc(100vh - 180px); overflow-x: auto; }
+  .calendarHeader { display: grid; }
+  .toolbar { justify-content: flex-start; }
+  .boardScroll { max-height: calc(100vh - 220px); overflow-x: auto; }
   .scheduleGrid { grid-template-columns: repeat(7, minmax(150px, 1fr)); }
   .matrixGrid { grid-template-columns: minmax(140px, 150px) repeat(7, minmax(148px, 1fr)); gap: 5px; min-width: 1221px; width: max-content; }
   .matrixCorner,
@@ -175,6 +214,7 @@
 }
 
 @media (max-width: 620px) {
+  .calendarWorkspace { padding: 10px; }
   .boardScroll { overflow-x: auto; padding-bottom: 12px; }
   .boardScroll::before { content: "Swipe horizontally to inspect all days"; display: block; margin: 0 0 8px; color: var(--muted); font-size: 0.72rem; font-weight: 760; }
   .matrixGrid { grid-template-columns: minmax(126px, 132px) repeat(7, minmax(146px, 1fr)); min-width: 1183px; width: max-content; }
@@ -204,5 +244,7 @@
   .printSchedule { display: block !important; margin: 0 !important; padding: 0 !important; }
   .printHeader { display: grid !important; grid-template-columns: 1fr auto; align-items: center; gap: 10px; margin: 0 0 8px 0 !important; padding: 0 0 6px 0; border-bottom: 1px solid #777; }
   .printHeader > div:first-child { display: grid; gap: 1px; }
-  .printHeader > div:last-child { min-width: 130px; padding: 0; border: 0; }
+  .printHeader > div:last-child { min-width: 160px; text-align: right; }
+  .printHeader span { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #555; }
+  .printHeader h2, .printHeader p { margin: 0; }
 }
