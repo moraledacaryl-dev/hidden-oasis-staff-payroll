@@ -171,6 +171,37 @@
 .chip { color: var(--muted); background: white; }
 .activeChip { color: white; background: var(--accent); border-color: var(--accent); }
 .compactAddShift { display: grid; gap: 10px; }
+.addShiftDropdown {
+  padding: 0;
+  overflow: hidden;
+  border-style: dashed;
+  background: var(--surface-soft);
+}
+.addShiftDropdown summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 10px 12px;
+  list-style: none;
+}
+.addShiftDropdown summary::-webkit-details-marker { display: none; }
+.addShiftDropdown summary::after {
+  content: "Open";
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+.addShiftDropdown[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+.addShiftDropdown[open] summary::after { content: "Close"; }
+.addShiftDropdown :global(form) { padding: 12px; }
 .compactAddShift :global(.form-grid) { grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 10px; align-items: end; }
 .compactAddShift :global(.field) { gap: 4px; min-width: 0; }
 .compactAddShift :global(select),
