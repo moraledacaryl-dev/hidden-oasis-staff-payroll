@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   const runId = Number(body.run_id);
   const action = String(body.action || "");
   const reason = String(body.reason || "");
-  if (!runId || !["lock", "approve", "reopen"].includes(action)) {
+  if (!runId || !["lock", "approve", "paid", "reopen"].includes(action)) {
     return NextResponse.json({ ok: false, message: "Invalid payroll action." }, { status: 422 });
   }
 
