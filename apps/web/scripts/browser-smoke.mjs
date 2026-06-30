@@ -19,7 +19,7 @@ const tokens = JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
 const pages = JSON.parse(
   process.env.BROWSER_SMOKE_PAGES_JSON ||
     JSON.stringify({
-      owner: ["/", "/schedule", "/hr", "/backup", "/settings/users"],
+      owner: ["/", "/cutoff", "/schedule", "/hr", "/backup", "/settings/users"],
       supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances"],
       staff: ["/me", "/settings/security"],
     }),
@@ -225,6 +225,25 @@ async function inspectPage(session, role, route, viewport) {
       expression: `document.querySelector('[role="dialog"] button:last-of-type')?.click()`,
     });
   }
+  let cutoffWorkflow = null;
+  if (role === "owner" && route === "/cutoff") {
+    const cutoffEvaluation = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const selector = document.querySelector("[data-cutoff-selector]");
+        const month = document.querySelector('input[name="month"]');
+        const half = document.querySelector('select[name="half"]');
+        return {
+          selector: Boolean(selector),
+          month: Boolean(month?.value),
+          half: half?.value === "first" || half?.value === "second",
+          completedDefault: selector?.getAttribute("data-period-complete") === "true",
+          createDraft: [...document.querySelectorAll("button")].some((button) => button.textContent?.includes("Create payroll draft") && !button.disabled),
+        };
+      })()`,
+    });
+    cutoffWorkflow = cutoffEvaluation.result?.value || {};
+  }
   return {
     role,
     route,
@@ -233,6 +252,7 @@ async function inspectPage(session, role, route, viewport) {
     ...result,
     matchedFailureText,
     scheduleDropPrompt,
+    cutoffWorkflow,
     ok: result.href?.startsWith(`${baseUrl}${route}`) &&
       !result.pageOverflow &&
       !result.hasNextError &&
@@ -244,7 +264,8 @@ async function inspectPage(session, role, route, viewport) {
         scheduleDropPrompt.visible &&
         scheduleDropPrompt.fitsViewport &&
         ["Move", "Copy", "Cancel"].every((label) => scheduleDropPrompt.buttons.includes(label))
-      )),
+      )) &&
+      (!cutoffWorkflow || Object.values(cutoffWorkflow).every(Boolean)),
   };
 }
 
@@ -285,6 +306,7 @@ if (failures.length) {
     if ((failure.scheduleClippingProblems || []).length) console.error(`Clipped schedule text on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleClippingProblems)}`);
     if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
     if (failure.scheduleDropPrompt) console.error(`Move/copy prompt problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleDropPrompt)}`);
+    if (failure.cutoffWorkflow) console.error(`Payroll cutoff problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.cutoffWorkflow)}`);
   }
   console.error(`Browser smoke failed on ${failures.length} page(s).`);
   process.exitCode = 1;

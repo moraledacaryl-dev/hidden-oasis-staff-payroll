@@ -3,7 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function PayrollDraftButton({ periodStart, periodEnd, payoutDate }: { periodStart: string; periodEnd: string; payoutDate: string }) {
+export function PayrollDraftButton({
+  periodStart,
+  periodEnd,
+  payoutDate,
+  disabledReason,
+}: {
+  periodStart: string;
+  periodEnd: string;
+  payoutDate: string;
+  disabledReason?: string;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -28,8 +38,8 @@ export function PayrollDraftButton({ periodStart, periodEnd, payoutDate }: { per
 
   return (
     <div className="decision-stack wide-action">
-      <button className="mini-button" disabled={busy} onClick={createDraft} type="button">{busy ? "Saving draft..." : "Create payroll draft"}</button>
-      <span className="muted">Saved runs go to review.</span>
+      <button className="mini-button" disabled={busy || Boolean(disabledReason)} onClick={createDraft} type="button">{busy ? "Saving draft..." : "Create payroll draft"}</button>
+      <span className="muted">{disabledReason || "Saved runs go to review."}</span>
       {message ? <span className="inline-error">{message}</span> : null}
     </div>
   );
