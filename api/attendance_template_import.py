@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+import json
+import os
 import re
-from datetime import date, datetime
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from api.main import current_user_from_token, require_api_key
+from core.audit import log_audit
 from core.db import DB_PATH, fetchall, get_conn, now_iso
+from core.schedule_source import trusted_schedule_rows
 
 router = APIRouter(prefix="/api/v1")
+DEFAULT_VARIANCE_MINUTES = 30
+MAX_TEMPLATE_ROWS = 20_000
+TEMPLATE_SOURCES = ("template_upload", "attendance_template")
 
 TEMPLATE_COLUMNS = [
     "work_date",
@@ -61,8 +69,8 @@ class AttendanceTemplateImportPayload(BaseModel):
 def require_attendance_importer(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
     require_api_key(x_api_key)
     user = current_user_from_token(authorization)
-    if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Attendance import requires owner, payroll, or General Manager access.")
+    if user.get("role_key") != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner can import attendance.")
     return user
 
 
@@ -201,8 +209,6 @@ def validate_template_row(row: AttendanceTemplateRow, by_code: dict[str, dict[st
     issues.extend(employee_issues)
 
     is_absent = 1 if truthy(row.is_absent) else 0
-    if not is_absent and not actual_in and not actual_out:
-        issues.append("Missing both time_in and time_out.")
     if actual_in and not actual_out:
         issues.append("Missing time_out.")
     if actual_out and not actual_in:
@@ -216,13 +222,6 @@ def validate_template_row(row: AttendanceTemplateRow, by_code: dict[str, dict[st
         ot_hours = 0.0
         issues.append("Invalid ot_hours.")
 
-    forced_review = truthy(row.needs_review)
-    needs_review = forced_review or bool(issues) or truthy(row.is_halfday)
-
-    status = clean(row.attendance_status) or clean(row.remarks) or ("Needs Review" if needs_review else "Approved")
-    if needs_review and status.upper() in {"ON-TIME", "ON TIME", "GRACE PERIOD", "LATE"}:
-        status = "Needs Review"
-
     return {
         "row_number": row_number,
         "employee_id": int(employee["id"]) if employee else None,
@@ -233,12 +232,180 @@ def validate_template_row(row: AttendanceTemplateRow, by_code: dict[str, dict[st
         "actual_out": actual_out,
         "time_out_date": time_out_date,
         "is_absent": is_absent,
-        "approved_ot_hours": ot_hours if truthy(row.is_ot) else 0.0,
-        "attendance_status": status,
-        "needs_review": 1 if needs_review else 0,
+        "requested_ot_hours": max(0.0, ot_hours) if truthy(row.is_ot) else 0.0,
+        "attendance_status": "Error" if issues else "Pending classification",
+        "needs_review": 0,
+        "review_reason": None,
+        "classification": "error" if issues else "pending",
+        "skip_reason": None,
         "issues": issues,
         "notes": build_notes(row, time_out_date, work_date, issues),
     }
+
+
+def variance_limit_minutes() -> int:
+    raw = os.getenv("STAFF_PAYROLL_ATTENDANCE_VARIANCE_MINUTES", str(DEFAULT_VARIANCE_MINUTES))
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_VARIANCE_MINUTES
+
+
+def shift_interval(work_date: str, start_time: str, end_time: str) -> tuple[datetime, datetime]:
+    start = datetime.fromisoformat(f"{work_date}T{start_time[:5]}")
+    end = datetime.fromisoformat(f"{work_date}T{end_time[:5]}")
+    if end <= start:
+        end += timedelta(days=1)
+    return start, end
+
+
+def scheduled_interval(shifts: list[dict[str, Any]]) -> tuple[datetime, datetime] | None:
+    if not shifts:
+        return None
+    intervals = [
+        shift_interval(str(shift["work_date"]), str(shift["shift_start"]), str(shift["shift_end"]))
+        for shift in shifts
+    ]
+    return min(item[0] for item in intervals), max(item[1] for item in intervals)
+
+
+def actual_interval(row: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    if not row.get("actual_in") or not row.get("actual_out"):
+        return None
+    start = datetime.fromisoformat(f"{row['work_date']}T{row['actual_in']}")
+    end_date = str(row.get("time_out_date") or row["work_date"])
+    end = datetime.fromisoformat(f"{end_date}T{row['actual_out']}")
+    return start, end
+
+
+def rest_day_keys(conn, period_start: str, period_end: str) -> set[tuple[int, str]]:
+    rows = fetchall(
+        conn,
+        """
+        SELECT employee_id, work_date
+        FROM schedule_day_markers
+        WHERE marker_type='Rest Day' AND active=1
+          AND date(work_date) BETWEEN date(?) AND date(?)
+        """,
+        (period_start, period_end),
+    )
+    return {(int(row["employee_id"]), str(row["work_date"])) for row in rows}
+
+
+def approved_leave_spans(conn, period_start: str, period_end: str) -> dict[int, list[tuple[str, str]]]:
+    spans: dict[int, list[tuple[str, str]]] = defaultdict(list)
+    rows = fetchall(
+        conn,
+        """
+        SELECT employee_id, start_date, end_date
+        FROM leave_requests
+        WHERE status='Approved'
+          AND date(start_date) <= date(?)
+          AND date(end_date) >= date(?)
+        """,
+        (period_end, period_start),
+    )
+    for row in rows:
+        spans[int(row["employee_id"])].append((str(row["start_date"]), str(row["end_date"])))
+    return spans
+
+
+def manual_attendance_keys(conn, period_start: str, period_end: str) -> set[tuple[int, str]]:
+    placeholders = ",".join("?" for _ in TEMPLATE_SOURCES)
+    rows = fetchall(
+        conn,
+        f"""
+        SELECT employee_id, work_date
+        FROM time_logs
+        WHERE date(work_date) BETWEEN date(?) AND date(?)
+          AND source NOT IN ({placeholders})
+          AND COALESCE(attendance_status, '') != 'Rejected'
+        """,
+        (period_start, period_end, *TEMPLATE_SOURCES),
+    )
+    return {(int(row["employee_id"]), str(row["work_date"])) for row in rows}
+
+
+def apply_attendance_triage(conn, rows: list[dict[str, Any]]) -> int:
+    valid_dates = [str(row["work_date"]) for row in rows if row.get("employee_id") and row.get("work_date")]
+    if not valid_dates:
+        return variance_limit_minutes()
+    period_start = min(valid_dates)
+    period_end = max(valid_dates)
+    schedules: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
+    for shift in trusted_schedule_rows(conn, period_start, period_end):
+        schedules[(int(shift["employee_id"]), str(shift["work_date"]))].append(shift)
+    rest_days = rest_day_keys(conn, period_start, period_end)
+    leave_spans = approved_leave_spans(conn, period_start, period_end)
+    manual_keys = manual_attendance_keys(conn, period_start, period_end)
+    variance_minutes = variance_limit_minutes()
+    seen: set[tuple[int, str]] = set()
+
+    for row in rows:
+        if not row.get("employee_id") or not row.get("work_date") or row["issues"]:
+            row["classification"] = "error"
+            row["attendance_status"] = "Error"
+            continue
+
+        key = (int(row["employee_id"]), str(row["work_date"]))
+        if key in seen:
+            row["issues"].append("Duplicate employee and work_date.")
+            row["classification"] = "error"
+            row["attendance_status"] = "Error"
+            continue
+        seen.add(key)
+
+        if key in manual_keys:
+            row["classification"] = "skipped"
+            row["attendance_status"] = "Skipped"
+            row["skip_reason"] = "Manual attendance kept"
+            continue
+
+        shifts = schedules.get(key, [])
+        approved_leave = any(
+            start_date <= key[1] <= end_date
+            for start_date, end_date in leave_spans.get(key[0], [])
+        )
+        has_punches = bool(row.get("actual_in") and row.get("actual_out"))
+        if row["is_absent"] or not has_punches:
+            if shifts and not approved_leave:
+                row["classification"] = "review"
+                row["attendance_status"] = "Needs Review"
+                row["needs_review"] = 1
+                row["is_absent"] = 1
+                row["review_reason"] = "Absent on scheduled day"
+            else:
+                row["classification"] = "skipped"
+                row["attendance_status"] = "Skipped"
+                row["skip_reason"] = "Approved leave" if approved_leave else "No attendance recorded"
+            continue
+
+        if key in rest_days:
+            row["classification"] = "review"
+            row["attendance_status"] = "Needs Review"
+            row["needs_review"] = 1
+            row["review_reason"] = "Present on rest day"
+            continue
+
+        planned = scheduled_interval(shifts)
+        actual = actual_interval(row)
+        if planned and actual:
+            start_delta = round((actual[0] - planned[0]).total_seconds() / 60)
+            end_delta = round((actual[1] - planned[1]).total_seconds() / 60)
+            if max(abs(start_delta), abs(end_delta)) > variance_minutes:
+                row["classification"] = "review"
+                row["attendance_status"] = "Needs Review"
+                row["needs_review"] = 1
+                row["review_reason"] = (
+                    f"Major schedule variance: clock-in {start_delta:+d} min, "
+                    f"clock-out {end_delta:+d} min"
+                )
+                continue
+
+        row["classification"] = "approved"
+        row["attendance_status"] = "Approved"
+
+    return variance_minutes
 
 
 @router.get("/attendance/template.csv")
@@ -282,6 +449,8 @@ def import_attendance_template(
     user = require_attendance_importer(authorization, x_api_key)
     if not payload.rows:
         raise HTTPException(status_code=400, detail="No attendance rows were provided.")
+    if len(payload.rows) > MAX_TEMPLATE_ROWS:
+        raise HTTPException(status_code=400, detail=f"Attendance template cannot exceed {MAX_TEMPLATE_ROWS:,} rows.")
 
     conn = get_conn(DB_PATH)
     try:
@@ -290,10 +459,21 @@ def import_attendance_template(
             validate_template_row(row, by_code, by_name, index + 2)
             for index, row in enumerate(payload.rows)
         ]
-        success_rows = [row for row in validated if row["employee_id"] and row["work_date"] and not row["issues"]]
-        review_rows = [row for row in validated if row["employee_id"] and row["work_date"] and row["issues"]]
-        error_rows = [row for row in validated if not row["employee_id"] or not row["work_date"]]
-        importable_rows = [row for row in validated if row["employee_id"] and row["work_date"]]
+        variance_minutes = apply_attendance_triage(conn, validated)
+        success_rows = [row for row in validated if row["classification"] == "approved"]
+        review_rows = [row for row in validated if row["classification"] == "review"]
+        error_rows = [row for row in validated if row["classification"] == "error"]
+        skipped_rows = [row for row in validated if row["classification"] == "skipped"]
+        importable_rows = success_rows + review_rows
+        summary = {
+            "rows": len(validated),
+            "ready": len(success_rows),
+            "needs_review": len(review_rows),
+            "errors": len(error_rows),
+            "skipped": len(skipped_rows),
+            "manual_preserved": sum(1 for row in skipped_rows if row["skip_reason"] == "Manual attendance kept"),
+            "imported": 0 if payload.dry_run else len(importable_rows),
+        }
 
         if not payload.dry_run:
             imported_at = now_iso()
@@ -309,28 +489,35 @@ def import_attendance_template(
                     len(validated),
                     len(importable_rows),
                     len(error_rows),
-                    "Clean attendance template upload.",
+                    json.dumps(summary, sort_keys=True),
                 ),
             )
             batch_id = int(batch.lastrowid)
+            if payload.replace_template_rows:
+                for row in validated:
+                    if row.get("employee_id") and row.get("work_date") and row["classification"] != "error":
+                        placeholders = ",".join("?" for _ in TEMPLATE_SOURCES)
+                        conn.execute(
+                            f"""
+                            DELETE FROM time_logs
+                            WHERE employee_id=? AND date(work_date)=date(?)
+                              AND source IN ({placeholders})
+                            """,
+                            (row["employee_id"], row["work_date"], *TEMPLATE_SOURCES),
+                        )
             for row in importable_rows:
-                if payload.replace_template_rows:
-                    conn.execute(
-                        """
-                        DELETE FROM time_logs
-                        WHERE employee_id=? AND work_date=? AND source IN ('template_upload', 'attendance_template')
-                        """,
-                        (row["employee_id"], row["work_date"]),
-                    )
                 now = now_iso()
+                needs_review = row["classification"] == "review"
+                requested_ot = float(row["requested_ot_hours"] or 0)
                 conn.execute(
                     """
                     INSERT INTO time_logs(
                         employee_id, work_date, actual_in, actual_out, source, verification_type,
-                        device_employee_code, is_absent, approved_ot_hours, ot_status,
-                        reviewed_by, reviewed_at, attendance_status, notes, created_at, updated_at
+                        device_employee_code, is_absent, absence_type, detected_ot_hours,
+                        approved_ot_hours, ot_status, reviewed_by, reviewed_at,
+                        attendance_status, review_reason, notes, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, 'template_upload', 'Template Upload', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, 'template_upload', 'Template Upload', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row["employee_id"],
@@ -339,30 +526,69 @@ def import_attendance_template(
                         row["actual_out"],
                         row["employee_code"],
                         row["is_absent"],
-                        row["approved_ot_hours"],
-                        "Pending" if row["approved_ot_hours"] else "None",
-                        None if row["needs_review"] else user.get("display_name"),
-                        None if row["needs_review"] else now,
-                        "Needs Review" if row["needs_review"] else row["attendance_status"],
+                        "Unconfirmed Absence" if row["is_absent"] else None,
+                        requested_ot,
+                        0 if needs_review else requested_ot,
+                        "Pending" if needs_review and requested_ot else ("Approved" if requested_ot else "None"),
+                        None if needs_review else user.get("display_name"),
+                        None if needs_review else now,
+                        row["attendance_status"],
+                        row["review_reason"],
                         f"batch={batch_id} | {row['notes']}".strip(" |"),
                         now,
                         now,
                     ),
                 )
+            log_audit(
+                conn,
+                actor=user.get("display_name"),
+                action="Attendance template imported",
+                table_name="data_import_batches",
+                record_id=batch_id,
+                details=summary | {"variance_minutes": variance_minutes},
+            )
             conn.commit()
 
         return {
             "ok": True,
             "dry_run": payload.dry_run,
-            "summary": {
-                "rows": len(validated),
-                "ready": len(success_rows),
-                "needs_review": len(review_rows),
-                "errors": len(error_rows),
-                "imported": 0 if payload.dry_run else len(importable_rows),
-            },
+            "summary": summary,
             "items": validated,
+            "variance_minutes": variance_minutes,
             "mode": "attendance_template_preview" if payload.dry_run else "attendance_template_imported",
         }
+    finally:
+        conn.close()
+
+
+@router.get("/attendance/imports")
+def attendance_import_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_api_key(x_api_key)
+    user = current_user_from_token(authorization)
+    if user.get("role_key") not in {"owner", "supervisor"}:
+        raise HTTPException(status_code=403, detail="Attendance history requires owner or General Manager access.")
+    conn = get_conn(DB_PATH)
+    try:
+        rows = fetchall(
+            conn,
+            """
+            SELECT id, file_name, imported_at, imported_by, row_count, notes
+            FROM data_import_batches
+            WHERE import_type='Attendance Template'
+            ORDER BY id DESC LIMIT ?
+            """,
+            (limit,),
+        )
+        for row in rows:
+            try:
+                row["summary"] = json.loads(str(row.get("notes") or "{}"))
+            except json.JSONDecodeError:
+                row["summary"] = {}
+            row.pop("notes", None)
+        return {"ok": True, "items": rows}
     finally:
         conn.close()

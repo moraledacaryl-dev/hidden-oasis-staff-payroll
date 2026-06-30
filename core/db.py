@@ -117,12 +117,40 @@ def _migration_5_employee_schedule_defaults(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "employees", "default_shift_end", "TEXT")
 
 
+def _migration_6_attendance_import_triage(conn: sqlite3.Connection) -> None:
+    ensure_column(conn, "time_logs", "review_reason", "TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schedule_day_markers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            work_date TEXT NOT NULL,
+            marker_type TEXT NOT NULL,
+            notes TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_by TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(employee_id, work_date, marker_type)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_schedule_day_markers_week ON schedule_day_markers(work_date, marker_type, active)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_time_logs_review_status ON time_logs(attendance_status, work_date)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Callable[[sqlite3.Connection], None]], ...] = (
     (1, "existing incremental columns", _migration_1_existing_columns),
     (2, "account security and login throttling", _migration_2_account_security),
     (3, "general manager role label", _migration_3_general_manager_label),
     (4, "staff-requestable leave types", _migration_4_staff_requestable_leave_types),
     (5, "employee schedule defaults", _migration_5_employee_schedule_defaults),
+    (6, "attendance import triage", _migration_6_attendance_import_triage),
 )
 
 
@@ -306,6 +334,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             reviewed_by TEXT,
             reviewed_at TEXT,
             attendance_status TEXT NOT NULL DEFAULT 'Pending',
+            review_reason TEXT,
             notes TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,

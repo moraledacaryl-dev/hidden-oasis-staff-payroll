@@ -311,7 +311,12 @@ class DatabaseOperationsTests(unittest.TestCase):
                 }
                 self.assertEqual(journal_mode, "wal")
                 self.assertGreaterEqual(busy_timeout, 1000)
-                self.assertEqual(versions, [1, 2, 3, 4, 5])
+                self.assertEqual(versions, [1, 2, 3, 4, 5, 6])
+                time_log_columns = {
+                    str(row[1])
+                    for row in conn.execute("PRAGMA table_info(time_logs)").fetchall()
+                }
+                self.assertIn("review_reason", time_log_columns)
                 self.assertTrue(
                     {"session_version", "mfa_secret", "mfa_enabled"}.issubset(user_columns)
                 )

@@ -132,25 +132,43 @@ def main() -> int:
             """
             INSERT INTO time_logs(
                 employee_id, work_date, actual_in, actual_out, source,
-                approved_ot_hours, attendance_status, notes, created_at, updated_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                approved_ot_hours, attendance_status, review_reason, notes,
+                created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 (
                     supervisor_employee_id, monday, "07:24", "19:18", "manual",
-                    1.25, "Approved", "Extended shift for event turnover.", created_at, created_at,
+                    1.25, "Approved", None, "Extended shift for event turnover.", created_at, created_at,
                 ),
                 (
                     supervisor_employee_id, tuesday, "21:52", "06:47", "manual",
-                    0.5, "For Review", "Overnight actual awaiting final review.", created_at, created_at,
+                    0.5, "Needs Review", "Major schedule variance: clock-in -8 min, clock-out +47 min",
+                    "Overnight actual awaiting final review.", created_at, created_at,
                 ),
                 (
                     staff_employee_id, monday, "08:22", "18:03", "manual",
-                    0.75, "Approved", "Late checkout support.", created_at, created_at,
+                    0.75, "Approved", None, "Late checkout support.", created_at, created_at,
                 ),
                 (
                     staff_employee_id, tuesday, "10:08", "19:51", "biometric",
-                    0.25, "Pending", "Biometric import pending supervisor review.", created_at, created_at,
+                    0.25, "Approved", None, "Biometric import approved.", created_at, created_at,
+                ),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO data_import_batches(
+                file_name, import_type, imported_at, imported_by,
+                row_count, success_count, error_count, notes
+            ) VALUES('june-attendance.csv', 'Attendance Template', ?,
+                     'Browser Owner', 4, 4, 0, ?)
+            """,
+            (
+                created_at,
+                json.dumps(
+                    {"ready": 3, "needs_review": 1, "errors": 0, "skipped": 0},
+                    sort_keys=True,
                 ),
             ),
         )

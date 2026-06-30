@@ -24,6 +24,8 @@ class ApiContractTests(unittest.TestCase):
             "/api/v1/me/leave-requests",
             "/api/v1/hr/leave-requests/{request_id}/decision",
             "/api/v1/production/backups",
+            "/api/v1/attendance/template-import",
+            "/api/v1/attendance/imports",
             "/api/v1/payroll/runs",
         }
         self.assertTrue(required.issubset(paths), required - set(paths))
