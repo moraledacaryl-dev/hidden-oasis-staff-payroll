@@ -30,6 +30,11 @@ export type ProductionHealth = {
 };
 export type PayrollRunChange = { id: number; change_type: string; entity_type: string; entity_id?: number | null; employee_id?: number | null; work_date?: string | null; payroll_run_id?: number | null; changed_by?: string | null; changed_at: string; undone_at?: string | null };
 export type PayrollRunChangeDelta = { ok: boolean; run_id: number; changed: boolean; change_count: number; changes: PayrollRunChange[] };
+export type PayrollQaFlag = { severity: "critical" | "warning" | "info" | string; code: string; label: string; recommended_action: string };
+export type PayrollQaSchedule = { id: number; employee_id: number; work_date: string; start_time: string; end_time: string; position?: string | null; department?: string | null; break_minutes?: number | null; notes?: string | null; schedule_source?: string | null };
+export type PayrollQaActual = { id: number; employee_id: number; work_date: string; actual_in?: string | null; actual_out?: string | null; source?: string | null; verification_type?: string | null; is_absent?: number | null; absence_type?: string | null; attendance_status?: string | null; approved_ot_hours?: number | null; ot_status?: string | null; notes?: string | null };
+export type PayrollQaRow = { employee_id: number; employee_code?: string | null; employee_name: string; department?: string | null; position?: string | null; work_date: string; schedule?: PayrollQaSchedule | null; schedule_count: number; actual?: PayrollQaActual | null; manual_log_count: number; biometric?: PayrollQaActual | null; biometric_log_count: number; approved_leave_count: number; flags: PayrollQaFlag[]; severity: "critical" | "warning" | "info" | string; review_url: string };
+export type PayrollQaResponse = { ok: boolean; period_start: string; period_end: string; items: PayrollQaRow[]; totals: { critical: number; warning: number; info: number; rows: number }; mode: string; generated_by?: string | null };
 
 export async function apiHeaders(includeAuth = false): Promise<HeadersInit> {
   return backendHeaders(false, includeAuth);
@@ -58,5 +63,6 @@ export function getPayrollCorrections(runId: number): Promise<PayrollCorrections
 export function getAppUsers(): Promise<AppUsersResponse> { return apiGet<AppUsersResponse>("/api/v1/users", true); }
 export function getProductionHealth(): Promise<ProductionHealth> { return apiGet<ProductionHealth>("/api/v1/production/health", true); }
 export function getPayrollPreview(periodStart: string, periodEnd: string): Promise<PayrollPreview> { return apiPost<PayrollPreview>("/api/v1/payroll/preview", { period_start: periodStart, period_end: periodEnd }, true); }
+export function getPayrollQa(periodStart: string, periodEnd: string, includeInfo = false): Promise<PayrollQaResponse> { return apiGet<PayrollQaResponse>(`/api/v1/payroll/qa?period_start=${periodStart}&period_end=${periodEnd}&include_info=${includeInfo ? "true" : "false"}`, true); }
 export function peso(value: number | null | undefined): string { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 }).format(Number(value || 0)); }
 export function numberText(value: number | null | undefined, digits = 2): string { return Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: digits, maximumFractionDigits: digits }); }
