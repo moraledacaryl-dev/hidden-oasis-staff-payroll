@@ -3,9 +3,13 @@ import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   const body = await request.json();
+  const headers = {
+    ...(await backendHeaders(true)),
+    "Content-Type": "application/json",
+  };
   const response = await fetch(`${apiBaseUrl()}/api/v1/attendance/time-logs/${body.time_log_id}/decision`, {
     method: "POST",
-    headers: await backendHeaders(true),
+    headers,
     body: JSON.stringify({
       decision: body.decision,
       reason: body.reason || "Reviewed from the attendance queue.",
