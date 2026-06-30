@@ -19,18 +19,17 @@ export function AttendanceDecisionButtons({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  async function decide(decision: "Approved" | "Rejected") {
-    if (decision === "Rejected" && !window.confirm("Reject this attendance record? Use this only for an invalid/wrong punch or invalid OT.")) return;
-    setBusy(decision);
+  async function approve() {
+    setBusy("Approved");
     setError("");
     const response = await fetch("/api/attendance/decision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         time_log_id: timeLogId,
-        decision,
-        approved_ot_hours: decision === "Approved" ? detectedOtHours : 0,
-        reason: `General Manager selected ${decision}.`,
+        decision: "Approved",
+        approved_ot_hours: detectedOtHours,
+        reason: "General Manager approved this review item.",
       }),
     });
     setBusy(null);
@@ -66,7 +65,7 @@ export function AttendanceDecisionButtons({
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
       <button
         disabled={Boolean(busy)}
-        onClick={() => decide("Approved")}
+        onClick={approve}
         style={{ ...baseButton, border: "1px solid var(--accent)", background: "var(--accent)", color: "#fff" }}
         type="button"
       >
@@ -79,14 +78,6 @@ export function AttendanceDecisionButtons({
         type="button"
       >
         Fix
-      </button>
-      <button
-        disabled={Boolean(busy)}
-        onClick={() => decide("Rejected")}
-        style={{ ...baseButton, border: "1px solid var(--danger)", background: "var(--danger)", color: "#fff" }}
-        type="button"
-      >
-        Reject
       </button>
       {error ? <span className="inline-error">{error}</span> : null}
     </div>
