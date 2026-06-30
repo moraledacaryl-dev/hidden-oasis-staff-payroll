@@ -23,7 +23,7 @@ export const navGroups: NavGroup[] = [
     label: "Operations",
     items: [
       { href: "/schedule", label: "Schedule", roles: ["owner", "payroll", "supervisor"] },
-      { href: "/schedule/import", label: "Attendance Upload", roles: ["owner", "payroll", "supervisor"] },
+      { href: "/schedule/import", label: "Attendance Upload", roles: ["owner"] },
       { href: "/schedule/requests", label: "Shift Requests", roles: ["owner", "payroll", "supervisor"] },
       { href: "/attendance", label: "Attendance", roles: ["owner", "supervisor"] },
     ],

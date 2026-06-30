@@ -10,4 +10,7 @@ Notes:
 - Use YYYY-MM-DD dates when possible.
 - Use AM/PM or 24-hour time.
 - For overnight duty, set time_out_date to the next calendar date.
-- Use needs_review = 1 for unclear rows.
+- Blank rows without a scheduled shift are skipped.
+- The major schedule variance threshold defaults to 30 minutes.
+- attendance_status and needs_review remain accepted for older templates, but
+  schedule comparison determines whether supervisor review is required.

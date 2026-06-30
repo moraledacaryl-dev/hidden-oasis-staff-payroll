@@ -27,9 +27,9 @@ def build_payroll_preflight_checks(conn: sqlite3.Connection, period_start: str, 
             "recommended_action": action,
         })
 
-    pending_logs = fetchone(conn, "SELECT COUNT(*) AS c FROM time_logs WHERE work_date BETWEEN ? AND ? AND attendance_status IN ('Pending','Needs Manager','Disputed')", (period_start, period_end))["c"]
+    pending_logs = fetchone(conn, "SELECT COUNT(*) AS c FROM time_logs WHERE work_date BETWEEN ? AND ? AND attendance_status IN ('Pending','Needs Review','Needs Correction','Needs Manager','Disputed')", (period_start, period_end))["c"]
     if pending_logs:
-        add("Blocker", "Attendance", "Pending / disputed attendance logs exist inside cutoff.", pending_logs, "Resolve in Attendance Review before final approval.")
+        add("Blocker", "Attendance", "Attendance review items exist inside the cutoff.", pending_logs, "Resolve them in Attendance before final approval.")
 
     pending_ot = fetchone(conn, "SELECT COUNT(*) AS c FROM time_logs WHERE work_date BETWEEN ? AND ? AND ot_status='Pending'", (period_start, period_end))["c"]
     if pending_ot:

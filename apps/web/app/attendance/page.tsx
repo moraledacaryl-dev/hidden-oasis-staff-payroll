@@ -1,9 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AttendanceDecisionButtons } from "@/components/AttendanceDecisionButtons";
 import { AttendanceMemoForm } from "@/components/AttendanceMemoForm";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiBaseUrl, backendHeaders } from "@/lib/api";
+import {
+  apiBaseUrl,
+  backendHeaders,
+  getAttendanceExceptions,
+  getAttendanceImports,
+  type AttendanceException,
+  type AttendanceImport,
+} from "@/lib/api";
 import { currentSession } from "@/lib/session";
 
 type LateDetail = { date: string; actual_in: string; scheduled_start: string; minutes_late: number; status: string };
@@ -91,9 +99,11 @@ export default async function AttendancePage({
   const employeeId = params.employee_id || "";
   const { periodStart, periodEnd } = monthBounds(month);
 
-  const [compliance, performance] = await Promise.all([
+  const [compliance, performance, exceptions, imports] = await Promise.all([
     loadCompliance(month),
     loadPerformance(employeeId),
+    getAttendanceExceptions(periodStart, periodEnd),
+    getAttendanceImports(10),
   ]);
 
   const complianceItems = (compliance.items || []).filter((item) => {
@@ -106,7 +116,8 @@ export default async function AttendancePage({
   const graceCount = complianceItems.reduce((sum, item) => sum + Number(item.grace_periods || 0), 0);
   const partialCount = complianceItems.reduce((sum, item) => sum + Number(item.partial_absences || 0), 0);
   const absenceCount = complianceItems.reduce((sum, item) => sum + Number(item.approved_absences || 0) + Number(item.unexcused_absences || 0) + Number(item.awol || 0), 0);
-  const actionCount = complianceItems.filter((item) => item.handbook_action !== "No action required").length;
+  const reviewItems = (exceptions || []) as AttendanceException[];
+  const importItems = (imports.items || []) as AttendanceImport[];
   const employeeOptions = Array.from(new Map((compliance.items || []).map((item) => [item.employee_id, item])).values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   return (
@@ -117,7 +128,7 @@ export default async function AttendancePage({
             <span className="eyebrow">Attendance</span>
             <h1>{month}</h1>
           </div>
-          <StatusBadge label={actionCount ? `${actionCount} action needed` : "clear"} tone={actionCount ? "warning" : "ok"} />
+          <StatusBadge label={reviewItems.length ? `${reviewItems.length} to review` : "clear"} tone={reviewItems.length ? "warning" : "ok"} />
         </header>
 
         <section className="badge-row">
@@ -125,6 +136,7 @@ export default async function AttendancePage({
           <Link className="primary-link" href={`/attendance?month=${moveMonth(month, 1)}`}>Next month</Link>
           <Link className="primary-link" href={`/attendance?month=${defaultMonth()}`}>Current month</Link>
           <Link className="primary-link" href="/schedule">Correct logs in Schedule</Link>
+          {session.role_key === "owner" ? <Link className="primary-link" href="/schedule/import">Upload attendance</Link> : null}
         </section>
 
         <form className="card" action="/attendance">
@@ -148,6 +160,41 @@ export default async function AttendancePage({
           <div className="card"><strong>{graceCount}</strong><p className="muted">Grace periods</p></div>
           <div className="card"><strong>{partialCount}</strong><p className="muted">Partial absences</p></div>
           <div className="card"><strong>{absenceCount}</strong><p className="muted">Absences / leaves / AWOL</p></div>
+        </section>
+
+        <section className="card">
+          <div className="panel-title">
+            <div>
+              <span className="eyebrow">General Manager</span>
+              <h2>Attendance review</h2>
+            </div>
+            <StatusBadge label={reviewItems.length ? `${reviewItems.length} open` : "clear"} tone={reviewItems.length ? "warning" : "ok"} />
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Employee</th>
+                  <th>In / Out</th>
+                  <th>Reason</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reviewItems.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.work_date}</td>
+                    <td><strong>{item.full_name}</strong><br /><span className="muted">{item.employee_code}</span></td>
+                    <td>{item.is_absent ? "Absent" : `${item.actual_in || "—"} / ${item.actual_out || "—"}`}</td>
+                    <td>{item.review_reason || item.attendance_status}</td>
+                    <td><AttendanceDecisionButtons timeLogId={item.id} detectedOtHours={Number(item.detected_ot_hours || 0)} /></td>
+                  </tr>
+                ))}
+                {reviewItems.length === 0 ? <tr><td colSpan={5}>No attendance exceptions.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section className="card">
@@ -275,6 +322,29 @@ export default async function AttendancePage({
             </div>
           </section>
         ) : null}
+
+        <section className="card">
+          <div className="panel-title"><h2>Recent uploads</h2></div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Uploaded</th><th>File</th><th>By</th><th>Rows</th><th>Approved</th><th>Review</th><th>Errors</th></tr></thead>
+              <tbody>
+                {importItems.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.imported_at}</td>
+                    <td>{item.file_name}</td>
+                    <td>{item.imported_by || "—"}</td>
+                    <td>{item.row_count}</td>
+                    <td>{item.summary?.ready || 0}</td>
+                    <td>{item.summary?.needs_review || 0}</td>
+                    <td>{item.summary?.errors || 0}</td>
+                  </tr>
+                ))}
+                {importItems.length === 0 ? <tr><td colSpan={7}>No attendance uploads.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <section className="card">
           <div className="panel-title">

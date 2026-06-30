@@ -19,7 +19,7 @@ const tokens = JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
 const pages = JSON.parse(
   process.env.BROWSER_SMOKE_PAGES_JSON ||
     JSON.stringify({
-      owner: ["/", "/schedule", "/hr", "/backup", "/settings/users"],
+      owner: ["/", "/schedule", "/schedule/import", "/attendance", "/hr", "/backup", "/settings/users"],
       supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances"],
       staff: ["/me", "/settings/security"],
     }),
@@ -225,6 +225,37 @@ async function inspectPage(session, role, route, viewport) {
       expression: `document.querySelector('[role="dialog"] button:last-of-type')?.click()`,
     });
   }
+  let attendanceWorkflow = null;
+  if (role === "owner" && route === "/schedule/import") {
+    const workflowEvaluation = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const text = document.body?.innerText || "";
+        return {
+          fileInput: Boolean(document.querySelector('input[type="file"][accept*=".csv"]')),
+          previewButton: [...document.querySelectorAll("button")].some((button) => button.textContent?.includes("Preview")),
+          importButton: [...document.querySelectorAll("button")].some((button) => button.textContent?.includes("Import to attendance")),
+          templateLink: Boolean(document.querySelector('a[href^="/api/attendance-template/download"]')),
+          headings: text.includes("Download employee grid CSV") && text.includes("Import completed template"),
+        };
+      })()`,
+    });
+    attendanceWorkflow = workflowEvaluation.result?.value || {};
+  }
+  if ((role === "owner" || role === "supervisor") && route === "/attendance") {
+    const workflowEvaluation = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const text = document.body?.innerText || "";
+        return {
+          reviewQueue: text.includes("Attendance review") && text.includes("Major schedule variance"),
+          uploadHistory: text.includes("Recent uploads") && text.includes("june-attendance.csv"),
+          ownerUploadLink: ${role === "owner"} ? Boolean(document.querySelector('a[href="/schedule/import"]')) : true,
+        };
+      })()`,
+    });
+    attendanceWorkflow = workflowEvaluation.result?.value || {};
+  }
   return {
     role,
     route,
@@ -233,6 +264,7 @@ async function inspectPage(session, role, route, viewport) {
     ...result,
     matchedFailureText,
     scheduleDropPrompt,
+    attendanceWorkflow,
     ok: result.href?.startsWith(`${baseUrl}${route}`) &&
       !result.pageOverflow &&
       !result.hasNextError &&
@@ -244,7 +276,8 @@ async function inspectPage(session, role, route, viewport) {
         scheduleDropPrompt.visible &&
         scheduleDropPrompt.fitsViewport &&
         ["Move", "Copy", "Cancel"].every((label) => scheduleDropPrompt.buttons.includes(label))
-      )),
+      )) &&
+      (!attendanceWorkflow || Object.values(attendanceWorkflow).every(Boolean)),
   };
 }
 
@@ -285,6 +318,7 @@ if (failures.length) {
     if ((failure.scheduleClippingProblems || []).length) console.error(`Clipped schedule text on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleClippingProblems)}`);
     if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
     if (failure.scheduleDropPrompt) console.error(`Move/copy prompt problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleDropPrompt)}`);
+    if (failure.attendanceWorkflow) console.error(`Attendance workflow problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.attendanceWorkflow)}`);
   }
   console.error(`Browser smoke failed on ${failures.length} page(s).`);
   process.exitCode = 1;

@@ -195,13 +195,8 @@ def attendance_exception_sql() -> str:
         FROM time_logs tl
         JOIN employees e ON e.id=tl.employee_id
         WHERE tl.work_date BETWEEN ? AND ?
-          AND (
-            COALESCE(tl.attendance_status, 'Pending') != 'Approved'
-            OR COALESCE(tl.ot_status, 'None') = 'Pending'
-            OR tl.actual_in IS NULL
-            OR tl.actual_out IS NULL
-            OR COALESCE(tl.is_absent, 0) = 1
-          )
+          AND COALESCE(tl.attendance_status, 'Pending')
+              IN ('Pending', 'Needs Review', 'Needs Correction', 'Needs Manager', 'Disputed')
     """
 
 def build_app() -> FastAPI:
@@ -325,7 +320,11 @@ def build_app() -> FastAPI:
         decision = payload.decision.strip().title()
         if decision not in {"Approved", "Rejected", "Needs Correction"}:
             raise HTTPException(status_code=422, detail="Decision must be Approved, Rejected, or Needs Correction.")
-        attendance_status = "Approved" if decision == "Approved" else "Needs Review"
+        attendance_status = {
+            "Approved": "Approved",
+            "Rejected": "Rejected",
+            "Needs Correction": "Needs Correction",
+        }[decision]
         ot_status = "Approved" if payload.approved_ot_hours > 0 and decision == "Approved" else ("Rejected" if decision == "Rejected" else "None")
         timestamp = now_iso()
         with db_conn(read_only=False) as conn:
@@ -333,9 +332,16 @@ def build_app() -> FastAPI:
             if not row: raise HTTPException(status_code=404, detail="Time log not found.")
             conn.execute("""
                 UPDATE time_logs
-                SET attendance_status=?, reviewed_by=?, reviewed_at=?, approved_ot_hours=?, ot_status=?, notes=COALESCE(notes, '') || ?
+                SET attendance_status=?,
+                    absence_type=CASE
+                        WHEN ?='Approved' AND is_absent=1 AND review_reason='Absent on scheduled day'
+                        THEN 'Unexcused Absence'
+                        ELSE absence_type
+                    END,
+                    reviewed_by=?, reviewed_at=?, approved_ot_hours=?, ot_status=?,
+                    notes=COALESCE(notes, '') || ?
                 WHERE id=?
-            """, (attendance_status, user["display_name"], timestamp, float(payload.approved_ot_hours or 0), ot_status, f"\n[{timestamp}] {decision}: {payload.reason or ''}", time_log_id))
+            """, (attendance_status, decision, user["display_name"], timestamp, float(payload.approved_ot_hours or 0), ot_status, f"\n[{timestamp}] {decision}: {payload.reason or ''}", time_log_id))
             conn.execute("""
                 INSERT INTO attendance_reviews (time_log_id, reviewer, decision, reason, approved_ot_hours, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)

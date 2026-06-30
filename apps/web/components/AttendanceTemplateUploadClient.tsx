@@ -31,6 +31,8 @@ type ImportResult = {
     ready: number;
     needs_review: number;
     errors: number;
+    skipped: number;
+    manual_preserved: number;
     imported: number;
   };
   items?: Array<{
@@ -41,6 +43,9 @@ type ImportResult = {
     actual_out: string | null;
     attendance_status: string;
     needs_review: number;
+    classification: string;
+    review_reason?: string | null;
+    skip_reason?: string | null;
     issues: string[];
   }>;
 };
@@ -170,10 +175,6 @@ export function AttendanceTemplateUploadClient() {
             </select>
           </label>
         </div>
-        <p className="muted">
-          The download now includes every active employee name and employee code for each selected date.
-          Leave time_in/time_out blank until you update them from the biometric/manual log.
-        </p>
       </section>
 
       <section className="card">
@@ -210,9 +211,9 @@ export function AttendanceTemplateUploadClient() {
             </div>
           </div>
           <div className="grid cols-4">
-            <div className="metric"><span className="eyebrow">Rows</span><strong className="metric-value">{result.summary.rows}</strong></div>
             <div className="metric"><span className="eyebrow">Ready</span><strong className="metric-value">{result.summary.ready}</strong></div>
             <div className="metric"><span className="eyebrow">Review</span><strong className="metric-value">{result.summary.needs_review}</strong></div>
+            <div className="metric"><span className="eyebrow">Skipped</span><strong className="metric-value">{result.summary.skipped}</strong></div>
             <div className="metric"><span className="eyebrow">Errors</span><strong className="metric-value">{result.summary.errors}</strong></div>
           </div>
           <div className="table-wrap" style={{ marginTop: 16 }}>
@@ -235,7 +236,7 @@ export function AttendanceTemplateUploadClient() {
                     <td>{item.work_date || "—"}</td>
                     <td>{item.actual_in || "—"}–{item.actual_out || "—"}</td>
                     <td>{item.attendance_status}</td>
-                    <td>{item.issues.length ? item.issues.join("; ") : item.needs_review ? "Needs review" : "Ready"}</td>
+                    <td>{item.issues.length ? item.issues.join("; ") : item.review_reason || item.skip_reason || (item.needs_review ? "Needs review" : "Ready")}</td>
                   </tr>
                 ))}
               </tbody>

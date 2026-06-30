@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import { addIsoDays, mondayOfWeek } from "@/lib/period";
+import { currentSession } from "@/lib/session";
 import type { ScheduleEmployee } from "@/lib/schedule-types";
 
 const COLUMNS = [
@@ -43,6 +44,10 @@ async function loadEmployees(): Promise<ScheduleEmployee[]> {
 }
 
 export async function GET(request: NextRequest) {
+  const session = await currentSession();
+  if (!session || session.role_key !== "owner") {
+    return Response.json({ message: "Only the owner can download attendance templates." }, { status: 403 });
+  }
   const params = request.nextUrl.searchParams;
   const start = validIsoDate(params.get("start")) ? params.get("start")! : mondayOfWeek();
   const days = Math.min(31, Math.max(1, Number(params.get("days") || 7) || 7));
