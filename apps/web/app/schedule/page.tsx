@@ -9,7 +9,6 @@ import { ScheduleShiftForm } from "@/components/ScheduleShiftForm";
 import { ScheduleCopyWeekForm } from "@/components/ScheduleCopyWeekForm";
 import { ScheduleBoardClient } from "@/components/ScheduleBoardClient";
 import { ScheduleRiskPanel } from "@/components/ScheduleRiskPanel";
-import { ScheduleEmployeeFilter } from "@/components/ScheduleEmployeeFilter";
 import { SchedulePublishControl } from "@/components/SchedulePublishControl";
 import { apiBaseUrl as baseUrl, backendHeaders } from "@/lib/backend";
 import { addIsoDays, formatIsoDay, mondayOfWeek } from "@/lib/period";
@@ -76,7 +75,16 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
             <div className={styles.toolbar}><Link className="primary-link" href={filterHref(selectedDepartment, selectedPosition, selectedEmployeeId, previousWeekStart)}>Prev</Link><Link className="primary-link" href={filterHref(selectedDepartment, selectedPosition, selectedEmployeeId, addWeek(week.week_start, 1))}>Next</Link><PrintButton label="Print / Save PDF" />{canEditSchedule ? <ScheduleCopyWeekForm currentWeekStart={week.week_start} previousWeekStart={previousWeekStart} /> : null}{canEditSchedule ? <Link className="primary-link" href="/controls">Controls</Link> : null}</div>
           </div>
 
-          <div className={`${styles.screenOnly} ${styles.filterPanel}`}><div className={styles.filterGrid}><div><strong>Department</strong><div className={styles.chips}><Link className={selectedDepartment === "all" ? styles.activeChip : styles.chip} href={filterHref("all", selectedPosition)}>All</Link>{departments.map((dept) => (<Link className={selectedDepartment === dept ? styles.activeChip : styles.chip} href={filterHref(dept, selectedPosition)} key={dept}>{dept}</Link>))}</div></div><div><strong>Position</strong><div className={styles.chips}><Link className={selectedPosition === "all" ? styles.activeChip : styles.chip} href={filterHref(selectedDepartment, "all")}>All</Link>{positions.map((pos) => (<Link className={selectedPosition === pos ? styles.activeChip : styles.chip} href={filterHref(selectedDepartment, pos)} key={pos}>{pos}</Link>))}</div></div><ScheduleEmployeeFilter employees={employeeOptions} selectedEmployeeId={selectedEmployeeId} weekStart={week.week_start} department={selectedDepartment} position={selectedPosition} /></div></div>
+          <div className={`${styles.screenOnly} ${styles.filterPanel}`}>
+            <form className={styles.dropdownFilters} method="get">
+              <input name="week_start" type="hidden" value={week.week_start} />
+              <label>Department<select name="department" defaultValue={selectedDepartment}><option value="all">All departments</option>{departments.map((dept) => <option key={dept} value={dept}>{dept}</option>)}</select></label>
+              <label>Position<select name="position" defaultValue={selectedPosition}><option value="all">All positions</option>{positions.map((pos) => <option key={pos} value={pos}>{pos}</option>)}</select></label>
+              <label>Employee<select name="employee_id" defaultValue={selectedEmployeeId}><option value="all">All employees</option>{employeeOptions.map((employee) => <option key={employee.id} value={String(employee.id)}>{employee.full_name}</option>)}</select></label>
+              <button className="button secondary" type="submit">Apply</button>
+              {(selectedDepartment !== "all" || selectedPosition !== "all" || selectedEmployeeId !== "all") ? <Link className="button ghost" href={`/schedule?week_start=${week.week_start}`}>Clear</Link> : null}
+            </form>
+          </div>
 
           {canEditSchedule ? <details className={`card ${styles.compactAddShift} ${styles.addShiftDropdown}`}><summary><strong>+ Add shift</strong><span className="muted">Create one schedule row</span></summary><ScheduleShiftForm weekStart={week.week_start} employees={employees} /></details> : null}
 
