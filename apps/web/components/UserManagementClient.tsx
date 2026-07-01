@@ -124,7 +124,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
 
   return (
     <div className="grid">
-      <section className="card soft">
+      <section className="card">
         <div className="panel-title"><div><span className="eyebrow">Owner only</span><h2>Create user</h2></div></div>
         <div className="form-grid">
           <label><span>Login name</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Employee login name" /></label>
@@ -140,8 +140,8 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
           <p className="copy-box">{temporaryPassword}</p>
         </section>
       ) : null}
-      {message ? <p className="muted">{message}</p> : null}
-      <div className="table-wrap">
+      {message ? <p className="muted" role="status">{message}</p> : null}
+      <div className="table-wrap user-table">
         <table>
           <thead><tr><th>User</th><th>Role</th><th>Employee</th><th>Active</th><th>Password</th><th>MFA</th><th>Last login</th><th>Actions</th></tr></thead>
           <tbody>

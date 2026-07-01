@@ -36,10 +36,6 @@
   background: linear-gradient(135deg, var(--surface), var(--accent-soft));
 }
 
-.cash-create-card {
-  padding: 18px;
-}
-
 .cash-card-list {
   display: grid;
   gap: 14px;

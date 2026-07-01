@@ -105,9 +105,9 @@
 
 .copy strong {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.2;
   font-size: 0.84rem !important;
   font-weight: 780 !important;
 }

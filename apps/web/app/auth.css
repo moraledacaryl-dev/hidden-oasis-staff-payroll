@@ -8,19 +8,6 @@
   padding-top: 16px;
 }
 
-.primary-link {
-  min-height: auto;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 0.86rem;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .sidebar-button {
   width: 100%;
   cursor: pointer;
@@ -71,15 +58,23 @@
 }
 
 .login-card {
-  width: min(760px, 100%);
+  width: min(440px, 100%);
   display: grid;
-  gap: 20px;
+  gap: 16px;
   padding: 28px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.84);
+  background: var(--surface);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
+}
+
+.login-card .brand-mark {
+  width: 44px;
+  height: 44px;
+}
+
+.login-card .primary-button {
+  width: 100%;
 }
 
 .role-grid {

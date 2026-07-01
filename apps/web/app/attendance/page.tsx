@@ -127,7 +127,7 @@ export default async function AttendancePage({
           <Link className="primary-link" href="/schedule">Correct logs in Schedule</Link>
         </section>
 
-        <form className="card" action="/attendance">
+        <form className="card form-panel" action="/attendance">
           <div className="form-grid">
             <label>Month<input name="month" type="month" defaultValue={month} /></label>
             <label>Staff search<input name="employee" placeholder="Search employee name" defaultValue={params.employee || ""} /></label>

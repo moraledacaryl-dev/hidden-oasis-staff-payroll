@@ -70,8 +70,7 @@ export default async function CashAdvancesPage() {
           <div className="cash-summary-card"><span>Total repaid</span><strong>{peso(totalRepaid)}</strong></div>
         </section>
 
-        <section className="card cash-create-card">
-          <div className="panel-title"><h2>Add cash advance</h2></div>
+        <section>
           <CashAdvanceForm employees={employees} isOwner={isOwner} />
         </section>
 
