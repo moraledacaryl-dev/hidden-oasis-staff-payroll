@@ -84,7 +84,6 @@ def production_health(authorization: str | None = Header(default=None, alias="Au
                 "scheduled_shifts": table_exists(conn, "scheduled_shifts"),
                 "time_logs": table_exists(conn, "time_logs"),
                 "schedule_change_logs": table_exists(conn, "schedule_change_logs"),
-                "legacy_schedule_ignores": table_exists(conn, "legacy_schedule_ignores"),
                 "payroll_revision_change_links": table_exists(conn, "payroll_revision_change_links"),
             },
             "counts": {
