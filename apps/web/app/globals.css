@@ -44,6 +44,11 @@ html[data-sidebar="collapsed"] .sidebar-toggle { margin-left: 0; }
 html[data-sidebar="collapsed"] .nav-card { height: 38px; padding: 0; display: grid; place-items: center; }
 html[data-sidebar="collapsed"] .nav-card::before { content: "•"; color: var(--accent); font-size: 1.25rem; line-height: 1; }
 .main { grid-column: 2; min-width: 0; max-width: 100%; overflow-x: hidden; padding: 26px; }
+.impersonation-banner { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -26px -26px 24px; padding: 10px 26px; border-bottom: 1px solid #edd19c; background: var(--warning-soft); color: var(--warning); }
+.impersonation-banner div { display: grid; gap: 2px; min-width: 0; }
+.impersonation-banner strong, .impersonation-banner span { overflow-wrap: anywhere; }
+.impersonation-banner span { font-size: 0.78rem; }
+@media (min-width: 621px) { .impersonation-banner + .page { margin-top: 12px; } }
 .page { width: 100%; max-width: 1280px; min-width: 0; margin: 0 auto; display: grid; gap: 18px; }
 .page-header { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; min-width: 0; }
 .eyebrow { color: var(--accent); font-size: 0.72rem; font-weight: 850; text-transform: uppercase; letter-spacing: 0; }
@@ -101,7 +106,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .modal-panel { width: min(920px, 100%); max-height: min(88vh, 820px); overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 22px 60px rgba(29, 33, 31, 0.2); padding: 18px; }
 .compact-modal { width: min(520px, 100%); }
 .schedule-modal { width: min(980px, 100%); }
-.modal-form { align-items: end; }
+.modal-form { align-items: flex-end; }
 .copy-box { margin-top: 8px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; font-weight: 900; letter-spacing: 0; }
 .print-actions { display: flex; justify-content: flex-end; }
 .payslip-page { max-width: 1500px; }
@@ -144,7 +149,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .cutoff-page { gap: 16px; }
 .cutoff-hero { align-items: center; }
 .cutoff-toolbar { padding: 12px 14px; box-shadow: none; }
-.cutoff-form { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+.cutoff-form { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .cutoff-toolbar-label { align-self: center; color: var(--muted); font-size: 0.78rem; font-weight: 850; text-transform: uppercase; }
 .cutoff-field { flex: 0 1 220px; min-width: 180px; }
 .cutoff-field.compact { flex-basis: 150px; min-width: 130px; }
@@ -172,8 +177,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .empty-state { display: grid; place-items: center; gap: 6px; min-height: 120px; padding: 22px; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--surface-soft); text-align: center; color: var(--muted); }
 .empty-state strong { color: var(--ink); font-size: 1rem; }
 @media (max-width: 1180px) { .payslip-grid { grid-template-columns: 1fr; } }
-@media (max-width: 980px) { .app-shell, html[data-sidebar="collapsed"] .app-shell { grid-template-columns: 1fr; } .sidebar, html[data-sidebar="collapsed"] .sidebar { position: static; width: auto; height: auto; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); } .main { grid-column: auto; padding: 18px; } .nav-list { grid-template-columns: 1fr; } .grid.cols-2, .grid.cols-3, .grid.cols-4, .payslip-columns, .payslip-summary, .review-two-col, .review-score-grid, .cutoff-metrics, .cutoff-action-grid { grid-template-columns: 1fr; } html[data-sidebar="collapsed"] .sidebar { padding: 10px 12px; overflow: hidden; } html[data-sidebar="collapsed"] .brand { margin-bottom: 0; justify-content: space-between; } html[data-sidebar="collapsed"] .brand-text, html[data-sidebar="collapsed"] .nav-list, html[data-sidebar="collapsed"] .sidebar-footer { display: none; } html[data-sidebar="collapsed"] .sidebar-toggle { margin-left: auto; } html[data-sidebar="collapsed"] .nav-card::before { content: none; } .coverage-review summary { align-items: flex-start; } }
-@media (max-width: 620px) { h1 { font-size: 1.65rem; } .page-header, .payslip-top, .payslip-signature, .review-log-card header, .cutoff-readiness, .cutoff-draft-card { display: grid; } .payslip-net { text-align: left; } .card { padding: 12px; } .main { padding: 12px; } .page { gap: 12px; } .modal-backdrop { align-items: stretch; padding: 0; } .modal-panel { width: 100%; max-height: 100vh; border-radius: 0; border-left: 0; border-right: 0; } .cutoff-form { display: grid; grid-template-columns: 1fr; } .cutoff-field, .cutoff-field.compact { min-width: 0; } .cutoff-readiness strong { white-space: normal; } .cutoff-draft-card .decision-stack, .cutoff-draft-card .mini-button { width: 100%; min-width: 0; } }
+@media (max-width: 980px) { .app-shell, html[data-sidebar="collapsed"] .app-shell { grid-template-columns: 1fr; } .sidebar, html[data-sidebar="collapsed"] .sidebar { position: static; width: auto; height: auto; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); } .main { grid-column: auto; padding: 18px; } .impersonation-banner { margin: -18px -18px 18px; padding-inline: 18px; } .nav-list { grid-template-columns: 1fr; } .grid.cols-2, .grid.cols-3, .grid.cols-4, .payslip-columns, .payslip-summary, .review-two-col, .review-score-grid, .cutoff-metrics, .cutoff-action-grid { grid-template-columns: 1fr; } html[data-sidebar="collapsed"] .sidebar { padding: 10px 12px; overflow: hidden; } html[data-sidebar="collapsed"] .brand { margin-bottom: 0; justify-content: space-between; } html[data-sidebar="collapsed"] .brand-text, html[data-sidebar="collapsed"] .nav-list, html[data-sidebar="collapsed"] .sidebar-footer { display: none; } html[data-sidebar="collapsed"] .sidebar-toggle { margin-left: auto; } html[data-sidebar="collapsed"] .nav-card::before { content: none; } .coverage-review summary { align-items: flex-start; } }
+@media (max-width: 620px) { h1 { font-size: 1.65rem; } .page-header, .payslip-top, .payslip-signature, .review-log-card header, .cutoff-readiness, .cutoff-draft-card { display: grid; } .payslip-net { text-align: left; } .card { padding: 12px; } .main { padding: 12px; } .impersonation-banner { position: static; display: grid; margin: -12px -12px 12px; padding: 10px 12px; } .impersonation-banner .button { width: 100%; } .page { gap: 12px; } .modal-backdrop { align-items: stretch; padding: 0; } .modal-panel { width: 100%; max-height: 100vh; border-radius: 0; border-left: 0; border-right: 0; } .cutoff-form { display: grid; grid-template-columns: 1fr; } .cutoff-field, .cutoff-field.compact { min-width: 0; } .cutoff-readiness strong { white-space: normal; } .cutoff-draft-card .decision-stack, .cutoff-draft-card .mini-button { width: 100%; min-width: 0; } }
 @media print {
   :root { --bg: #fff; --shadow: none; }
   body { background: #fff; }

@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { AppUser } from "@/lib/api";
+import { defaultPathForRole } from "@/lib/session-client";
 import type { Employee } from "@/lib/types";
+import type { RoleKey } from "@/lib/types";
 
 export function UserManagementClient({ users, employees }: { users: AppUser[]; employees: Employee[] }) {
   const router = useRouter();
@@ -103,6 +105,23 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
     router.refresh();
   }
 
+  async function viewAs(user: AppUser) {
+    setBusy(user.id);
+    setMessage("");
+    const response = await fetch("/api/session/impersonate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_user_id: user.id }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      setMessage(typeof data.detail === "string" ? data.detail : data.message || "Could not open this account view.");
+      setBusy(null);
+      return;
+    }
+    window.location.assign(defaultPathForRole(data.user.role_key as RoleKey));
+  }
+
   return (
     <div className="grid">
       <section className="card soft">
@@ -151,6 +170,17 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
                   <div className="action-row">
                     <button className="button small ghost" type="button" disabled={busy === user.id} onClick={() => resetPassword(user.id)}>Reset password</button>
                     <button className="button small ghost" type="button" disabled={busy === user.id} onClick={() => setActive(user.id, !user.active)}>{user.active ? "Deactivate" : "Activate"}</button>
+                    {user.active && (user.role_key === "supervisor" || (user.role_key === "staff" && user.employee_id)) ? (
+                      <button
+                        className="button small"
+                        data-view-as-role={user.role_key}
+                        type="button"
+                        disabled={busy === user.id}
+                        onClick={() => viewAs(user)}
+                      >
+                        {busy === user.id ? "Opening..." : "View as"}
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>
