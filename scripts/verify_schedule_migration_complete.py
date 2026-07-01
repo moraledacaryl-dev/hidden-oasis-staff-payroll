@@ -5,6 +5,11 @@ This script is report-only. It does not create, update, hide, or delete rows.
 It is intended to be run after importing/migrating schedule history and before
 removing legacy schedule runtime reads.
 
+A legacy row is considered resolved when it is either:
+- migrated into scheduled_shifts by legacy_schedule_id;
+- represented by an equivalent scheduled_shifts employee/date/start/end row;
+- intentionally ignored/deleted through legacy_schedule_ignores.
+
 Exit codes:
 - 0: migration looks complete and safe for the checked scope;
 - 1: blocking issues were found;
@@ -144,6 +149,12 @@ def main() -> int:
             print("BLOCKER: scheduled_shifts.legacy_schedule_id is missing.")
             return 2
 
+        has_ignore_table = table_exists(conn, "legacy_schedule_ignores")
+        ignore_join = "LEFT JOIN legacy_schedule_ignores li ON li.legacy_schedule_id=s.id" if has_ignore_table else ""
+        ignore_select = "li.legacy_schedule_id AS ignored_legacy_id, li.reason AS ignored_reason," if has_ignore_table else "NULL AS ignored_legacy_id, NULL AS ignored_reason,"
+        ignore_unresolved_clause = "AND li.legacy_schedule_id IS NULL" if has_ignore_table else ""
+        ignore_resolved_clause = "AND li.legacy_schedule_id IS NOT NULL" if has_ignore_table else "AND 1=0"
+
         date_sql, date_params = date_filters("s", mapping.date_col, args.start, args.end)
         employee_sql = " AND s.employee_id=?" if args.employee_id else ""
         employee_params: list[Any] = [args.employee_id] if args.employee_id else []
@@ -199,12 +210,35 @@ def main() -> int:
             """,
             scope_params,
         )
+        intentionally_ignored = rows(
+            conn,
+            f"""
+            SELECT s.id AS legacy_id, s.employee_id, s.{mapping.date_col} AS shift_date,
+                   s.{mapping.start_col} AS start_time, s.{mapping.end_col} AS end_time,
+                   li.ignored_at, li.reason
+            FROM schedules s
+            JOIN legacy_schedule_ignores li ON li.legacy_schedule_id=s.id
+            LEFT JOIN scheduled_shifts by_id ON by_id.legacy_schedule_id=s.id
+            LEFT JOIN scheduled_shifts by_match
+              ON by_match.employee_id=s.employee_id
+             AND date(by_match.shift_date)=date(s.{mapping.date_col})
+             AND substr(by_match.start_time,1,5)=substr(s.{mapping.start_col},1,5)
+             AND substr(by_match.end_time,1,5)=substr(s.{mapping.end_col},1,5)
+            WHERE 1=1 {date_sql} {employee_sql}
+              AND by_id.id IS NULL
+              AND by_match.id IS NULL
+            ORDER BY s.{mapping.date_col}, s.employee_id, s.{mapping.start_col}, s.id
+            """,
+            scope_params,
+        ) if has_ignore_table else []
         unmigrated = rows(
             conn,
             f"""
             SELECT s.id AS legacy_id, s.employee_id, s.{mapping.date_col} AS shift_date,
-                   s.{mapping.start_col} AS start_time, s.{mapping.end_col} AS end_time
+                   s.{mapping.start_col} AS start_time, s.{mapping.end_col} AS end_time,
+                   {ignore_select} by_id.id AS migrated_id, by_match.id AS matched_id
             FROM schedules s
+            {ignore_join}
             LEFT JOIN scheduled_shifts by_id ON by_id.legacy_schedule_id=s.id
             LEFT JOIN scheduled_shifts by_match
               ON by_match.employee_id=s.employee_id
@@ -218,6 +252,7 @@ def main() -> int:
               AND COALESCE(s.{mapping.end_col},'')<>''
               AND by_id.id IS NULL
               AND by_match.id IS NULL
+              {ignore_unresolved_clause}
             ORDER BY s.{mapping.date_col}, s.employee_id, s.{mapping.start_col}, s.id
             """,
             scope_params,
@@ -243,16 +278,27 @@ def main() -> int:
             ORDER BY legacy_schedule_id
             """,
         )
-        ignored_migrated = rows(
+        ignored_with_migrated_shift = rows(
             conn,
-            """
-            SELECT li.legacy_schedule_id, li.ignored_at, li.reason
-            FROM legacy_schedule_ignores li
-            LEFT JOIN scheduled_shifts ss ON ss.legacy_schedule_id=li.legacy_schedule_id
-            WHERE ss.id IS NULL
-            ORDER BY li.legacy_schedule_id
+            f"""
+            SELECT s.id AS legacy_id, s.employee_id, s.{mapping.date_col} AS shift_date,
+                   s.{mapping.start_col} AS start_time, s.{mapping.end_col} AS end_time,
+                   li.ignored_at, li.reason, COALESCE(by_id.id, by_match.id) AS scheduled_shift_id
+            FROM schedules s
+            JOIN legacy_schedule_ignores li ON li.legacy_schedule_id=s.id
+            LEFT JOIN scheduled_shifts by_id ON by_id.legacy_schedule_id=s.id
+            LEFT JOIN scheduled_shifts by_match
+              ON by_match.employee_id=s.employee_id
+             AND date(by_match.shift_date)=date(s.{mapping.date_col})
+             AND substr(by_match.start_time,1,5)=substr(s.{mapping.start_col},1,5)
+             AND substr(by_match.end_time,1,5)=substr(s.{mapping.end_col},1,5)
+            WHERE 1=1 {date_sql} {employee_sql}
+              {ignore_resolved_clause}
+              AND COALESCE(by_id.id, by_match.id) IS NOT NULL
+            ORDER BY s.{mapping.date_col}, s.employee_id, s.{mapping.start_col}, s.id
             """,
-        ) if table_exists(conn, "legacy_schedule_ignores") else []
+            scope_params,
+        ) if has_ignore_table else []
 
         print("Schedule migration verification")
         print(f"db={db_path}")
@@ -260,28 +306,32 @@ def main() -> int:
         print(f"legacy_total={legacy_total}")
         print(f"migrated_by_legacy_id={migrated_by_id}")
         print(f"matched_by_employee_date_time={migrated_by_match}")
+        print(f"intentionally_ignored_legacy_rows={len(intentionally_ignored)}")
+        print(f"ignored_rows_that_still_have_scheduled_shift={len(ignored_with_migrated_shift)}")
         print(f"invalid_legacy_rows={len(invalid_legacy)}")
-        print(f"unmigrated_valid_legacy_rows={len(unmigrated)}")
+        print(f"unresolved_unmigrated_valid_legacy_rows={len(unmigrated)}")
         print(f"scheduled_duplicate_identity_groups={len(duplicate_identity)}")
         print(f"scheduled_duplicate_legacy_id_groups={len(duplicate_legacy_id)}")
-        print(f"ignored_without_migrated_shift={len(ignored_migrated)}")
 
         blockers = []
         if invalid_legacy:
             blockers.append("invalid legacy schedule rows")
             print_samples("INVALID LEGACY ROWS", invalid_legacy, args.show_samples)
         if unmigrated:
-            blockers.append("unmigrated valid legacy schedule rows")
-            print_samples("UNMIGRATED VALID LEGACY ROWS", unmigrated, args.show_samples)
+            blockers.append("unresolved unmigrated valid legacy schedule rows")
+            print_samples("UNRESOLVED UNMIGRATED VALID LEGACY ROWS", unmigrated, args.show_samples)
         if duplicate_identity:
             blockers.append("duplicate scheduled_shifts by employee/date/time")
             print_samples("DUPLICATE SCHEDULED SHIFT IDENTITIES", duplicate_identity, args.show_samples)
         if duplicate_legacy_id:
             blockers.append("duplicate scheduled_shifts by legacy_schedule_id")
             print_samples("DUPLICATE LEGACY IDS", duplicate_legacy_id, args.show_samples)
-        if ignored_migrated:
-            blockers.append("legacy ignore rows without migrated scheduled_shift")
-            print_samples("STALE LEGACY IGNORES", ignored_migrated, args.show_samples)
+        if ignored_with_migrated_shift:
+            blockers.append("legacy ignore rows that still have scheduled shifts")
+            print_samples("IGNORED LEGACY ROWS STILL PRESENT AS SCHEDULED SHIFTS", ignored_with_migrated_shift, args.show_samples)
+
+        if intentionally_ignored:
+            print_samples("INTENTIONALLY IGNORED / DELETED LEGACY ROWS", intentionally_ignored, args.show_samples)
 
         if blockers:
             print("\nresult=fail")
