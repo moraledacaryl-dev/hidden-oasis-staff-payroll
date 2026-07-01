@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
+import { PasswordReminderDialog } from "@/components/PasswordReminderDialog";
 import { SidebarNav } from "@/components/SidebarNav";
 import { SidebarToggle } from "@/components/SidebarToggle";
 import { roleLabels } from "@/lib/navigation";
@@ -56,7 +57,6 @@ export async function Shell({
 }) {
   const session = await currentSession();
   if (!session) redirect("/login");
-  if (!session.is_impersonating && !allowAccountSetup && session.must_change_password) redirect("/settings/password");
   if (!session.is_impersonating && !allowAccountSetup && session.mfa_setup_required) redirect("/settings/security");
 
   const role = session.role_key;
@@ -78,6 +78,7 @@ export async function Shell({
       </aside>
       <main className="main">
         {session.is_impersonating ? <ImpersonationBanner targetName={session.display_name} targetRole={roleLabels[role]} /> : null}
+        {!session.is_impersonating && !allowAccountSetup && session.must_change_password ? <PasswordReminderDialog userId={session.id} /> : null}
         {allowed ? children : <AccessRestricted role={role} allowedRoles={allowedRoles} />}
       </main>
     </div>
