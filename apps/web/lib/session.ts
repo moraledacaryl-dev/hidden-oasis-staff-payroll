@@ -14,6 +14,9 @@ export type WebSession = {
   mfa_enabled: number;
   mfa_setup_required: number;
   employee_id?: number | null;
+  is_impersonating?: number;
+  impersonator_id?: number | null;
+  impersonator_name?: string | null;
 };
 
 export function isRoleKey(value: string | undefined | null): value is RoleKey {

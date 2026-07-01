@@ -81,6 +81,8 @@ STAFF_PAYROLL_BACKUP_RETENTION=30
 
 Privileged accounts must set up an authenticator after sign-in. Password resets and role or status changes revoke existing sessions.
 
+Owners can use **View as** in User Management for an active General Manager or a staff account linked to an active employee. The temporary session lasts 30 minutes, keeps the Owner session available for return, and records Owner-attributed audit events for actions performed as the selected user. It does not expose or change the selected user's password.
+
 ## Backups
 
 Create a backup from the owner Backups page or from the command line:

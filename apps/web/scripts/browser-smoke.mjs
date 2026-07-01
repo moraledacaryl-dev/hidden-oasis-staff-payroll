@@ -244,6 +244,82 @@ async function inspectPage(session, role, route, viewport) {
     });
     cutoffWorkflow = cutoffEvaluation.result?.value || {};
   }
+  let impersonationWorkflow = null;
+  if (role === "owner" && route === "/settings/users") {
+    const accountResults = [];
+    for (const targetRole of ["supervisor", "staff"]) {
+      const loadedAsTarget = session.waitFor("Page.loadEventFired");
+      const started = await session.send("Runtime.evaluate", {
+        returnByValue: true,
+        expression: `(() => {
+          const button = document.querySelector('[data-view-as-role="${targetRole}"]');
+          if (!button) return false;
+          button.click();
+          return true;
+        })()`,
+      });
+      if (started.result?.value) {
+        await Promise.race([loadedAsTarget, delay(5000)]);
+        await delay(1400);
+        await session.send("Runtime.evaluate", { expression: "window.scrollTo(0, 0)" });
+        await delay(200);
+      }
+      const targetEvaluation = await session.send("Runtime.evaluate", {
+        returnByValue: true,
+        expression: `(() => ({
+          started: ${Boolean(started.result?.value)},
+          role: "${targetRole}",
+          href: location.pathname,
+          banner: Boolean(document.querySelector("[data-impersonation-banner]")),
+          returnButton: [...document.querySelectorAll("button")].some((button) => button.textContent?.includes("Return to Owner")),
+          targetName: document.querySelector("[data-impersonation-banner] strong")?.textContent || "",
+        }))()`,
+      });
+      const targetResult = targetEvaluation.result?.value || {};
+      const targetScreenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+      await writeFile(
+        path.join(outputDir, `owner-${viewport.name}-view-as-${targetRole}.png`),
+        Buffer.from(targetScreenshot.data, "base64"),
+      );
+      await session.send("Runtime.evaluate", {
+        expression: `[...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Return to Owner"))?.click()`,
+      });
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        await delay(150);
+        const locationResult = await session.send("Runtime.evaluate", {
+          returnByValue: true,
+          expression: `location.pathname`,
+        });
+        if (locationResult.result?.value === "/settings/users") break;
+      }
+      const restoredEvaluation = await session.send("Runtime.evaluate", {
+        returnByValue: true,
+        expression: `(() => ({
+          href: location.pathname,
+          bannerGone: !document.querySelector("[data-impersonation-banner]"),
+          ownerPage: Boolean(document.querySelector('[data-view-as-role="${targetRole}"]')),
+        }))()`,
+      });
+      accountResults.push({ ...targetResult, restored: restoredEvaluation.result?.value || {} });
+    }
+    impersonationWorkflow = {
+      supervisor: accountResults[0]?.started &&
+        accountResults[0]?.href === "/" &&
+        accountResults[0]?.banner &&
+        accountResults[0]?.returnButton &&
+        accountResults[0]?.restored?.href === "/settings/users" &&
+        accountResults[0]?.restored?.bannerGone &&
+        accountResults[0]?.restored?.ownerPage,
+      staff: accountResults[1]?.started &&
+        accountResults[1]?.href === "/me" &&
+        accountResults[1]?.banner &&
+        accountResults[1]?.returnButton &&
+        accountResults[1]?.restored?.href === "/settings/users" &&
+        accountResults[1]?.restored?.bannerGone &&
+        accountResults[1]?.restored?.ownerPage,
+      accounts: accountResults,
+    };
+  }
   return {
     role,
     route,
@@ -253,6 +329,7 @@ async function inspectPage(session, role, route, viewport) {
     matchedFailureText,
     scheduleDropPrompt,
     cutoffWorkflow,
+    impersonationWorkflow,
     ok: result.href?.startsWith(`${baseUrl}${route}`) &&
       !result.pageOverflow &&
       !result.hasNextError &&
@@ -265,7 +342,8 @@ async function inspectPage(session, role, route, viewport) {
         scheduleDropPrompt.fitsViewport &&
         ["Move", "Copy", "Cancel"].every((label) => scheduleDropPrompt.buttons.includes(label))
       )) &&
-      (!cutoffWorkflow || Object.values(cutoffWorkflow).every(Boolean)),
+      (!cutoffWorkflow || Object.values(cutoffWorkflow).every(Boolean)) &&
+      (!impersonationWorkflow || (impersonationWorkflow.supervisor && impersonationWorkflow.staff)),
   };
 }
 
@@ -307,6 +385,7 @@ if (failures.length) {
     if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
     if (failure.scheduleDropPrompt) console.error(`Move/copy prompt problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleDropPrompt)}`);
     if (failure.cutoffWorkflow) console.error(`Payroll cutoff problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.cutoffWorkflow)}`);
+    if (failure.impersonationWorkflow) console.error(`Owner view-as problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.impersonationWorkflow)}`);
   }
   console.error(`Browser smoke failed on ${failures.length} page(s).`);
   process.exitCode = 1;

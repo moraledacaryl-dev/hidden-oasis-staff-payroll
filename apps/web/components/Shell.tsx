@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { SidebarNav } from "@/components/SidebarNav";
 import { SidebarToggle } from "@/components/SidebarToggle";
 import { roleLabels } from "@/lib/navigation";
@@ -55,8 +56,8 @@ export async function Shell({
 }) {
   const session = await currentSession();
   if (!session) redirect("/login");
-  if (!allowAccountSetup && session.must_change_password) redirect("/settings/password");
-  if (!allowAccountSetup && session.mfa_setup_required) redirect("/settings/security");
+  if (!session.is_impersonating && !allowAccountSetup && session.must_change_password) redirect("/settings/password");
+  if (!session.is_impersonating && !allowAccountSetup && session.mfa_setup_required) redirect("/settings/security");
 
   const role = session.role_key;
   const allowed = allowedRoles.includes(role);
@@ -75,7 +76,10 @@ export async function Shell({
         <SidebarNav role={role} />
         <div className={`sidebar-footer ${styles.footer}`}><AppLinks /><LogoutButton /></div>
       </aside>
-      <main className="main">{allowed ? children : <AccessRestricted role={role} allowedRoles={allowedRoles} />}</main>
+      <main className="main">
+        {session.is_impersonating ? <ImpersonationBanner targetName={session.display_name} targetRole={roleLabels[role]} /> : null}
+        {allowed ? children : <AccessRestricted role={role} allowedRoles={allowedRoles} />}
+      </main>
     </div>
   );
 }

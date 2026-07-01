@@ -11,6 +11,7 @@ from api.cash_advances import router as cash_advances_router
 from api.cash_repayments import router as cash_repayments_router
 from api.employees import router as employees_router
 from api.hr_records import router as hr_records_router
+from api.impersonation import router as impersonation_router
 from api.main import (
     API_PREFIX,
     ROLE_OWNER,
@@ -112,6 +113,7 @@ SCHEDULES_EXCLUDED_ROUTES = {
 }
 
 ROUTERS = (
+    impersonation_router,
     payroll_drafts_router,
     payroll_return_router,
     payroll_review_router,

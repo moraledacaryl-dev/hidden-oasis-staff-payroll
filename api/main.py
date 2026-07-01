@@ -27,6 +27,7 @@ from core.quality import build_payroll_preflight_checks, summarize_checks
 APP_VERSION = "1.0.0"
 API_PREFIX = "/api/v1"
 SESSION_TTL_SECONDS = 12 * 60 * 60
+IMPERSONATION_TTL_SECONDS = 30 * 60
 ROLE_OWNER = "owner"
 ROLE_PAYROLL = "payroll"
 ROLE_SUPERVISOR = "supervisor"
@@ -148,17 +149,70 @@ def verify_token(token: str) -> dict[str, Any]:
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session token.")
 
+def session_users_from_payload(conn: Any, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    user = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (payload.get("sub"),))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists or is inactive.")
+    if int(payload.get("sv") or 1) != int(user.get("session_version") or 1):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session has been revoked.")
+
+    impersonator_id = payload.get("imp_by")
+    if impersonator_id is None:
+        return user, None
+    impersonator = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (impersonator_id,))
+    if (
+        not impersonator
+        or int(impersonator.get("id") or 0) == int(user.get("id") or 0)
+        or role_to_key(impersonator.get("role")) != ROLE_OWNER
+        or int(payload.get("imp_sv") or 0) != int(impersonator.get("session_version") or 1)
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Owner view session is no longer valid.")
+    return user, impersonator
+
+def log_impersonated_action(
+    context: dict[str, Any],
+    *,
+    method: str,
+    path: str,
+    status_code: int,
+    ip_address: str | None,
+) -> None:
+    with db_conn(read_only=False) as conn:
+        log_audit(
+            conn,
+            actor=context["owner_name"],
+            action="Owner acted as user",
+            table_name="app_users",
+            record_id=context["target_id"],
+            details={
+                "owner_id": context["owner_id"],
+                "target": context["target_name"],
+                "method": method,
+                "path": path,
+                "status_code": status_code,
+                "ip_address": ip_address,
+            },
+        )
+        conn.commit()
+
 def current_user_from_token(authorization: str | None = Header(default=None, alias="Authorization")) -> dict[str, Any]:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token.")
     payload = verify_token(authorization.removeprefix("Bearer ").strip())
     with db_conn(read_only=True) as conn:
-        user = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (payload.get("sub"),))
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists or is inactive.")
-    if int(payload.get("sv") or 1) != int(user.get("session_version") or 1):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session has been revoked.")
-    return public_user(user)
+        user, impersonator = session_users_from_payload(conn, payload)
+    result = public_user(user)
+    if impersonator:
+        result.update(
+            {
+                "is_impersonating": 1,
+                "impersonator_id": int(impersonator["id"]),
+                "impersonator_name": impersonator.get("display_name") or "Owner",
+                "must_change_password": 0,
+                "mfa_setup_required": 0,
+            }
+        )
+    return result
 
 def require_authenticated_user(user: dict[str, Any] = Depends(current_user_from_token)) -> dict[str, Any]:
     return user
@@ -219,32 +273,42 @@ def build_app() -> FastAPI:
     @app.middleware("http")
     async def enforce_account_security(request: Request, call_next):
         path = request.url.path
+        impersonation_context: dict[str, Any] | None = None
         exempt = {
             f"{API_PREFIX}/auth/login",
             f"{API_PREFIX}/auth/me",
             f"{API_PREFIX}/auth/change-password",
         }
         authorization = request.headers.get("Authorization", "")
-        if (
-            request.method != "OPTIONS"
-            and path.startswith(API_PREFIX)
-            and path not in exempt
-            and authorization.startswith("Bearer ")
-        ):
+        if request.method != "OPTIONS" and path.startswith(API_PREFIX) and authorization.startswith("Bearer "):
             try:
                 payload = verify_token(authorization.removeprefix("Bearer ").strip())
                 with db_conn(read_only=True) as conn:
-                    user = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (payload.get("sub"),))
-                if user and int(payload.get("sv") or 1) != int(user.get("session_version") or 1):
-                    return JSONResponse({"detail": "Session has been revoked."}, status_code=401)
-                if user and int(user.get("must_change_password") or 0):
+                    user, impersonator = session_users_from_payload(conn, payload)
+                if impersonator:
+                    impersonation_context = {
+                        "owner_id": int(impersonator["id"]),
+                        "owner_name": impersonator.get("display_name") or "Owner",
+                        "target_id": int(user["id"]),
+                        "target_name": user.get("display_name") or "",
+                    }
+                if path not in exempt and int(user.get("must_change_password") or 0):
                     return JSONResponse(
                         {"detail": "Change your temporary password first.", "code": "password_change_required"},
                         status_code=428,
                     )
             except HTTPException:
                 pass
-        return await call_next(request)
+        response = await call_next(request)
+        if impersonation_context and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            log_impersonated_action(
+                impersonation_context,
+                method=request.method,
+                path=path,
+                status_code=response.status_code,
+                ip_address=request.client.host if request.client else None,
+            )
+        return response
 
     @app.get("/health", response_model=ApiMessage)
     def health() -> ApiMessage:

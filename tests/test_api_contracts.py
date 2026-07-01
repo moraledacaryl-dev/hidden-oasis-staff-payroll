@@ -14,6 +14,8 @@ class ApiContractTests(unittest.TestCase):
             "/api/v1/auth/login",
             "/api/v1/auth/change-password",
             "/api/v1/auth/mfa/setup",
+            "/api/v1/auth/impersonate",
+            "/api/v1/auth/impersonate/end",
             "/api/v1/users",
             "/api/v1/staff/employees",
             "/api/v1/schedules/shifts",
