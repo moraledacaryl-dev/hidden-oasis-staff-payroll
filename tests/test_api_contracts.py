@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from api.server import app
+from api.server import app, assert_unique_route_registry
 from api.users import normalized_role
 
 
@@ -37,6 +37,9 @@ class ApiContractTests(unittest.TestCase):
                 if isinstance(operation, dict) and operation.get("operationId"):
                     operation_ids.append(str(operation["operationId"]))
         self.assertEqual(len(operation_ids), len(set(operation_ids)))
+
+    def test_route_registry_has_no_duplicate_path_methods(self):
+        assert_unique_route_registry(app)
 
     def test_versioned_python_modules_are_removed(self):
         api_dir = Path(__file__).resolve().parents[1] / "api"
