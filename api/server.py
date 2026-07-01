@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI
@@ -97,6 +98,41 @@ def _route_key(route: Any) -> tuple[str, str] | None:
     return str(path), ",".join(sorted(str(method).upper() for method in methods))
 
 
+def _route_method_keys(route: Any) -> list[tuple[str, str]]:
+    path = getattr(route, "path", None)
+    methods = getattr(route, "methods", None)
+    if not path or not methods:
+        return []
+    return [(str(path), str(method).upper()) for method in methods]
+
+
+def _route_endpoint_name(route: Any) -> str:
+    endpoint = getattr(route, "endpoint", None)
+    return getattr(endpoint, "__name__", repr(endpoint))
+
+
+def assert_unique_route_registry(application: FastAPI) -> None:
+    """Fail fast when two active routes claim the same path and HTTP method."""
+    by_method: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for route in application.router.routes:
+        for key in _route_method_keys(route):
+            by_method[key].append(_route_endpoint_name(route))
+
+    duplicates = {
+        key: endpoints
+        for key, endpoints in by_method.items()
+        if len(endpoints) > 1
+    }
+    if not duplicates:
+        return
+
+    details = "; ".join(
+        f"{method} {path} -> {', '.join(endpoints)}"
+        for (path, method), endpoints in sorted(duplicates.items())
+    )
+    raise RuntimeError(f"Duplicate API route registrations detected: {details}")
+
+
 def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: set[tuple[str, str]]) -> None:
     """Include a router without mutating the imported router object."""
     filtered = APIRouter()
@@ -155,3 +191,4 @@ for router in ROUTERS:
     app.include_router(router)
 _include_router_filtered(app, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
 app.include_router(staff_self_service_router)
+assert_unique_route_registry(app)
