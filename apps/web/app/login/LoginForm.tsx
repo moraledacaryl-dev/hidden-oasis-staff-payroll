@@ -29,9 +29,7 @@ export function LoginForm() {
     const data = await response.json();
     const actualRole = (data.user?.role_key || "staff") as RoleKey;
     const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : null;
-    const destination = data.user?.must_change_password
-      ? "/settings/password"
-      : safeNext || defaultPathForRole(actualRole);
+    const destination = safeNext || defaultPathForRole(actualRole);
     router.push(destination);
     router.refresh();
   }
