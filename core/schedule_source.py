@@ -83,47 +83,12 @@ def legacy_schedule_rows(
     period_end: str,
     employee_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    cols = table_columns(conn, "schedules")
-    date_col = first_existing(cols, ["work_date", "shift_date", "date", "schedule_date"])
-    start_col = first_existing(cols, ["shift_start", "start_time", "time_in", "scheduled_in"])
-    end_col = first_existing(cols, ["shift_end", "end_time", "time_out", "scheduled_out"])
-    if not date_col or not start_col or not end_col or "employee_id" not in cols:
-        return []
+    """Deprecated: legacy schedules are no longer a runtime payroll source.
 
-    break_col = first_existing(cols, ["break_minutes", "break_mins", "unpaid_break_minutes"])
-    department_col = first_existing(cols, ["department", "department_name"])
-    rest_col = first_existing(cols, ["is_rest_day", "rest_day"])
-    notes_col = first_existing(cols, ["notes", "note"])
-    break_expr = f"s.{break_col}" if break_col else "60"
-    department_expr = f"s.{department_col}" if department_col else "NULL"
-    rest_expr = f"s.{rest_col}" if rest_col else "0"
-    notes_expr = f"s.{notes_col}" if notes_col else "NULL"
-    params: list[Any] = [period_start, period_end]
-    employee_filter = ""
-    if employee_id is not None:
-        employee_filter = " AND s.employee_id=?"
-        params.append(employee_id)
-
-    rows = fetchall(
-        conn,
-        f"""
-        SELECT
-            s.employee_id,
-            s.{date_col} AS work_date,
-            s.{start_col} AS shift_start,
-            s.{end_col} AS shift_end,
-            {break_expr} AS break_minutes,
-            {department_expr} AS department,
-            {rest_expr} AS is_rest_day,
-            {notes_expr} AS notes
-        FROM schedules s
-        WHERE date(s.{date_col}) BETWEEN date(?) AND date(?)
-          {employee_filter}
-        ORDER BY s.{date_col}, s.{start_col}, s.id
-        """,
-        tuple(params),
-    )
-    return [_normalize_schedule_row(row, "legacy_schedules") for row in rows]
+    Imported historical rows must be migrated into scheduled_shifts before they
+    can affect payroll, attendance, or compliance logic.
+    """
+    return []
 
 
 def trusted_schedule_rows(
@@ -132,19 +97,9 @@ def trusted_schedule_rows(
     period_end: str,
     employee_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Return payroll schedule rows, preferring the editable scheduled_shifts table.
-
-    Legacy schedules remain as a fallback only for employee/date pairs that have
-    not been migrated or recreated in scheduled_shifts.
-    """
+    """Return payroll schedule rows from the editable scheduled_shifts table only."""
     planned = scheduled_shift_rows(conn, period_start, period_end, employee_id)
-    planned_keys = {(row["employee_id"], row["work_date"]) for row in planned}
-    fallback = [
-        row
-        for row in legacy_schedule_rows(conn, period_start, period_end, employee_id)
-        if (row["employee_id"], row["work_date"]) not in planned_keys
-    ]
-    return sorted(planned + fallback, key=lambda row: (str(row["work_date"]), str(row["shift_start"]), int(row["employee_id"] or 0)))
+    return sorted(planned, key=lambda row: (str(row["work_date"]), str(row["shift_start"]), int(row["employee_id"] or 0)))
 
 
 def trusted_scheduled_workdays(conn: sqlite3.Connection, period_start: str, period_end: str) -> list[dict[str, Any]]:
