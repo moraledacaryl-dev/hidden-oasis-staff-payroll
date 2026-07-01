@@ -11,7 +11,7 @@ export default async function PasswordSettingsPage() {
             <h1>Change password</h1>
           </div>
         </header>
-        <section className="card">
+        <section className="card content-narrow">
           <PasswordChangeForm />
         </section>
       </div>

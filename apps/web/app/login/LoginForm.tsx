@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { LogIn } from "lucide-react";
 import { defaultPathForRole } from "@/lib/session-client";
 import type { RoleKey } from "@/lib/types";
 
@@ -11,11 +12,13 @@ export function LoginForm() {
   const [displayName, setDisplayName] = useState("");
   const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const next = useMemo(() => searchParams.get("next"), [searchParams]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setBusy(true);
     const response = await fetch("/api/session/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -24,6 +27,7 @@ export function LoginForm() {
     if (!response.ok) {
       const failed = await response.json().catch(() => ({}));
       setError(failed.message || "Sign in failed.");
+      setBusy(false);
       return;
     }
     const data = await response.json();
@@ -38,10 +42,10 @@ export function LoginForm() {
     <form className="login-card" onSubmit={submit}>
       <div className="brand-mark">HO</div>
       <div className="grid"><span className="eyebrow">Staff Payroll</span><h1>Sign in</h1></div>
-      <div className="field"><label htmlFor="displayName">Display name</label><input id="displayName" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Name" /></div>
-      <div className="field"><label htmlFor="secret">Password</label><input id="secret" type="password" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="Password" /></div>
-      {error ? <p className="badge danger">{error}</p> : null}
-      <button className="primary-button" type="submit">Sign in</button>
+      <div className="field"><label htmlFor="displayName">Display name</label><input id="displayName" value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="username" required /></div>
+      <div className="field"><label htmlFor="secret">Password</label><input id="secret" type="password" value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="current-password" required /></div>
+      {error ? <p className="badge danger" role="alert">{error}</p> : null}
+      <button className="primary-button" type="submit" disabled={busy}><LogIn aria-hidden="true" size={17} />{busy ? "Signing in..." : "Sign in"}</button>
     </form>
   );
 }

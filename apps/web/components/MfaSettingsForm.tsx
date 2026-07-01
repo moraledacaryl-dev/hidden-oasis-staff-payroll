@@ -59,11 +59,13 @@ export function MfaSettingsForm({ enabled }: { enabled: boolean }) {
 
   if (enabled) {
     return (
-      <div className="form-grid">
-        <label>Current password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-        <label>Authenticator code<input inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} /></label>
-        <button className="button danger" type="button" disabled={busy || !password || code.length !== 6} onClick={disable}>Disable authenticator</button>
-        {message ? <p className="muted">{message}</p> : null}
+      <div className="form-panel">
+        <div className="form-grid">
+          <label>Current password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          <label>Authenticator code<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} /></label>
+        </div>
+        <div className="action-row"><button className="button danger" type="button" disabled={busy || !password || code.length !== 6} onClick={disable}>Disable authenticator</button></div>
+        {message ? <p className="muted" role="status">{message}</p> : null}
       </div>
     );
   }
@@ -76,12 +78,12 @@ export function MfaSettingsForm({ enabled }: { enabled: boolean }) {
           <div className="copy-box"><strong>{setup.secret}</strong></div>
           <a className="primary-link" href={setup.otpauth_uri}>Open authenticator app</a>
           <div className="form-grid">
-            <label>Authenticator code<input inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} /></label>
+            <label>Authenticator code<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} /></label>
             <button className="button" type="button" disabled={busy || code.length !== 6} onClick={confirm}>Confirm</button>
           </div>
         </>
       ) : null}
-      {message ? <p className="muted">{message}</p> : null}
+      {message ? <p className="muted" role="status">{message}</p> : null}
     </div>
   );
 }

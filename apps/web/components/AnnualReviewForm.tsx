@@ -88,7 +88,7 @@ export function AnnualReviewForm({ employee, review, previousReviews, reviewYear
       <strong>{employee.full_name}</strong>
 
       {previousReviews.length ? (
-        <section className="card">
+        <section className="action-item">
           <strong>Previous comments</strong>
           {previousReviews.map((previous) => (
             <div key={previous.id} className="grid" style={{ gap: 4, marginTop: 8 }}>

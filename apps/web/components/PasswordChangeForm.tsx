@@ -45,12 +45,14 @@ export function PasswordChangeForm() {
   }
 
   return (
-    <form action={submit} className="form-grid">
-      <label>Current password<input name="current_password" type="password" required autoComplete="current-password" /></label>
-      <label>New password<input name="new_password" type="password" required minLength={12} autoComplete="new-password" /></label>
-      <label>Confirm new password<input name="confirm_password" type="password" required minLength={12} autoComplete="new-password" /></label>
-      <button className="primary-button" type="submit" disabled={busy}>{busy ? "Changing..." : "Change password"}</button>
-      {message ? <p className="muted">{message}</p> : null}
+    <form action={submit} className="form-panel">
+      <div className="form-grid">
+        <label>Current password<input name="current_password" type="password" required autoComplete="current-password" /></label>
+        <label>New password<input name="new_password" type="password" required minLength={12} autoComplete="new-password" /></label>
+        <label>Confirm new password<input name="confirm_password" type="password" required minLength={12} autoComplete="new-password" /></label>
+      </div>
+      <div className="action-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Changing..." : "Change password"}</button></div>
+      {message ? <p className="muted" role="status">{message}</p> : null}
     </form>
   );
 }

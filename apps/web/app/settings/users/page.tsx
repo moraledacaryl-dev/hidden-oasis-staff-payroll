@@ -23,9 +23,7 @@ export default async function UserSettingsPage() {
             <div className="action-row"><Link className="button ghost" href="/settings">Settings</Link><Link className="button ghost" href="/settings/security">My security</Link></div>
           </div>
         </header>
-        <section className="card">
-          <UserManagementClient users={users.items} employees={employees} />
-        </section>
+        <UserManagementClient users={users.items} employees={employees} />
       </div>
     </Shell>
   );

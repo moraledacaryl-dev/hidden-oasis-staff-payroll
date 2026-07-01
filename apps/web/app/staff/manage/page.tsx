@@ -79,7 +79,25 @@ export default async function ManageStaffPage({ searchParams }: { searchParams: 
 
   return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div className="page">
     <header className="page-header"><div className="grid"><span className="eyebrow">Staff</span><h1>Manage employees</h1><div className="action-row"><Link className="button ghost" href="/staff">Staff directory</Link></div></div></header>
-    <details id="add-employee" className="card" open={addOpen}><summary><strong>Add employee</strong></summary><form action={saveEmployee.bind(null, null)} className="grid" style={{marginTop:14}}><Fields canEditBenefits={canEditBenefits} /><button className="primary-button" type="submit">Add employee</button></form></details>
-    <section className="grid">{employees.map(item => <details id={`employee-${item.id}`} className="card" key={item.id} open={selectedEmployeeId === item.id}><summary><strong>{item.full_name}</strong> · {item.employee_code} · {item.status}</summary><form action={saveEmployee.bind(null, item.id)} className="grid" style={{marginTop:14}}><Fields item={item} canEditBenefits={canEditBenefits} /><div className="action-row"><button className="primary-button" type="submit">Save changes</button><Link className="button ghost" href="/staff">Cancel</Link></div></form></details>)}</section>
+    <details id="add-employee" className="card details-card" open={addOpen}>
+      <summary><strong>Add employee</strong></summary>
+      <form action={saveEmployee.bind(null, null)} className="details-body">
+        <Fields canEditBenefits={canEditBenefits} />
+        <div className="action-row"><button className="primary-button" type="submit">Add employee</button></div>
+      </form>
+    </details>
+    <section className="grid">
+      {employees.map((item) => (
+        <details id={`employee-${item.id}`} className="card details-card" key={item.id} open={selectedEmployeeId === item.id}>
+          <summary>
+            <span><strong>{item.full_name}</strong><br /><span className="muted">{item.employee_code} · {item.status}</span></span>
+          </summary>
+          <form action={saveEmployee.bind(null, item.id)} className="details-body">
+            <Fields item={item} canEditBenefits={canEditBenefits} />
+            <div className="action-row"><button className="primary-button" type="submit">Save changes</button><Link className="button ghost" href="/staff">Cancel</Link></div>
+          </form>
+        </details>
+      ))}
+    </section>
   </div></Shell>;
 }

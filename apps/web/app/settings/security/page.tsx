@@ -13,7 +13,7 @@ export default async function SecuritySettingsPage() {
             <h1>Authenticator</h1>
           </div>
         </header>
-        <section className="card">
+        <section className="card content-narrow">
           <MfaSettingsForm enabled={Boolean(session?.mfa_enabled)} />
         </section>
       </div>

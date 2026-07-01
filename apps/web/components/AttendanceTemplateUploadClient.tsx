@@ -179,10 +179,6 @@ export function AttendanceTemplateUploadClient() {
             />
           </label>
         </div>
-        <p className="muted">
-          Enter any day count from 1 to 31. The download includes every active employee name and employee code for each selected date.
-          Leave time_in/time_out blank until you update them from the biometric/manual log.
-        </p>
       </section>
 
       <section className="card">
