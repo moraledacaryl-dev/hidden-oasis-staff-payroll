@@ -44,7 +44,10 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
             <h1>Cutoff preview</h1>
             <p className="muted">Check totals before saving a run. You can preview any cutoff even before a draft exists.</p>
           </div>
-          <div className="badge-row"><StatusBadge label={`${periodStart} to ${periodEnd}`} tone="warning" /><StatusBadge label={preview.mode} tone="warning" /></div>
+          <div className="badge-row">
+            <StatusBadge label={`${periodStart} to ${periodEnd}`} tone="warning" />
+            <StatusBadge label={preview.mode} tone="warning" />
+          </div>
         </header>
 
         <section className="card cutoff-toolbar" data-payroll-preview-selector="true">
@@ -65,6 +68,60 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
           </form>
         </section>
 
-        <section className="grid cols-4"><MetricCard label="Employees" value={preview.totals.employees} /><MetricCard label="Gross pay" value={peso(preview.totals.gross_pay)} /><MetricCard label="Leave pay" value={peso(preview.items.reduce((sum, item) => sum + Number(item.paid_leave_pay || 0), 0))} /><MetricCard label="Net pay" value={peso(preview.totals.net_pay)} /></section>
+        <section className="grid cols-4">
+          <MetricCard label="Employees" value={preview.totals.employees} />
+          <MetricCard label="Gross pay" value={peso(preview.totals.gross_pay)} />
+          <MetricCard label="Leave pay" value={peso(preview.items.reduce((sum, item) => sum + Number(item.paid_leave_pay || 0), 0))} />
+          <MetricCard label="Net pay" value={peso(preview.totals.net_pay)} />
+        </section>
+
         <section className="grid cols-2">
-          <div className="card"><div className="panel-title"><div><h2>QA checks</h2><p className="muted">Blockers and warnings.</p></div><StatusBadge label={preview.summary} tone={preview.checks.some((c) => c.severity === "Blocker") ? "danger" : "warning
+          <div className="card">
+            <div className="panel-title">
+              <div>
+                <h2>QA checks</h2>
+                <p className="muted">Blockers and warnings.</p>
+              </div>
+              <StatusBadge label={preview.summary} tone={preview.checks.some((c) => c.severity === "Blocker") ? "danger" : "warning"} />
+            </div>
+            <div className="action-list">
+              {preview.checks.map((check, index) => (
+                <div className="action-item" key={`${check.category}-${index}`}>
+                  <div className="badge-row"><StatusBadge label={check.severity} tone={severityTone(check.severity)} /></div>
+                  <strong>{check.category}</strong>
+                  <p>{check.issue}</p>
+                  <p className="muted">{check.recommended_action}</p>
+                </div>
+              ))}
+              {preview.checks.length === 0 ? <p className="muted">No QA checks.</p> : null}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="panel-title">
+              <div>
+                <h2>Next steps</h2>
+                <p className="muted">Keep each action separate.</p>
+              </div>
+            </div>
+            <div className="action-list">
+              <Link className="action-item" href={`/cutoff?month=${selected.month}&half=${selected.half}`}><strong>Save draft</strong><p className="muted">Open Cutoff Control for this period.</p></Link>
+              <Link className="action-item" href="/payroll/runs"><strong>Review runs</strong><p className="muted">Approve or reopen saved runs.</p></Link>
+              <Link className="action-item" href="/payroll/runs"><strong>Mark paid</strong><p className="muted">Owner only, after approval.</p></Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="panel-title">
+            <div>
+              <h2>Employee lines</h2>
+              <p className="muted">Click an employee to inspect earnings, deductions, cash advance deduction, and warnings.</p>
+            </div>
+          </div>
+          <PayrollEmployeeLines items={preview.items} />
+        </section>
+      </div>
+    </Shell>
+  );
+}
