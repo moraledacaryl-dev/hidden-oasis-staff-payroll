@@ -179,7 +179,7 @@ def confirmed_new_repayments(conn, cash_advance_id: int) -> float:
         FROM cash_advance_repayments r
         LEFT JOIN payroll_runs pr ON pr.id=r.payroll_run_id
         WHERE r.cash_advance_id=? AND COALESCE(r.active,1)=1
-          AND (r.source='Manual' OR COALESCE(pr.status,'') IN ('For Owner Review','Reviewed','Approved','Paid','Locked','Released'))
+          AND (r.source='Manual' OR COALESCE(pr.status,'') IN ('Paid','Locked','Released'))
     """, (cash_advance_id,)) or {}
     return round(float(row.get("total") or 0), 2)
 

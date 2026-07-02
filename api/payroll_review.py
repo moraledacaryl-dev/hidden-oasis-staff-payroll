@@ -295,20 +295,22 @@ def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: st
             COALESCE(ca.amount, 0) AS original_amount,
             COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) AS balance,
             COALESCE(ca.deduction_per_payroll, ca.repayment_per_cutoff, ca.custom_next_deduction, 0) AS scheduled_deduction,
-            COALESCE(pi.cash_advance_deduction, 0) AS applied,
+            COALESCE(r.amount, 0) AS applied,
+            r.id AS repayment_id,
             ca.reason
         FROM cash_advances ca
         LEFT JOIN employees e ON e.id = ca.employee_id
-        LEFT JOIN payroll_items pi
-          ON pi.payroll_run_id = ?
-         AND pi.employee_id = ca.employee_id
+        LEFT JOIN cash_advance_repayments r
+          ON r.cash_advance_id = ca.id
+         AND r.payroll_run_id = ?
+         AND COALESCE(r.active,1)=1
         WHERE COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) > 0
           AND COALESCE(ca.status, '') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
           AND lower(COALESCE(ca.repayment_method, 'Payroll deduction')) LIKE '%payroll%'
-          AND date(COALESCE(ca.advance_date, ca.request_date)) BETWEEN date(?) AND date(?)
+          AND date(COALESCE(ca.advance_date, ca.request_date)) <= date(?)
         ORDER BY e.full_name, date(COALESCE(ca.advance_date, ca.request_date)), ca.id
         """,
-        (run_id, period_start, period_end),
+        (run_id, period_end),
     )
 
     out = []
@@ -341,10 +343,13 @@ def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: st
             "employee_id": row.get("employee_id"),
             "name": row.get("name") or f"Employee {row.get('employee_id')}",
             "cash_advance_id": row.get("cash_advance_id"),
+            "repayment_id": row.get("repayment_id"),
             "advance_date": row.get("advance_date"),
             "original_amount": round(float(row.get("original_amount") or 0), 2),
+            "balance_before_run": round(balance, 2),
             "expected": round(expected, 2),
             "applied": round(applied, 2),
+            "balance_after_run": round(max(0.0, balance - applied), 2),
             "status": status,
             "reason": row.get("reason"),
         })

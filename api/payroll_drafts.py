@@ -79,10 +79,10 @@ def _apply_period_cash_advance_deduction(conn: Any, result: Any, period_start: s
           AND COALESCE(remaining_balance, outstanding_balance, amount, 0) > 0
           AND COALESCE(status,'') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
           AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
-          AND date(COALESCE(advance_date, request_date)) BETWEEN date(?) AND date(?)
+          AND date(COALESCE(advance_date, request_date)) <= date(?)
         ORDER BY date(COALESCE(advance_date, request_date)), id
         """,
-        (employee_id, period_start, period_end),
+        (employee_id, period_end),
     )
     statutory_and_manual = (
         float(result.sss_ee or 0)

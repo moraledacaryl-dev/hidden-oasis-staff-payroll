@@ -88,7 +88,20 @@ def current_adjustment(conn, run_id: int, employee_id: int, item: dict[str, Any]
     advance_id = int(linked["cash_advance_id"]) if linked and linked.get("cash_advance_id") else None
 
     if current_cash > 0 and not advance_id:
-        candidates = fetchall(conn, "SELECT id FROM cash_advances WHERE employee_id=? AND status<>'Cancelled' ORDER BY date(advance_date),id", (employee_id,))
+        candidates = fetchall(
+            conn,
+            """
+            SELECT id
+            FROM cash_advances
+            WHERE employee_id=?
+              AND status<>'Cancelled'
+              AND date(COALESCE(advance_date, request_date)) <= date(
+                  COALESCE((SELECT period_end FROM payroll_runs WHERE id=?), date('now'))
+              )
+            ORDER BY date(COALESCE(advance_date, request_date)), id
+            """,
+            (employee_id, run_id),
+        )
         if len(candidates) == 1:
             advance_id = int(candidates[0]["id"])
 
@@ -116,7 +129,18 @@ def get_adjustments(run_id: int, employee_id: int, authorization: str | None = H
         adjustment = current_adjustment(conn, run_id, employee_id, item)
         selected_id = int(adjustment.get("cash_advance_id") or 0)
         options = []
-        for advance in fetchall(conn, "SELECT * FROM cash_advances WHERE employee_id=? AND status<>'Cancelled' ORDER BY date(advance_date),id", (employee_id,)):
+        for advance in fetchall(
+            conn,
+            """
+            SELECT *
+            FROM cash_advances
+            WHERE employee_id=?
+              AND status<>'Cancelled'
+              AND date(COALESCE(advance_date, request_date)) <= date(?)
+            ORDER BY date(COALESCE(advance_date, request_date)), id
+            """,
+            (employee_id, run.get("period_end")),
+        ):
             selected = selected_id == int(advance["id"])
             available = recalculate_balance(conn, int(advance["id"]))["balance"] - reserved(conn, int(advance["id"]), run_id)
             if available > 0 or selected:
@@ -166,6 +190,10 @@ def save_adjustments(run_id: int, employee_id: int, payload: AdjustmentPayload, 
             advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=? AND employee_id=?", (payload.cash_advance_id, employee_id))
             if not advance:
                 raise HTTPException(status_code=404, detail="Cash advance not found for this employee.")
+            advance_date = str(advance.get("advance_date") or advance.get("request_date") or "")[:10]
+            period_end = str(run.get("period_end") or "")[:10]
+            if advance_date and period_end and advance_date > period_end:
+                raise HTTPException(status_code=422, detail="This cash advance is dated after the payroll period and cannot be applied to this run.")
             available = recalculate_balance(conn, int(payload.cash_advance_id))["balance"] - reserved(conn, int(payload.cash_advance_id), run_id)
             if cash > round(available, 2):
                 raise HTTPException(status_code=422, detail=f"Deduction cannot exceed the available balance of {available:.2f}.")
