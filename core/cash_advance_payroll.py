@@ -7,12 +7,28 @@ from api.cash_advance_service import ensure_schema, now_iso, recalculate_balance
 from core.db import fetchall, fetchone
 
 
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _insert_repayment(conn: sqlite3.Connection, values: dict[str, Any]) -> None:
+    columns = _columns(conn, "cash_advance_repayments")
+    insert_values = {column: value for column, value in values.items() if column in columns}
+    column_list = ", ".join(insert_values)
+    placeholders = ", ".join("?" for _ in insert_values)
+    conn.execute(
+        f"INSERT INTO cash_advance_repayments({column_list}) VALUES({placeholders})",
+        list(insert_values.values()),
+    )
+
+
 def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int, actor: str | None = None, reference: str | None = None) -> None:
     """Record cash-advance repayments from a paid payroll run.
 
     Payroll items already store the computed cash_advance_deduction. This function
     allocates each employee's deduction against that employee's outstanding cash
-    advances and writes rows to the current cash_advance_repayments schema.
+    advances and writes rows to both current and legacy repayment columns when
+    the live database still has legacy NOT NULL fields.
     """
     ensure_schema(conn)
     run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
@@ -59,30 +75,29 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
                 continue
             amount = round(min(remaining, balance), 2)
             stamp = now_iso()
-            conn.execute(
-                """
-                INSERT INTO cash_advance_repayments(
-                    cash_advance_id, employee_id, repayment_date, amount, source,
-                    payment_method, payroll_run_id, payroll_item_id, reference,
-                    notes, active, created_by, created_at, updated_by, updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)
-                """,
-                (
-                    advance["id"],
-                    item["employee_id"],
-                    run.get("payout_date") or now_iso()[:10],
-                    amount,
-                    "Payroll",
-                    "Payroll deduction",
-                    run_id,
-                    item.get("id"),
-                    reference,
-                    f"Auto-applied from payroll run {run_id}",
-                    actor,
-                    stamp,
-                    actor,
-                    stamp,
-                ),
+            payment_date = run.get("payout_date") or now_iso()[:10]
+            method = "Payroll deduction"
+            _insert_repayment(
+                conn,
+                {
+                    "cash_advance_id": advance["id"],
+                    "employee_id": item["employee_id"],
+                    "repayment_date": payment_date,
+                    "payment_date": payment_date,
+                    "amount": amount,
+                    "source": "Payroll",
+                    "payment_method": method,
+                    "method": method,
+                    "payroll_run_id": run_id,
+                    "payroll_item_id": item.get("id"),
+                    "reference": reference or f"Payroll run {run_id}",
+                    "notes": f"Auto-applied from payroll run {run_id}",
+                    "active": 1,
+                    "created_by": actor,
+                    "created_at": stamp,
+                    "updated_by": actor,
+                    "updated_at": stamp,
+                },
             )
             recalculate_balance(conn, int(advance["id"]))
             remaining = round(remaining - amount, 2)
