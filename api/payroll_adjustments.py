@@ -26,6 +26,43 @@ def stamp() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
 
+def _columns(conn, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _insert_or_update_payroll_repayment(conn, values: dict[str, Any]) -> None:
+    columns = _columns(conn, "cash_advance_repayments")
+    insert_values = {column: value for column, value in values.items() if column in columns}
+    column_list = ",".join(insert_values)
+    placeholders = ",".join("?" for _ in insert_values)
+    update_assignments = [
+        assignment for assignment in [
+            "amount=excluded.amount" if "amount" in insert_values else None,
+            "payroll_item_id=excluded.payroll_item_id" if "payroll_item_id" in insert_values else None,
+            "repayment_date=excluded.repayment_date" if "repayment_date" in insert_values else None,
+            "payment_date=excluded.payment_date" if "payment_date" in insert_values else None,
+            "payment_method=excluded.payment_method" if "payment_method" in insert_values else None,
+            "method=excluded.method" if "method" in insert_values else None,
+            "reference=excluded.reference" if "reference" in insert_values else None,
+            "notes=excluded.notes" if "notes" in insert_values else None,
+            "active=1" if "active" in columns else None,
+            "updated_by=excluded.updated_by" if "updated_by" in insert_values else None,
+            "updated_at=excluded.updated_at" if "updated_at" in insert_values else None,
+            "reversed_by=NULL" if "reversed_by" in columns else None,
+            "reversed_at=NULL" if "reversed_at" in columns else None,
+            "reversal_reason=NULL" if "reversal_reason" in columns else None,
+        ] if assignment
+    ]
+    conn.execute(
+        f"""
+        INSERT INTO cash_advance_repayments({column_list}) VALUES({placeholders})
+        ON CONFLICT(cash_advance_id,payroll_run_id) WHERE payroll_run_id IS NOT NULL
+        DO UPDATE SET {','.join(update_assignments)}
+        """,
+        list(insert_values.values()),
+    )
+
+
 def ensure_schema(conn) -> None:
     ensure_cash_schema(conn)
     conn.execute("CREATE TABLE IF NOT EXISTS payroll_item_adjustments (id INTEGER PRIMARY KEY AUTOINCREMENT,payroll_run_id INTEGER NOT NULL,payroll_item_id INTEGER NOT NULL,employee_id INTEGER NOT NULL,additional_earning REAL NOT NULL DEFAULT 0,additional_earning_note TEXT,other_deduction REAL NOT NULL DEFAULT 0,other_deduction_note TEXT,cash_advance_id INTEGER,cash_advance_amount REAL NOT NULL DEFAULT 0,created_by TEXT,created_at TEXT NOT NULL,updated_by TEXT,updated_at TEXT NOT NULL,UNIQUE(payroll_run_id,employee_id))")
@@ -158,7 +195,27 @@ def save_adjustments(run_id: int, employee_id: int, payload: AdjustmentPayload, 
         if old_advance and old_advance != payload.cash_advance_id:
             conn.execute("UPDATE cash_advance_repayments SET active=0,reversed_by=?,reversed_at=?,reversal_reason='Payroll deduction changed' WHERE cash_advance_id=? AND payroll_run_id=?", (user.get("display_name"),now,old_advance,run_id))
         if payload.cash_advance_id and cash > 0:
-            conn.execute("INSERT INTO cash_advance_repayments(cash_advance_id,employee_id,repayment_date,amount,source,payment_method,payroll_run_id,payroll_item_id,active,created_by,created_at,updated_by,updated_at) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?) ON CONFLICT(cash_advance_id,payroll_run_id) WHERE payroll_run_id IS NOT NULL DO UPDATE SET amount=excluded.amount,payroll_item_id=excluded.payroll_item_id,active=1,updated_by=excluded.updated_by,updated_at=excluded.updated_at,reversed_by=NULL,reversed_at=NULL,reversal_reason=NULL", (payload.cash_advance_id,employee_id,run.get("payout_date") or run.get("period_end"),cash,"Payroll","Payroll deduction",run_id,item["id"],user.get("display_name"),now,user.get("display_name"),now))
+            payment_date = run.get("payout_date") or run.get("period_end")
+            method = "Payroll deduction"
+            _insert_or_update_payroll_repayment(conn, {
+                "cash_advance_id": payload.cash_advance_id,
+                "employee_id": employee_id,
+                "repayment_date": payment_date,
+                "payment_date": payment_date,
+                "amount": cash,
+                "source": "Payroll",
+                "payment_method": method,
+                "method": method,
+                "payroll_run_id": run_id,
+                "payroll_item_id": item["id"],
+                "reference": f"Payroll run {run_id} draft application",
+                "notes": "Applied from payroll draft employee adjustment.",
+                "active": 1,
+                "created_by": user.get("display_name"),
+                "created_at": now,
+                "updated_by": user.get("display_name"),
+                "updated_at": now,
+            })
         elif old_advance:
             conn.execute("UPDATE cash_advance_repayments SET active=0,reversed_by=?,reversed_at=?,reversal_reason='Removed from payroll draft' WHERE cash_advance_id=? AND payroll_run_id=?", (user.get("display_name"),now,old_advance,run_id))
 
