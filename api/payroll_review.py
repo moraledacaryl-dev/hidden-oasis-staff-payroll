@@ -282,6 +282,82 @@ def _cash_advance_audit(conn, run_id: int, period_start: str, period_end: str) -
     }
 
 
+
+def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: str) -> dict[str, Any]:
+    rows = fetchall(
+        conn,
+        """
+        SELECT
+            ca.id AS cash_advance_id,
+            ca.employee_id,
+            e.full_name AS name,
+            COALESCE(ca.advance_date, ca.request_date) AS advance_date,
+            COALESCE(ca.amount, 0) AS original_amount,
+            COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) AS balance,
+            COALESCE(ca.deduction_per_payroll, ca.repayment_per_cutoff, ca.custom_next_deduction, 0) AS scheduled_deduction,
+            COALESCE(pi.cash_advance_deduction, 0) AS applied,
+            ca.reason
+        FROM cash_advances ca
+        LEFT JOIN employees e ON e.id = ca.employee_id
+        LEFT JOIN payroll_items pi
+          ON pi.payroll_run_id = ?
+         AND pi.employee_id = ca.employee_id
+        WHERE COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) > 0
+          AND COALESCE(ca.status, '') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
+          AND lower(COALESCE(ca.repayment_method, 'Payroll deduction')) LIKE '%payroll%'
+          AND date(COALESCE(ca.advance_date, ca.request_date)) BETWEEN date(?) AND date(?)
+        ORDER BY e.full_name, date(COALESCE(ca.advance_date, ca.request_date)), ca.id
+        """,
+        (run_id, period_start, period_end),
+    )
+
+    out = []
+    expected_total = 0.0
+    applied_total = 0.0
+    issue_count = 0
+
+    for row in rows:
+        balance = float(row.get("balance") or 0)
+        scheduled = float(row.get("scheduled_deduction") or 0)
+        expected = min(balance, scheduled) if scheduled > 0 else 0.0
+        applied = float(row.get("applied") or 0)
+
+        if applied <= 0 and expected > 0:
+            status = "NOT APPLIED"
+        elif applied + 0.005 < expected:
+            status = "PARTIAL"
+        elif applied > expected + 0.005:
+            status = "OVER"
+        else:
+            status = "APPLIED"
+
+        if status != "APPLIED":
+            issue_count += 1
+
+        expected_total += expected
+        applied_total += applied
+
+        out.append({
+            "employee_id": row.get("employee_id"),
+            "name": row.get("name") or f"Employee {row.get('employee_id')}",
+            "cash_advance_id": row.get("cash_advance_id"),
+            "advance_date": row.get("advance_date"),
+            "original_amount": round(float(row.get("original_amount") or 0), 2),
+            "expected": round(expected, 2),
+            "applied": round(applied, 2),
+            "status": status,
+            "reason": row.get("reason"),
+        })
+
+    return {
+        "expected_total": round(expected_total, 2),
+        "applied_total": round(applied_total, 2),
+        "issue_count": issue_count,
+        "status": "OK" if issue_count == 0 else "Needs Review",
+        "rows": out,
+    }
+
+
 @router.get("/payroll/runs/{run_id}/review")
 def review_payroll_run(
     run_id: int,
@@ -316,7 +392,7 @@ def review_payroll_run(
             "ok": True,
             "run": run,
             "items": normalized_items,
-            "cash_advance_audit": _cash_advance_audit(conn, run_id, period_start, period_end),
+            "cash_advance_audit": _cash_advance_run_check(conn, run_id, period_start, period_end),
             "mode": "review_only_not_released",
         }
     finally:

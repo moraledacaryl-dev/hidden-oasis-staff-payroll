@@ -33,7 +33,25 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
   const canRecalculate = editable && run.revision_treatment !== "adjust_paid";
   const warningCount = items.filter((item) => String(item.warnings || "").trim()).length;
   const versionText = run.revision_of_run_id ? `Revision of run #${run.revision_of_run_id}` : "Original payroll version";
-
+  const audit = (review as unknown as {
+    cash_advance_audit?: {
+      expected_total?: number | null;
+      applied_total?: number | null;
+      issue_count?: number | null;
+      rows?: Array<{
+        employee_id?: number | null;
+        name?: string | null;
+        cash_advance_id?: number | null;
+        advance_date?: string | null;
+        expected?: number | null;
+        applied?: number | null;
+        status?: string | null;
+        reason?: string | null;
+      }> | null;
+    };
+  }).cash_advance_audit;
+  const auditRows = Array.isArray(audit?.rows) ? audit.rows : [];
+  const auditIssues = Number(audit?.issue_count || 0);
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
       <div className="page">
@@ -77,6 +95,39 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
           <div className="card"><strong>Approved by</strong><p>{run.approved_by || "—"}</p></div>
           <div className="card"><strong>Employees with warnings</strong><p>{warningCount}</p></div>
         </section>
+
+        {audit ? (
+          <section className="card">
+            <div className="panel-title">
+              <div>
+                <h2>Cash advance deduction check</h2>
+                <p className="muted">Payroll-deduction cash advances dated inside {run.period_start} to {run.period_end}.</p>
+              </div>
+              <StatusBadge label={auditIssues ? "Needs Review" : "OK"} tone={auditIssues ? "danger" : "ok"} />
+            </div>
+
+            <section className="grid cols-4">
+              <div className="card"><strong>Expected this period</strong><p>{peso(audit.expected_total)}</p></div>
+              <div className="card"><strong>Applied in run</strong><p>{peso(audit.applied_total)}</p></div>
+              <div className="card"><strong>Cash advances</strong><p>{auditRows.length}</p></div>
+              <div className="card"><strong>Issues</strong><p>{auditIssues}</p></div>
+            </section>
+
+            <div className="action-list">
+              {auditRows.map((row, index) => (
+                <div className="action-item" key={`${row.employee_id || "employee"}-${row.cash_advance_id || index}`}>
+                  <strong>{row.name || "Employee"}</strong>
+                  <p className="muted">
+                    {row.advance_date || "No date"} · Cash Advance #{row.cash_advance_id || "—"}
+                    {row.reason ? ` · ${row.reason}` : ""}
+                  </p>
+                  <p>Expected {peso(row.expected)} · Applied {peso(row.applied)} · {row.status || "—"}</p>
+                </div>
+              ))}
+              {auditRows.length === 0 ? <p className="muted">No payroll-deduction cash advances dated inside this payroll period.</p> : null}
+            </div>
+          </section>
+        ) : null}
 
         <section>
           <div className="panel-title">
