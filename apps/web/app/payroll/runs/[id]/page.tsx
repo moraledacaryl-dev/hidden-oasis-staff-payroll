@@ -97,36 +97,70 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
         </section>
 
         {audit ? (
-          <section className="card">
-            <div className="panel-title">
-              <div>
-                <h2>Cash advance deduction check</h2>
-                <p className="muted">Payroll-deduction cash advances dated inside {run.period_start} to {run.period_end}.</p>
-              </div>
-              <StatusBadge label={auditIssues ? "Needs Review" : "OK"} tone={auditIssues ? "danger" : "ok"} />
-            </div>
-
-            <section className="grid cols-4">
-              <div className="card"><strong>Expected this period</strong><p>{peso(audit.expected_total)}</p></div>
-              <div className="card"><strong>Applied in run</strong><p>{peso(audit.applied_total)}</p></div>
-              <div className="card"><strong>Cash advances</strong><p>{auditRows.length}</p></div>
-              <div className="card"><strong>Issues</strong><p>{auditIssues}</p></div>
-            </section>
-
-            <div className="action-list">
-              {auditRows.map((row, index) => (
-                <div className="action-item" key={`${row.employee_id || "employee"}-${row.cash_advance_id || index}`}>
-                  <strong>{row.name || "Employee"}</strong>
-                  <p className="muted">
-                    {row.advance_date || "No date"} · Cash Advance #{row.cash_advance_id || "—"}
-                    {row.reason ? ` · ${row.reason}` : ""}
-                  </p>
-                  <p>Expected {peso(row.expected)} · Applied {peso(row.applied)} · {row.status || "—"}</p>
+          <details className="cash-advance-panel">
+            <summary className="cash-advance-summary">
+              <div className="cash-advance-header">
+                <div>
+                  <span className="cash-advance-eyebrow">Run-level deduction check</span>
+                  <h2>Cash advances applied this payroll</h2>
+                  <p>{auditRows.length} cash advances · {peso(audit.applied_total)} applied · {auditIssues} issue{auditIssues === 1 ? "" : "s"}</p>
                 </div>
-              ))}
-              {auditRows.length === 0 ? <p className="muted">No payroll-deduction cash advances dated inside this payroll period.</p> : null}
+                <div className="cash-advance-summary-right">
+                  <StatusBadge label={auditIssues ? "Needs Review" : "OK"} tone={auditIssues ? "danger" : "ok"} />
+                  <span className="cash-advance-chevron">⌄</span>
+                </div>
+              </div>
+            </summary>
+
+            <div className="cash-advance-content">
+              <p className="cash-advance-description">Payroll-deduction advances dated {run.period_start} to {run.period_end}. You do not need to open each employee to verify them.</p>
+
+              <section className="cash-advance-stats">
+              <div><span>Expected</span><strong>{peso(audit.expected_total)}</strong></div>
+              <div><span>Applied</span><strong>{peso(audit.applied_total)}</strong></div>
+              <div><span>Cash advances</span><strong>{auditRows.length}</strong></div>
+              <div><span>Issues</span><strong>{auditIssues}</strong></div>
+              </section>
+
+              {auditRows.length ? (
+              <div className="cash-advance-table-wrap">
+                <table className="cash-advance-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Date</th>
+                      <th>CA #</th>
+                      <th className="amount">Expected</th>
+                      <th className="amount">Applied</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditRows.map((row, index) => (
+                      <tr key={`${row.employee_id || "employee"}-${row.cash_advance_id || index}`}>
+                        <td>
+                          <strong>{row.name || "Employee"}</strong>
+                          {row.reason ? <small>{row.reason}</small> : null}
+                        </td>
+                        <td>{row.advance_date || "No date"}</td>
+                        <td>#{row.cash_advance_id || "—"}</td>
+                        <td className="amount">{peso(row.expected)}</td>
+                        <td className="amount">{peso(row.applied)}</td>
+                        <td>
+                          <span className={`cash-advance-status cash-advance-status-${String(row.status || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                            {row.status || "—"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              ) : (
+                <p className="cash-advance-empty">No payroll-deduction cash advances dated inside this payroll period.</p>
+              )}
             </div>
-          </section>
+          </details>
         ) : null}
 
         <section>
