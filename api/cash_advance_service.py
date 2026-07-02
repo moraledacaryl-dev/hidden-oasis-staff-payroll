@@ -7,7 +7,8 @@ from fastapi import Header, HTTPException
 from pydantic import BaseModel
 
 from api.main import current_user_from_token, require_api_key
-from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.db import fetchall, fetchone
+
 
 class CashAdvancePayload(BaseModel):
     id: int | None = None
@@ -79,23 +80,33 @@ def ensure_schema(conn) -> None:
         )
     """)
     _add_missing_columns(conn, "cash_advances", {
-        "advance_date": "TEXT", "reason": "TEXT", "approved_by": "TEXT",
+        "advance_date": "TEXT",
+        "request_date": "TEXT",
+        "amount": "REAL NOT NULL DEFAULT 0",
+        "reason": "TEXT",
+        "approved_by": "TEXT",
         "repayment_method": "TEXT NOT NULL DEFAULT 'Payroll deduction'",
         "deduction_per_payroll": "REAL NOT NULL DEFAULT 0",
+        "repayment_per_cutoff": "REAL NOT NULL DEFAULT 0",
+        "custom_next_deduction": "REAL",
         "remaining_balance": "REAL NOT NULL DEFAULT 0",
-        "status": "TEXT NOT NULL DEFAULT 'Active'", "notes": "TEXT",
-        "created_by": "TEXT", "created_at": "TEXT", "updated_by": "TEXT",
-        "updated_at": "TEXT", "ledger_opening_balance": "REAL"
+        "outstanding_balance": "REAL NOT NULL DEFAULT 0",
+        "status": "TEXT NOT NULL DEFAULT 'Active'",
+        "notes": "TEXT",
+        "created_by": "TEXT",
+        "created_at": "TEXT",
+        "updated_by": "TEXT",
+        "updated_at": "TEXT",
+        "ledger_opening_balance": "REAL",
     })
 
-    advance_cols = _columns(conn, "cash_advances")
-    if "request_date" in advance_cols:
-        conn.execute("UPDATE cash_advances SET advance_date=request_date WHERE advance_date IS NULL OR trim(advance_date)='' ")
-    if "repayment_per_cutoff" in advance_cols:
-        conn.execute("UPDATE cash_advances SET deduction_per_payroll=repayment_per_cutoff WHERE repayment_per_cutoff IS NOT NULL AND COALESCE(deduction_per_payroll,0)=0")
-    if "outstanding_balance" in advance_cols:
-        conn.execute("UPDATE cash_advances SET ledger_opening_balance=outstanding_balance WHERE ledger_opening_balance IS NULL AND outstanding_balance IS NOT NULL")
-    conn.execute("UPDATE cash_advances SET ledger_opening_balance=COALESCE(ledger_opening_balance,remaining_balance,amount,0)")
+    conn.execute("UPDATE cash_advances SET advance_date=COALESCE(NULLIF(advance_date,''), request_date, date('now'))")
+    conn.execute("UPDATE cash_advances SET request_date=COALESCE(NULLIF(request_date,''), advance_date)")
+    conn.execute("UPDATE cash_advances SET deduction_per_payroll=repayment_per_cutoff WHERE COALESCE(deduction_per_payroll,0)=0 AND COALESCE(repayment_per_cutoff,0)>0")
+    conn.execute("UPDATE cash_advances SET repayment_per_cutoff=deduction_per_payroll WHERE COALESCE(repayment_per_cutoff,0)=0 AND COALESCE(deduction_per_payroll,0)>0")
+    conn.execute("UPDATE cash_advances SET ledger_opening_balance=COALESCE(ledger_opening_balance,outstanding_balance,remaining_balance,amount,0)")
+    conn.execute("UPDATE cash_advances SET remaining_balance=COALESCE(NULLIF(remaining_balance,0), outstanding_balance, amount, 0)")
+    conn.execute("UPDATE cash_advances SET outstanding_balance=COALESCE(NULLIF(outstanding_balance,0), remaining_balance, amount, 0)")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS cash_advance_repayments (
@@ -121,16 +132,32 @@ def ensure_schema(conn) -> None:
         )
     """)
     _add_missing_columns(conn, "cash_advance_repayments", {
-        "cash_advance_id": "INTEGER", "employee_id": "INTEGER",
-        "repayment_date": "TEXT", "amount": "REAL NOT NULL DEFAULT 0",
-        "source": "TEXT NOT NULL DEFAULT 'Manual'", "payment_method": "TEXT",
-        "payroll_run_id": "INTEGER", "payroll_item_id": "INTEGER",
-        "reference": "TEXT", "notes": "TEXT",
-        "active": "INTEGER NOT NULL DEFAULT 1", "created_by": "TEXT",
-        "created_at": "TEXT", "updated_by": "TEXT", "updated_at": "TEXT",
-        "reversed_by": "TEXT", "reversed_at": "TEXT", "reversal_reason": "TEXT"
+        "cash_advance_id": "INTEGER",
+        "employee_id": "INTEGER NOT NULL DEFAULT 0",
+        "repayment_date": "TEXT NOT NULL DEFAULT ''",
+        "payment_date": "TEXT",
+        "amount": "REAL NOT NULL DEFAULT 0",
+        "source": "TEXT NOT NULL DEFAULT 'Manual'",
+        "payment_method": "TEXT",
+        "method": "TEXT",
+        "payroll_run_id": "INTEGER",
+        "payroll_item_id": "INTEGER",
+        "reference": "TEXT",
+        "notes": "TEXT",
+        "active": "INTEGER NOT NULL DEFAULT 1",
+        "created_by": "TEXT",
+        "created_at": "TEXT",
+        "updated_by": "TEXT",
+        "updated_at": "TEXT",
+        "reversed_by": "TEXT",
+        "reversed_at": "TEXT",
+        "reversal_reason": "TEXT",
     })
     conn.execute("UPDATE cash_advance_repayments SET active=1 WHERE active IS NULL")
+    conn.execute("UPDATE cash_advance_repayments SET repayment_date=payment_date WHERE (repayment_date IS NULL OR trim(repayment_date)='') AND payment_date IS NOT NULL")
+    conn.execute("UPDATE cash_advance_repayments SET payment_date=repayment_date WHERE (payment_date IS NULL OR trim(payment_date)='') AND repayment_date IS NOT NULL")
+    conn.execute("UPDATE cash_advance_repayments SET payment_method=method WHERE (payment_method IS NULL OR trim(payment_method)='') AND method IS NOT NULL")
+    conn.execute("UPDATE cash_advance_repayments SET method=payment_method WHERE (method IS NULL OR trim(method)='') AND payment_method IS NOT NULL")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_ca_payroll_repayment ON cash_advance_repayments(cash_advance_id,payroll_run_id) WHERE payroll_run_id IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ca_repayments_advance ON cash_advance_repayments(cash_advance_id,active)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cash_advances_employee ON cash_advances(employee_id)")
@@ -161,14 +188,24 @@ def recalculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
     row = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
     if not row:
         raise HTTPException(status_code=404, detail="Cash advance not found.")
-    opening = round(float(row.get("ledger_opening_balance") if row.get("ledger_opening_balance") is not None else row.get("remaining_balance") or row.get("amount") or 0), 2)
+    opening = round(float(row.get("ledger_opening_balance") if row.get("ledger_opening_balance") is not None else row.get("remaining_balance") or row.get("outstanding_balance") or row.get("amount") or 0), 2)
     new_paid = confirmed_new_repayments(conn, cash_advance_id)
     balance = round(max(0.0, opening - new_paid), 2)
     historical_paid = round(max(0.0, float(row.get("amount") or 0) - opening), 2)
     total_paid = round(historical_paid + new_paid, 2)
     old_status = str(row.get("status") or "")
-    status = "Cancelled" if old_status == "Cancelled" else ("Fully Paid" if balance <= 0 else "Active")
-    conn.execute("UPDATE cash_advances SET remaining_balance=?,status=?,updated_at=? WHERE id=?", (balance,status,now_iso(),cash_advance_id))
+    if old_status == "Cancelled":
+        status = "Cancelled"
+    elif balance <= 0:
+        status = "Fully Paid"
+    elif total_paid > 0:
+        status = "Partially Paid"
+    else:
+        status = "Approved" if normalize_method(str(row.get("repayment_method") or "Payroll deduction")) == "Payroll deduction" else "Active"
+    conn.execute(
+        "UPDATE cash_advances SET remaining_balance=?, outstanding_balance=?, status=?, repayment_per_cutoff=COALESCE(NULLIF(repayment_per_cutoff,0), deduction_per_payroll), updated_at=? WHERE id=?",
+        (balance, balance, status, now_iso(), cash_advance_id),
+    )
     return {"amount": round(float(row.get("amount") or 0),2), "paid": total_paid, "balance": balance, "status": status}
 
 
