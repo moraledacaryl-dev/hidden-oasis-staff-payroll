@@ -79,7 +79,6 @@ def _sync_legacy_fields(
         ("repayment_per_cutoff", deduction),
         ("remaining_balance", balance),
         ("outstanding_balance", balance),
-        ("ledger_opening_balance", balance),
     ):
         if column in columns:
             assignments.append(f"{column}=?")
@@ -195,17 +194,7 @@ def save_cash_advance(
             if not old:
                 raise HTTPException(status_code=404, detail="Cash advance not found.")
 
-            previous_amount = round(float(old.get("amount") or 0), 2)
-            previous_opening = round(
-                float(
-                    old.get("ledger_opening_balance")
-                    if old.get("ledger_opening_balance") is not None
-                    else old.get("remaining_balance") or previous_amount
-                ),
-                2,
-            )
-            paid_to_date = round(max(0.0, previous_amount - previous_opening), 2)
-            new_opening = round(max(0.0, amount - paid_to_date), 2)
+            new_opening = amount
             conn.execute(
                 "UPDATE cash_advances SET employee_id=?,advance_date=?,reason=?,approved_by=?,repayment_method=?,status=?,notes=?,updated_by=?,updated_at=? WHERE id=?",
                 (

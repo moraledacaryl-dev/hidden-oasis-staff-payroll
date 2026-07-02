@@ -82,8 +82,7 @@ def correct_cash_advance_amount(
             raise HTTPException(status_code=422, detail="Corrected amount is already the current balance basis.")
 
         total_repaid = round(float(old_summary.get("paid") or 0), 2)
-        historical_paid = round(max(0.0, encoded_amount - current_basis), 2)
-        new_opening = round(max(0.0, corrected - historical_paid), 2)
+        new_opening = corrected
         credit = round(max(0.0, total_repaid - corrected), 2)
         stamp = now_iso()
 
