@@ -75,15 +75,57 @@ def require_payroll_editor(authorization: str | None, x_api_key: str | None) -> 
     return user
 
 
+def _table_exists(conn, table_name: str) -> bool:
+    row = conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", (table_name,)).fetchone()
+    return bool(row and int(row[0] or 0) > 0)
+
+
+def _columns(conn, table_name: str) -> set[str]:
+    if not _table_exists(conn, table_name):
+        return set()
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table_name})")}
+
+
 def _add_column_if_missing(conn, table_name: str, column_name: str, ddl: str) -> None:
-    columns = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table_name})")}
-    if column_name in columns:
+    if column_name in _columns(conn, table_name):
         return
     try:
         conn.execute(ddl)
     except sqlite3.OperationalError as exc:
         if "duplicate column name" not in str(exc).lower():
             raise
+
+
+def _employee_profile_sql(conn, *, name_alias: str = "full_name") -> tuple[str, str]:
+    """Return schema-safe employee select expressions and optional joins.
+
+    Some live databases have employees.department; newer ones have
+    employees.department_id -> departments.name. Some older databases may also
+    lack employees.position. HR pages should not crash for either shape.
+    """
+    employee_columns = _columns(conn, "employees")
+    if "department" in employee_columns:
+        department_expr = "e.department"
+        department_join = ""
+    elif "department_id" in employee_columns and _table_exists(conn, "departments"):
+        department_expr = "d.name"
+        department_join = "LEFT JOIN departments d ON d.id=e.department_id"
+    else:
+        department_expr = "NULL"
+        department_join = ""
+    position_expr = "e.position" if "position" in employee_columns else "NULL"
+    return f"e.full_name AS {name_alias}, e.employee_code, {department_expr} AS department, {position_expr} AS position", department_join
+
+
+def _employee_list_sql(conn, where_clause: str = "") -> str:
+    profile_expr, department_join = _employee_profile_sql(conn, name_alias="full_name")
+    return (
+        f"SELECT e.id, {profile_expr} "
+        "FROM employees e "
+        f"{department_join} "
+        f"{where_clause} "
+        "ORDER BY e.full_name"
+    )
 
 
 def ensure_schema(conn) -> None:
@@ -99,6 +141,16 @@ def ensure_schema(conn) -> None:
             notes TEXT
         )
     """)
+    for column, definition in {
+        "default_credits": "REAL NOT NULL DEFAULT 0",
+        "paid": "INTEGER NOT NULL DEFAULT 1",
+        "statutory": "INTEGER NOT NULL DEFAULT 0",
+        "requires_approval": "INTEGER NOT NULL DEFAULT 1",
+        "active": "INTEGER NOT NULL DEFAULT 1",
+        "notes": "TEXT",
+    }.items():
+        _add_column_if_missing(conn, "leave_types", column, f"ALTER TABLE leave_types ADD COLUMN {column} {definition}")
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS employee_leave_entitlements (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +165,15 @@ def ensure_schema(conn) -> None:
             UNIQUE(employee_id, leave_type_id, year)
         )
     """)
+    for column, definition in {
+        "credits": "REAL NOT NULL DEFAULT 0",
+        "used": "REAL NOT NULL DEFAULT 0",
+        "entitled": "INTEGER NOT NULL DEFAULT 1",
+        "created_at": "TEXT",
+        "updated_at": "TEXT",
+    }.items():
+        _add_column_if_missing(conn, "employee_leave_entitlements", column, f"ALTER TABLE employee_leave_entitlements ADD COLUMN {column} {definition}")
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS leave_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,6 +190,21 @@ def ensure_schema(conn) -> None:
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    for column, definition in {
+        "leave_type_id": "INTEGER",
+        "start_date": "TEXT",
+        "end_date": "TEXT",
+        "days": "REAL NOT NULL DEFAULT 1",
+        "paid": "INTEGER NOT NULL DEFAULT 1",
+        "status": "TEXT NOT NULL DEFAULT 'Approved'",
+        "reason": "TEXT",
+        "reviewed_by": "TEXT",
+        "reviewed_at": "TEXT",
+        "created_at": "TEXT",
+        "decision_note": "TEXT",
+    }.items():
+        _add_column_if_missing(conn, "leave_requests", column, f"ALTER TABLE leave_requests ADD COLUMN {column} {definition}")
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS hr_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,9 +226,26 @@ def ensure_schema(conn) -> None:
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    for column, definition in {
+        "record_type": "TEXT NOT NULL DEFAULT 'Memo'",
+        "record_date": "TEXT",
+        "subject": "TEXT NOT NULL DEFAULT ''",
+        "details": "TEXT",
+        "severity": "TEXT NOT NULL DEFAULT 'Info'",
+        "status": "TEXT NOT NULL DEFAULT 'Issued'",
+        "issued_by": "TEXT",
+        "issued_role": "TEXT",
+        "review_period_start": "TEXT",
+        "review_period_end": "TEXT",
+        "rating": "REAL",
+        "acknowledged_at": "TEXT",
+        "resolved_at": "TEXT",
+        "created_at": "TEXT",
+        "updated_at": "TEXT",
+    }.items():
+        _add_column_if_missing(conn, "hr_records", column, f"ALTER TABLE hr_records ADD COLUMN {column} {definition}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hr_records_employee ON hr_records(employee_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hr_records_type ON hr_records(record_type)")
-    _add_column_if_missing(conn, "leave_requests", "decision_note", "ALTER TABLE leave_requests ADD COLUMN decision_note TEXT")
     conn.commit()
 
 
@@ -179,9 +272,9 @@ def leave_balances(year: int = Query(default_factory=lambda: date.today().year),
     try:
         ensure_schema(conn)
         if user.get("role_key") == "staff":
-            employees = fetchall(conn, "SELECT id, full_name, employee_code, department, position FROM employees WHERE id=? ORDER BY full_name", (int(user["employee_id"]),))
+            employees = fetchall(conn, _employee_list_sql(conn, "WHERE e.id=?"), (int(user["employee_id"]),))
         else:
-            employees = fetchall(conn, "SELECT id, full_name, employee_code, department, position FROM employees ORDER BY full_name")
+            employees = fetchall(conn, _employee_list_sql(conn))
         types = fetchall(conn, "SELECT id, name, default_credits, paid, active FROM leave_types WHERE active=1 ORDER BY name")
         entitlements = fetchall(conn, """
             SELECT ele.*, lt.name AS leave_type_name, lt.paid
@@ -244,10 +337,12 @@ def list_leave_requests(authorization: str | None = Header(default=None, alias="
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        items = fetchall(conn, """
-            SELECT lr.*, e.full_name AS employee_name, e.employee_code, e.department, lt.name AS leave_type_name
+        profile_expr, department_join = _employee_profile_sql(conn, name_alias="employee_name")
+        items = fetchall(conn, f"""
+            SELECT lr.*, {profile_expr}, lt.name AS leave_type_name
             FROM leave_requests lr
             JOIN employees e ON e.id=lr.employee_id
+            {department_join}
             LEFT JOIN leave_types lt ON lt.id=lr.leave_type_id
             ORDER BY CASE lr.status WHEN 'Pending' THEN 0 ELSE 1 END, date(lr.start_date) DESC, lr.id DESC
         """)
@@ -299,10 +394,12 @@ def hr_records(employee_id: int | None = Query(default=None), record_type: str |
             filters.append("hr.record_type=?")
             params.append(record_type)
         where = "WHERE " + " AND ".join(filters) if filters else ""
+        profile_expr, department_join = _employee_profile_sql(conn, name_alias="employee_name")
         items = fetchall(conn, f"""
-            SELECT hr.*, e.full_name AS employee_name, e.employee_code, e.department, e.position
+            SELECT hr.*, {profile_expr}
             FROM hr_records hr
             JOIN employees e ON e.id=hr.employee_id
+            {department_join}
             {where}
             ORDER BY date(hr.record_date) DESC, hr.id DESC
             LIMIT 500
