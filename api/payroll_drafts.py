@@ -18,7 +18,7 @@ from api.payroll_service import (
     totals,
 )
 from core.corrections import mark_eligible_corrections_applied
-from core.db import DB_PATH, fetchone, get_conn
+from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import compute_payroll, update_payroll_status
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
 from core.quality import build_payroll_preflight_checks, summarize_checks
@@ -62,6 +62,47 @@ def _active_overlap(conn: Any, start: str, end: str) -> dict[str, Any] | None:
         """,
         (end, start),
     )
+
+
+def _apply_period_cash_advance_deduction(conn: Any, result: Any, period_start: str, period_end: str) -> Any:
+    """Default cash-advance deduction is limited to advances dated inside this cutoff."""
+    employee_id = int(result.employee_id)
+    rows = fetchall(
+        conn,
+        """
+        SELECT
+            id,
+            COALESCE(remaining_balance, outstanding_balance, amount, 0) AS balance,
+            COALESCE(custom_next_deduction, deduction_per_payroll, repayment_per_cutoff, 0) AS scheduled_deduction
+        FROM cash_advances
+        WHERE employee_id=?
+          AND COALESCE(remaining_balance, outstanding_balance, amount, 0) > 0
+          AND COALESCE(status,'') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
+          AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
+          AND date(COALESCE(advance_date, request_date)) BETWEEN date(?) AND date(?)
+        ORDER BY date(COALESCE(advance_date, request_date)), id
+        """,
+        (employee_id, period_start, period_end),
+    )
+    statutory_and_manual = (
+        float(result.sss_ee or 0)
+        + float(result.philhealth_ee or 0)
+        + float(result.pagibig_ee or 0)
+        + float(result.tax or 0)
+        + float(result.other_deductions or 0)
+    )
+    capacity = max(0.0, float(result.gross_pay or 0) - statutory_and_manual)
+    deduction = 0.0
+    for row in rows:
+        scheduled = float(row.get("scheduled_deduction") or 0)
+        balance = float(row.get("balance") or 0)
+        if scheduled <= 0 or balance <= 0 or capacity <= deduction:
+            continue
+        deduction += min(balance, scheduled, capacity - deduction)
+    result.cash_advance_deduction = round(deduction, 2)
+    result.total_deductions = round(statutory_and_manual + result.cash_advance_deduction, 2)
+    result.net_pay = round(float(result.gross_pay or 0) - result.total_deductions, 2)
+    return result
 
 
 @router.get("/payroll/runs")
@@ -134,6 +175,7 @@ def create_payroll_draft(
         ]
         for result in compute_payroll(conn, start, end):
             result = apply_fractional_paid_leave_adjustment(conn, result, start, end)
+            result = _apply_period_cash_advance_deduction(conn, result, start, end)
             data = item_dict(result)
             values = [run_id] + [data.get(column, 0) for column in columns] + [stamp]
             conn.execute(
