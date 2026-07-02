@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import date
 from typing import Any
 import sqlite3
 
-from .db import fetchall, fetchone, get_setting
+from .db import fetchall, fetchone
 from .schedule_source import trusted_scheduled_workdays
 
 
@@ -86,17 +86,6 @@ def build_payroll_preflight_checks(conn: sqlite3.Connection, period_start: str, 
     duplicate_runs = fetchone(conn, "SELECT COUNT(*) AS c FROM payroll_runs WHERE period_start=? AND period_end=? AND status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')", (period_start, period_end))["c"]
     if duplicate_runs:
         add("Warning", "Payroll Runs", "There are already reviewed/approved/paid/locked payroll runs for this cutoff.", duplicate_runs, "Do not duplicate contributions; use reopen/replace intentionally.")
-
-    over_leave = fetchone(
-        conn,
-        """
-        SELECT COUNT(*) AS c FROM employee_leave_entitlements
-        WHERE entitled=1 AND used > credits + 0.001
-        """,
-        (),
-    )["c"]
-    if over_leave:
-        add("Warning", "Leaves", "Some employees have used more leave than their configured credits.", over_leave, "Review leave balances and classify excess as unpaid if needed.")
 
     sss_rows = fetchone(conn, "SELECT COUNT(*) AS c FROM sss_contribution_table WHERE active=1", ())["c"]
     if not sss_rows:

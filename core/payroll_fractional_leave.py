@@ -10,20 +10,18 @@ def _active_employee(conn: Any, employee_id: int) -> dict[str, Any] | None:
     return fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,))
 
 
-def _entitled(conn: Any, employee_id: int, leave_type_id: int, leave_year: int) -> tuple[bool, str | None]:
-    row = fetchone(
-        conn,
-        """
-        SELECT * FROM employee_leave_entitlements
-        WHERE employee_id=? AND leave_type_id=? AND year=?
-        """,
-        (employee_id, leave_type_id, leave_year),
+def _is_credit_balance_warning(message: str) -> bool:
+    text = str(message or "")
+    return (
+        (text.startswith("Approved paid leave '") and "entitlement is not enabled" in text)
+        or (text.startswith("Leave '") and "usage exceeds configured credits" in text)
+        or (text.startswith("Paid leave '") and "unique day(s)" in text)
+        or text.startswith("Paid leave was prorated")
     )
-    if not row or not int(row.get("entitled") or 0):
-        return False, "not_entitled"
-    if float(row.get("used") or 0) > float(row.get("credits") or 0) + 0.001:
-        return False, "over_credit"
-    return True, None
+
+
+def _preview_warnings(warnings: list[str] | None) -> list[str]:
+    return [warning for warning in (warnings or []) if not _is_credit_balance_warning(warning)]
 
 
 def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, period_end: str) -> float:
@@ -43,10 +41,6 @@ def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, per
     total = 0.0
     for row in rows:
         if not int(row.get("paid") or 0):
-            continue
-        leave_year = int(str(row["start_date"])[:4])
-        ok, _ = _entitled(conn, employee_id, int(row["leave_type_id"]), leave_year)
-        if not ok:
             continue
         days, dates = paid_leave_days_for_cutoff(row, period_start, period_end, paid_dates)
         if days <= 0:
@@ -144,32 +138,20 @@ def _recompute_statutory_and_net(conn: Any, result: Any, emp: dict[str, Any], pe
 
 
 def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start: str, period_end: str) -> Any:
-    """Correct payroll output when approved paid leave uses fractional stored days.
-
-    The legacy payroll engine counted paid leave by unique date count. The day editor now stores
-    fractional leave in leave_requests.days, so every payroll output path must honor that value.
-    """
+    """Correct payroll output when approved paid leave uses fractional stored days."""
     employee_id = int(result.employee_id)
     emp = _active_employee(conn, employee_id)
     if not emp:
         return result
 
+    result.warnings = _preview_warnings(result.warnings)
     corrected_days = _correct_paid_leave_days(conn, employee_id, period_start, period_end)
-    if abs(corrected_days - float(result.paid_leave_days or 0)) <= 0.0001:
-        return result
-
     standard_paid_hours = float(get_setting(conn, "standard_daily_paid_hours", "8") or 8)
     hourly_rate = float(emp.get("hourly_rate") or 0)
-    old_days = float(result.paid_leave_days or 0)
     old_pay = float(result.paid_leave_pay or 0)
 
     result.paid_leave_days = round(corrected_days, 4)
     result.paid_leave_pay = round(corrected_days * standard_paid_hours * hourly_rate, 2)
-    if result.warnings is None:
-        result.warnings = []
-    result.warnings.append(
-        f"Paid leave was prorated from {old_days:g} to {result.paid_leave_days:g} day(s) using leave_requests.days."
-    )
     if abs(old_pay - result.paid_leave_pay) > 0.004:
         _recompute_statutory_and_net(conn, result, emp, period_start)
     return result
