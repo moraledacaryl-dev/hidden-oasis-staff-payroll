@@ -28,13 +28,15 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
     getPayrollRunChangeDelta(runId).catch(() => ({ ok: true, run_id: runId, changed: false, change_count: 0, changes: [] })),
   ]);
   const run = review.run;
-  const items = review.items;
+  const items = Array.isArray(review.items) ? review.items : [];
   const editable = run.status === "Draft";
   const canRecalculate = editable && run.revision_treatment !== "adjust_paid";
   const warningCount = items.filter((item) => String(item.warnings || "").trim()).length;
   const versionText = run.revision_of_run_id ? `Revision of run #${run.revision_of_run_id}` : "Original payroll version";
   const caAudit = review.cash_advance_audit;
-  const caIssues = caAudit?.rows.filter((row) => row.status !== "OK") || [];
+  const caRows = Array.isArray(caAudit?.rows) ? caAudit.rows : [];
+  const caIssues = caRows.filter((row) => row.status !== "OK");
+  const caIssueCount = Number(caAudit?.issue_count || caIssues.length || 0);
 
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
@@ -87,13 +89,13 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
                 <h2>Cash advance deduction check</h2>
                 <p className="muted">Only payroll-deduction cash advances dated inside {run.period_start} to {run.period_end} are expected by default.</p>
               </div>
-              <StatusBadge label={caAudit.status} tone={caAudit.issue_count ? "danger" : "ok"} />
+              <StatusBadge label={String(caAudit.status || (caIssueCount ? "Needs Review" : "OK"))} tone={caIssueCount ? "danger" : "ok"} />
             </div>
             <section className="grid cols-4">
               <div className="card"><strong>Expected this period</strong><p>{peso(caAudit.expected_total)}</p></div>
               <div className="card"><strong>Applied in run</strong><p>{peso(caAudit.applied_total)}</p></div>
-              <div className="card"><strong>Employees checked</strong><p>{caAudit.rows.length}</p></div>
-              <div className="card"><strong>Issues</strong><p>{caAudit.issue_count}</p></div>
+              <div className="card"><strong>Employees checked</strong><p>{caRows.length}</p></div>
+              <div className="card"><strong>Issues</strong><p>{caIssueCount}</p></div>
             </section>
             {caIssues.length ? (
               <div className="action-list">
