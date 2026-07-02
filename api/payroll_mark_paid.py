@@ -6,14 +6,18 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from api.payroll_drafts import must_be_payroll_user, totals
+from core.cash_advance_payroll import apply_payroll_cash_advance_repayments
 from core.db import DB_PATH, fetchone, get_conn
-from core.payroll_engine import update_payroll_status
+from core.payroll_engine import create_accounting_queue_for_payroll
+from core.quality import build_payroll_preflight_checks
 
 router = APIRouter(prefix="/api/v1")
+
 
 class MarkPaidRequest(BaseModel):
     confirmation: str
     reference: str | None = None
+
 
 @router.post("/payroll/runs/{run_id}/mark-paid")
 def mark_payroll_run_paid(
@@ -34,21 +38,37 @@ def mark_payroll_run_paid(
             raise HTTPException(status_code=404, detail="Payroll run not found.")
         if run.get("status") != "Approved":
             raise HTTPException(status_code=409, detail="Only approved payroll runs can be marked paid.")
-        existing_paid_at = run.get("paid_at")
-        if existing_paid_at:
+        if run.get("paid_at"):
             raise HTTPException(status_code=409, detail="Payroll run is already marked paid.")
+        checks = build_payroll_preflight_checks(conn, run["period_start"], run["period_end"])
+        blockers = [check for check in checks if check.get("severity") == "Blocker"]
+        if blockers:
+            raise HTTPException(status_code=409, detail=f"Payroll QA has {len(blockers)} blocker(s). Resolve them before marking paid.")
+
+        actor = str(user.get("display_name") or "Owner")
+        reference = payload.reference.strip() if payload.reference else None
+        apply_payroll_cash_advance_repayments(conn, run_id, actor=actor, reference=reference)
+        paid_at = conn.execute("SELECT datetime('now','localtime')").fetchone()[0]
+        conn.execute("UPDATE payroll_runs SET status='Paid', paid_at=? WHERE id=?", (paid_at, run_id))
+        create_accounting_queue_for_payroll(conn, run_id)
         try:
-            update_payroll_status(
-                conn,
-                run_id,
-                "Paid",
-                str(user.get("display_name") or "Owner"),
-                payload.reference.strip() if payload.reference else None,
+            from core.integration_accounting import enqueue_payroll_run
+            enqueue_payroll_run(conn, run_id)
+        except Exception as exc:
+            conn.execute(
+                "INSERT INTO audit_logs(actor, action, table_name, record_id, details, created_at) VALUES(?,?,?,?,?,?)",
+                (actor, "Payroll integration event creation failed", "payroll_runs", run_id, str(exc), paid_at),
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+        conn.execute(
+            "INSERT INTO audit_logs(actor, action, table_name, record_id, details, created_at) VALUES(?,?,?,?,?,?)",
+            (actor, "Payroll status changed from Approved to Paid", "payroll_runs", run_id, reference or "", paid_at),
+        )
+        conn.commit()
         updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
         updated["totals"] = totals(conn, run_id)
-        return {"ok": True, "run": updated, "mode": "marked_paid_with_payroll_lifecycle"}
+        return {"ok": True, "run": updated, "mode": "marked_paid_with_cash_advance_repayments"}
+    except HTTPException:
+        conn.rollback()
+        raise
     finally:
         conn.close()
