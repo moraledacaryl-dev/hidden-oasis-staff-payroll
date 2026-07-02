@@ -183,3 +183,237 @@ def compute_payroll_with_fractional_leave(conn: Any, period_start: str, period_e
     from core.payroll_engine import compute_payroll
 
     return apply_fractional_paid_leave_adjustments(conn, compute_payroll(conn, period_start, period_end), period_start, period_end)
+
+
+PREVIEW_PAID_LEAVE_NAMES = {
+
+    "sil",
+
+    "service incentive leave",
+
+    "sick leave",
+
+    "company sick leave",
+
+    "bereavement",
+
+    "bereavement leave",
+
+    "wedding leave",
+
+    "vacation leave",
+
+    "paid leave",
+
+}
+
+def _is_preview_paid_leave_name(value: str | None) -> bool:
+
+    name = str(value or "").strip().lower()
+
+    return name in PREVIEW_PAID_LEAVE_NAMES
+
+def _loose_preview_paid_leave_days(conn: Any, employee_id: int, period_start: str, period_end: str) -> tuple[float, list[str]]:
+
+    """Preview-only leave count.
+
+    This intentionally ignores leave allocation/credits. It reads:
+
+    1) leave_requests joined to leave_types
+
+    2) time_logs absence_type saved by the schedule/day editor, such as Bereavement
+
+    """
+
+    paid_dates: set[str] = set()
+
+    total = 0.0
+
+    labels: list[str] = []
+
+    rows = fetchall(
+
+        conn,
+
+        """
+
+        SELECT lr.*, COALESCE(lt.name, 'Leave') AS leave_name, COALESCE(lr.paid, lt.paid, 0) AS paid_flag
+
+        FROM leave_requests lr
+
+        LEFT JOIN leave_types lt ON lt.id=lr.leave_type_id
+
+        WHERE lr.employee_id=?
+
+          AND date(lr.start_date) <= date(?)
+
+          AND date(lr.end_date) >= date(?)
+
+          AND lower(COALESCE(lr.status, 'approved')) NOT IN ('rejected','declined','cancelled','canceled','void','voided','denied')
+
+        ORDER BY lr.start_date, lr.id
+
+        """,
+
+        (employee_id, period_end, period_start),
+
+    )
+
+    from core.payroll_engine import parse_date
+
+    period_s = parse_date(period_start)
+
+    period_e = parse_date(period_end)
+
+    for row in rows:
+
+        leave_name = str(row.get("leave_name") or "Leave")
+
+        paid_flag = int(row.get("paid_flag") or 0)
+
+        if not paid_flag and not _is_preview_paid_leave_name(leave_name):
+
+            continue
+
+        raw_days = row.get("days")
+
+        start = max(parse_date(str(row["start_date"])[:10]), period_s)
+
+        end = min(parse_date(str(row["end_date"])[:10]), period_e)
+
+        covered_dates: list[str] = []
+
+        cur = start
+
+        while cur <= end:
+
+            iso = cur.isoformat()
+
+            if iso not in paid_dates:
+
+                covered_dates.append(iso)
+
+            cur = cur.fromordinal(cur.toordinal() + 1)
+
+        if not covered_dates:
+
+            continue
+
+        if raw_days not in (None, ""):
+
+            # For single-day editor leaves this preserves half-day / fractional days.
+
+            days = float(raw_days)
+
+            if len(covered_dates) != (parse_date(str(row["end_date"])[:10]) - parse_date(str(row["start_date"])[:10])).days + 1:
+
+                full_span = max(1, (parse_date(str(row["end_date"])[:10]) - parse_date(str(row["start_date"])[:10])).days + 1)
+
+                days = days * (len(covered_dates) / full_span)
+
+        else:
+
+            days = float(len(covered_dates))
+
+        total += days
+
+        paid_dates.update(covered_dates)
+
+        labels.append(f"{leave_name}: {days:g} day(s)")
+
+    absence_rows = fetchall(
+
+        conn,
+
+        """
+
+        SELECT employee_id, work_date, absence_type, attendance_status
+
+        FROM time_logs
+
+        WHERE employee_id=?
+
+          AND COALESCE(is_absent, 0)=1
+
+          AND date(work_date) BETWEEN date(?) AND date(?)
+
+          AND lower(COALESCE(attendance_status, 'approved')) NOT IN ('rejected','declined','cancelled','canceled','void','voided','denied')
+
+        ORDER BY work_date, id
+
+        """,
+
+        (employee_id, period_start, period_end),
+
+    )
+
+    for row in absence_rows:
+
+        work_date = str(row["work_date"])[:10]
+
+        absence_type = str(row.get("absence_type") or "")
+
+        if work_date in paid_dates:
+
+            continue
+
+        if not _is_preview_paid_leave_name(absence_type):
+
+            continue
+
+        total += 1.0
+
+        paid_dates.add(work_date)
+
+        labels.append(f"{absence_type}: 1 day")
+
+    return round(total, 4), labels
+
+def apply_preview_schedule_leave_adjustment(conn: Any, result: Any, period_start: str, period_end: str) -> Any:
+
+    employee_id = int(result.employee_id)
+
+    emp = _active_employee(conn, employee_id)
+
+    if not emp:
+
+        return result
+
+    preview_days, labels = _loose_preview_paid_leave_days(conn, employee_id, period_start, period_end)
+
+    if abs(preview_days - float(result.paid_leave_days or 0)) <= 0.0001:
+
+        return result
+
+    standard_paid_hours = float(get_setting(conn, "standard_daily_paid_hours", "8") or 8)
+
+    hourly_rate = float(emp.get("hourly_rate") or 0)
+
+    result.paid_leave_days = round(preview_days, 4)
+
+    result.paid_leave_pay = round(preview_days * standard_paid_hours * hourly_rate, 2)
+
+    if result.warnings is None:
+
+        result.warnings = []
+
+    if labels:
+
+        result.warnings.append("Preview paid leave from schedule/leave records: " + "; ".join(labels[:4]))
+
+    _recompute_statutory_and_net(conn, result, emp, period_start)
+
+    return result
+
+def compute_payroll_preview_with_schedule_leave(conn: Any, period_start: str, period_end: str) -> list[Any]:
+
+    from core.payroll_engine import compute_payroll
+
+    return [
+
+        apply_preview_schedule_leave_adjustment(conn, result, period_start, period_end)
+
+        for result in compute_payroll(conn, period_start, period_end)
+
+    ]
+
