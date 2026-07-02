@@ -45,6 +45,8 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
         advance_date?: string | null;
         expected?: number | null;
         applied?: number | null;
+        balance_before_run?: number | null;
+        balance_after_run?: number | null;
         status?: string | null;
         reason?: string | null;
       }> | null;
@@ -130,8 +132,10 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
                       <th>Employee</th>
                       <th>Date</th>
                       <th>CA #</th>
+                      <th className="amount">Balance</th>
                       <th className="amount">Expected</th>
                       <th className="amount">Applied</th>
+                      <th className="amount">After</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -144,8 +148,10 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
                         </td>
                         <td>{row.advance_date || "No date"}</td>
                         <td>#{row.cash_advance_id || "—"}</td>
+                        <td className="amount">{peso(row.balance_before_run)}</td>
                         <td className="amount">{peso(row.expected)}</td>
                         <td className="amount">{peso(row.applied)}</td>
+                        <td className="amount">{peso(row.balance_after_run)}</td>
                         <td>
                           <span className={`cash-advance-status cash-advance-status-${String(row.status || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
                             {row.status || "—"}
