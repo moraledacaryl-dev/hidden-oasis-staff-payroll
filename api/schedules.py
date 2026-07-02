@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from api.main import current_user_from_token, require_api_key
 from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
+from api.schedule_standards import set_schedule_review_state
 from api.schedule_validation import (
     validate_break_minutes,
     validate_ot_hours,
@@ -676,10 +677,11 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
             (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, payload.notes, timestamp, timestamp),
         )
         shift_id = int(cur.lastrowid)
+        review = set_schedule_review_state(conn, shift_id, user.get("display_name"))
         after = schedule_row(conn, shift_id)
         log_schedule_change(conn, change_type="create_schedule", entity_type="scheduled_shift", entity_id=shift_id, employee_id=employee_id, work_date=payload.shift_date.isoformat(), before=None, after=after, changed_by=user.get("display_name"))
         conn.commit()
-        return {"ok": True, "shift": clean_shift(after or {}), "mode": "planned_schedule_only"}
+        return {"ok": True, "shift": clean_shift(after or {}), "review": review, "mode": "planned_schedule_only"}
     finally:
         conn.close()
 
@@ -722,10 +724,12 @@ def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = H
                 (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, int(payload.break_minutes or 0), payload.notes, timestamp, timestamp),
             )
             shift_id = int(cur.lastrowid)
+        review = set_schedule_review_state(conn, int(shift_id), user.get("display_name"))
         after = schedule_row(conn, int(shift_id))
         log_schedule_change(conn, change_type="update_schedule" if before else "create_schedule", entity_type="scheduled_shift", entity_id=int(shift_id), employee_id=employee_id, work_date=payload.shift_date.isoformat(), before=before, after=after, changed_by=user.get("display_name"))
         conn.commit()
-        return day_bundle(conn, payload.shift_date.isoformat(), employee_id, int(shift_id)) | {"message": "Scheduled shift saved. Existing payroll runs were not changed."}
+        message = "Scheduled shift needs review." if review.get("issues") else "Scheduled shift approved."
+        return day_bundle(conn, payload.shift_date.isoformat(), employee_id, int(shift_id)) | {"review": review, "message": message}
     finally:
         conn.close()
 
@@ -756,14 +760,38 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
             )
         existing = fetch_time_log(conn, payload.employee_id, shift_date)
         before = dict(existing) if existing else None
+        was_needs_review = existing and str(existing.get("attendance_status") or "") == "Needs Review"
+        if was_needs_review:
+            status_value = "Needs Review"
         if existing:
             conn.execute(
                 """
                 UPDATE time_logs
-                SET actual_in=?, actual_out=?, is_absent=0, absence_type=NULL, attendance_status=?, approved_ot_hours=?, reviewed_by=?, reviewed_at=?, notes=?, updated_at=?
+                SET actual_in=?,
+                    actual_out=?,
+                    is_absent=0,
+                    absence_type=NULL,
+                    attendance_status=?,
+                    approved_ot_hours=?,
+                    reviewed_by=CASE WHEN ? THEN reviewed_by ELSE ? END,
+                    reviewed_at=CASE WHEN ? THEN reviewed_at ELSE ? END,
+                    notes=?,
+                    updated_at=?
                 WHERE id=?
                 """,
-                (payload.actual_in, payload.actual_out, status_value, float(payload.approved_ot_hours or 0), user.get("display_name"), timestamp, payload.notes, timestamp, existing["id"]),
+                (
+                    payload.actual_in,
+                    payload.actual_out,
+                    status_value,
+                    float(payload.approved_ot_hours or 0),
+                    1 if was_needs_review else 0,
+                    user.get("display_name"),
+                    1 if was_needs_review else 0,
+                    timestamp,
+                    payload.notes,
+                    timestamp,
+                    existing["id"],
+                ),
             )
             log_id = int(existing["id"])
         else:
@@ -806,7 +834,8 @@ def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(
                 log_id = None
         else:
             is_infraction_absence = leave_kind in {"Unexcused Absence", "AWOL"}
-            attendance_status = "Needs Review" if is_infraction_absence else "Approved"
+            was_needs_review = existing_log and str(existing_log.get("attendance_status") or "") == "Needs Review"
+            attendance_status = "Needs Review" if (is_infraction_absence or was_needs_review) else "Approved"
             notice_given_at = None if leave_kind == "AWOL" else payload.notice_given_at
             notice_timing = "No notice" if leave_kind == "AWOL" else (payload.notice_timing or None)
 
@@ -817,8 +846,8 @@ def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(
                     SET is_absent=1,
                         absence_type=?,
                         attendance_status=?,
-                        reviewed_by=?,
-                        reviewed_at=?,
+                        reviewed_by=CASE WHEN ? THEN reviewed_by ELSE ? END,
+                        reviewed_at=CASE WHEN ? THEN reviewed_at ELSE ? END,
                         notes=?,
                         notice_given_at=?,
                         notice_timing=?,
@@ -829,7 +858,9 @@ def save_day_leave(payload: DayLeavePayload, authorization: str | None = Header(
                     (
                         leave_kind,
                         attendance_status,
+                        1 if was_needs_review else 0,
                         user.get("display_name"),
+                        1 if was_needs_review else 0,
                         timestamp,
                         payload.reason,
                         notice_given_at,

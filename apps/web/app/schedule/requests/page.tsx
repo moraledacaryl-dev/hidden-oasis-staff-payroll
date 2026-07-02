@@ -13,7 +13,7 @@ export default async function ScheduleRequestsPage() {
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className="page">
         <header className="page-header">
-          <div><span className="eyebrow">Schedule Control</span><h1>Shift-change requests</h1></div>
+          <div><span className="eyebrow">Schedule Control</span><h1>Review queue</h1></div>
         </header>
         <ScheduleChangeReview />
       </div>

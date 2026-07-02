@@ -49,6 +49,7 @@ from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.schedule_migration import router as schedule_migration_router
 from api.schedule_publication import router as schedule_publication_router
 from api.schedule_rest_days import router as schedule_rest_days_router
+from api.schedule_review_queue import router as schedule_review_queue_router
 from api.schedules import ensure_schema as ensure_schedule_schema
 from api.schedules import router as schedules_router
 from api.sil_leave import router as sil_leave_router
@@ -168,6 +169,7 @@ ROUTERS = (
     schedule_leave_fractional_router,
     schedule_actuals_router,
     schedule_rest_days_router,
+    schedule_review_queue_router,
     schedule_leave_statuses_router,
     sil_leave_router,
     users_router,
@@ -192,6 +194,29 @@ app.router.routes = [
 
 for router in ROUTERS:
     app.include_router(router)
+
+# Explicitly register unified review queue. Kept outside the tuple loop as a safety net.
+if not any(getattr(route, "path", "") == f"{API_PREFIX}/schedule/review-queue" for route in app.router.routes):
+    app.include_router(schedule_review_queue_router)
 _include_router_filtered(app, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
 app.include_router(staff_self_service_router)
 assert_unique_route_registry(app)
+
+# Hard safety net for unified schedule review queue registration.
+# This is intentionally route-level, because router-level registration was not appearing in app.routes.
+try:
+    from api.schedule_review_queue import review_queue, decide_review_item
+    if not any(getattr(route, "path", "") == f"{API_PREFIX}/schedule/review-queue" for route in app.router.routes):
+        app.add_api_route(
+            f"{API_PREFIX}/schedule/review-queue",
+            review_queue,
+            methods=["GET"],
+        )
+    if not any(getattr(route, "path", "") == f"{API_PREFIX}/schedule/review-queue/{{source_type}}/{{item_id}}/decision" for route in app.router.routes):
+        app.add_api_route(
+            f"{API_PREFIX}/schedule/review-queue/{{source_type}}/{{item_id}}/decision",
+            decide_review_item,
+            methods=["POST"],
+        )
+except Exception:
+    raise
