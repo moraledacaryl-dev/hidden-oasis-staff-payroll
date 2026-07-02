@@ -28,15 +28,11 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
     getPayrollRunChangeDelta(runId).catch(() => ({ ok: true, run_id: runId, changed: false, change_count: 0, changes: [] })),
   ]);
   const run = review.run;
-  const items = Array.isArray(review.items) ? review.items : [];
+  const items = review.items;
   const editable = run.status === "Draft";
   const canRecalculate = editable && run.revision_treatment !== "adjust_paid";
   const warningCount = items.filter((item) => String(item.warnings || "").trim()).length;
   const versionText = run.revision_of_run_id ? `Revision of run #${run.revision_of_run_id}` : "Original payroll version";
-  const rawAudit = review.cash_advance_audit;
-  const auditRows = Array.isArray(rawAudit?.rows) ? rawAudit.rows : [];
-  const auditIssueCount = Number(rawAudit?.issue_count ?? auditRows.filter((row) => row.status !== "OK").length ?? 0);
-  const auditStatus = auditIssueCount > 0 ? "Needs Review" : "OK";
 
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
@@ -81,25 +77,6 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
           <div className="card"><strong>Approved by</strong><p>{run.approved_by || "—"}</p></div>
           <div className="card"><strong>Employees with warnings</strong><p>{warningCount}</p></div>
         </section>
-
-        {rawAudit ? (
-          <section className="card">
-            <div className="panel-title">
-              <div>
-                <h2>Cash advance deduction check</h2>
-                <p className="muted">Only payroll-deduction cash advances dated inside this payroll period are expected by default.</p>
-              </div>
-              <StatusBadge label={auditStatus} tone={auditIssueCount > 0 ? "danger" : "ok"} />
-            </div>
-            <section className="grid cols-4">
-              <div className="card"><strong>Expected this period</strong><p>{peso(Number(rawAudit.expected_total || 0))}</p></div>
-              <div className="card"><strong>Applied in run</strong><p>{peso(Number(rawAudit.applied_total || 0))}</p></div>
-              <div className="card"><strong>Employees checked</strong><p>{auditRows.length}</p></div>
-              <div className="card"><strong>Issues</strong><p>{auditIssueCount}</p></div>
-            </section>
-            {auditIssueCount > 0 ? <p className="muted">Review employees marked missing, low, or over before approval.</p> : <p className="muted">All period cash advances match the payroll deduction amount.</p>}
-          </section>
-        ) : null}
 
         <section>
           <div className="panel-title">
