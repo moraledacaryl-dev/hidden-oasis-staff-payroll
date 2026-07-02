@@ -11,18 +11,6 @@ function numberText(value?: number | null): string {
   return Number(value || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 });
 }
 
-type CashAdvanceDetail = {
-  cash_advance_id?: number | null;
-  advance_date?: string | null;
-  repayment_date?: string | null;
-  original_amount?: number | null;
-  paid_this_payroll?: number | null;
-  current_balance?: number | null;
-  balance_after_this_payroll?: number | null;
-  status?: string | null;
-  reason?: string | null;
-};
-
 type PayrollItem = {
   id: number;
   employee_id: number;
@@ -50,7 +38,6 @@ type PayrollItem = {
   total_deductions?: number;
   net_pay?: number;
   warnings?: string | null;
-  cash_advance_details?: CashAdvanceDetail[];
 };
 
 export function EmployeePayrollCard({ runId, item, editable }: { runId: number; item: PayrollItem; editable: boolean }) {
@@ -58,7 +45,6 @@ export function EmployeePayrollCard({ runId, item, editable }: { runId: number; 
   const government = Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0) + Number(item.tax || 0);
   const warnings = String(item.warnings || "").split("\n").map((line) => line.trim()).filter(Boolean);
   const initials = String(item.employee_name || "E").split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase();
-  const cashAdvanceDetails = item.cash_advance_details || [];
 
   return (
     <article className="employee-payroll-card">
@@ -110,27 +96,6 @@ export function EmployeePayrollCard({ runId, item, editable }: { runId: number; 
               <div className="employee-payslip-net"><span>Net pay</span><strong>{peso(item.net_pay)}</strong></div>
             </section>
           </div>
-
-          <section className="employee-payroll-adjustments">
-            <div>
-              <h3>Cash advance applied this payroll</h3>
-              <p className="muted">Shows which advance this payroll deduction was applied to and the remaining balance after payment.</p>
-            </div>
-            {cashAdvanceDetails.length ? (
-              <div className="action-list">
-                {cashAdvanceDetails.map((advance) => (
-                  <div className="action-item" key={`${advance.cash_advance_id}-${advance.repayment_date || "date"}`}>
-                    <strong>Cash Advance #{advance.cash_advance_id}</strong>
-                    <p className="muted">{advance.advance_date || "No advance date"}{advance.reason ? ` · ${advance.reason}` : ""}</p>
-                    <p><span>Original</span><strong>{peso(advance.original_amount)}</strong></p>
-                    <p><span>Paid this payroll</span><strong>{peso(advance.paid_this_payroll)}</strong></p>
-                    <p><span>Current balance</span><strong>{peso(advance.current_balance)}</strong></p>
-                    <p><span>Status</span><strong>{advance.status || "Active"}</strong></p>
-                  </div>
-                ))}
-              </div>
-            ) : <p className="muted">No cash advance repayment is linked to this payroll item yet.</p>}
-          </section>
 
           {warnings.length ? (
             <div className="employee-payroll-warnings">
