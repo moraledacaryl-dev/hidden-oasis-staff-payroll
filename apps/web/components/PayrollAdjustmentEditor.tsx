@@ -78,7 +78,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
   }
 
   if (disabled) return <span className="muted">Locked</span>;
-  if (!open) return <button className="button small" type="button" onClick={() => setOpen(true)}>Edit earnings / deductions</button>;
+  if (!open) return <button className="button small" type="button" onClick={() => setOpen(true)}>Apply cash advance / adjust pay</button>;
 
   if (!loading && !serverEditable) {
     return (
@@ -97,30 +97,30 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
       <div className={styles.header}>
         <div className={styles.headerCopy}>
           <h3>{employeeName}</h3>
-          <p className={styles.helper}>Enter the final amounts for this employee. Saving replaces the current values; it does not add another adjustment.</p>
+          <p className={styles.helper}>Apply this cutoff&apos;s cash advance deduction here. Saving updates this employee&apos;s payroll item before owner review.</p>
         </div>
       </div>
 
-      {loading ? <p className={styles.helper}>Loading adjustments…</p> : (
+      {loading ? <p className={styles.helper}>Loading advances and adjustments…</p> : (
         <form action={submit}>
           <div className={styles.grid}>
             <section className={styles.section}>
-              <div className={styles.sectionTitle}><strong>Additional earning</strong><span>Bonus, allowance, or one-time correction.</span></div>
-              <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="additional_earning" type="number" min="0" step="0.01" defaultValue={adjustment.additional_earning || 0} /></label>
-              <label className={styles.field}><span className={styles.fieldLabel}>Description</span><input name="additional_earning_note" defaultValue={adjustment.additional_earning_note || ""} placeholder="Optional note" /></label>
-            </section>
-
-            <section className={styles.section}>
-              <div className={styles.sectionTitle}><strong>Cash advance repayment</strong><span>Select the advance and enter the final deduction for this payroll.</span></div>
+              <div className={styles.sectionTitle}><strong>Cash advance repayment</strong><span>Select the exact advance and amount to deduct in this payroll.</span></div>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>Cash advance</span>
                 <select value={selectedAdvanceId || ""} onChange={(event) => chooseAdvance(event.target.value)}>
                   <option value="">No cash advance deduction</option>
-                  {advances.map((advance) => <option key={advance.id} value={advance.id}>{advance.advance_date} · Available {peso(advance.available_balance)}</option>)}
+                  {advances.map((advance) => <option key={advance.id} value={advance.id}>#{advance.id} · {advance.advance_date} · Available {peso(advance.available_balance)}</option>)}
                 </select>
               </label>
-              <label className={styles.field}><span className={styles.fieldLabel}>Deduction amount</span><input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance || 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
-              {selectedAdvance ? <div className={styles.balanceRow}><span>Available balance</span><strong>{peso(selectedAdvance.available_balance)}</strong></div> : null}
+              <label className={styles.field}><span className={styles.fieldLabel}>Deduction this cutoff</span><input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance || 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
+              {selectedAdvance ? <div className={styles.balanceRow}><span>Available balance</span><strong>{peso(selectedAdvance.available_balance)}</strong></div> : advances.length ? <p className={styles.helper}>Choose an advance to apply it to this payroll.</p> : <p className={styles.helper}>No available cash advances found for this employee.</p>}
+            </section>
+
+            <section className={styles.section}>
+              <div className={styles.sectionTitle}><strong>Additional earning</strong><span>Bonus, allowance, or one-time correction.</span></div>
+              <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="additional_earning" type="number" min="0" step="0.01" defaultValue={adjustment.additional_earning || 0} /></label>
+              <label className={styles.field}><span className={styles.fieldLabel}>Description</span><input name="additional_earning_note" defaultValue={adjustment.additional_earning_note || ""} placeholder="Optional note" /></label>
             </section>
 
             <section className={styles.section}>
@@ -133,7 +133,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
           {message ? <p className={styles.error}>{message}</p> : null}
           <div className={styles.actions}>
             <button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button>
-            <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save final values"}</button>
+            <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Apply to payroll"}</button>
           </div>
         </form>
       )}
