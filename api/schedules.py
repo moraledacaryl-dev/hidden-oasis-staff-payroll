@@ -65,7 +65,7 @@ class DayActualPayload(BaseModel):
     shift_date: date
     actual_in: str | None = None
     actual_out: str | None = None
-    attendance_status: str = "Pending"
+    attendance_status: str = "Needs Review"
     approved_ot_hours: float = 0
     notes: str | None = None
 
@@ -674,7 +674,7 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
             INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time, position, department, break_minutes, notes, source, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?)
             """,
-            (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, payload.notes, timestamp, timestamp),
+            (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, saved_notes, timestamp, timestamp),
         )
         shift_id = int(cur.lastrowid)
         review = set_schedule_review_state(conn, shift_id, user.get("display_name"))
@@ -721,7 +721,7 @@ def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = H
                 INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes, source, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?, 'planned', ?, ?)
                 """,
-                (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, int(payload.break_minutes or 0), payload.notes, timestamp, timestamp),
+                (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, int(payload.break_minutes or 0), saved_notes, timestamp, timestamp),
             )
             shift_id = int(cur.lastrowid)
         review = set_schedule_review_state(conn, int(shift_id), user.get("display_name"))
@@ -742,9 +742,9 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
     validate_ot_hours(payload.approved_ot_hours)
     user = require_schedule_editor(authorization, x_api_key)
     shift_date = payload.shift_date.isoformat()
-    status_value = payload.attendance_status.strip() or "Pending"
-    if status_value not in {"Pending", "Approved", "Needs Review", "Needs Correction", "Rejected", "ON-TIME", "Grace Period", "LATE", "Partial Absence"}:
-        raise HTTPException(status_code=422, detail="Invalid attendance status.")
+    status_value = payload.attendance_status.strip() or "Needs Review"
+    if status_value not in {"Needs Review", "Approved"}:
+        status_value = "Needs Review"
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
@@ -761,7 +761,12 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
         existing = fetch_time_log(conn, payload.employee_id, shift_date)
         before = dict(existing) if existing else None
         was_needs_review = existing and str(existing.get("attendance_status") or "") == "Needs Review"
-        if was_needs_review:
+        explicitly_approved = status_value == "Approved"
+        approval_note = f"Approved: {user.get('display_name') or 'Schedule editor'} approved from schedule popup."
+        saved_notes = payload.notes or ""
+        if explicitly_approved and "Approved:" not in saved_notes:
+            saved_notes = (saved_notes + "\n" if saved_notes else "") + approval_note
+        if was_needs_review and not explicitly_approved:
             status_value = "Needs Review"
         if existing:
             conn.execute(

@@ -90,11 +90,20 @@ def attendance_items(conn) -> list[dict[str, Any]]:
             tl.source,
             tl.approved_ot_hours,
             tl.is_absent,
+            tl.absence_type,
+            lt.name AS leave_type_name,
+            lr.status AS leave_status,
+            lr.reason AS leave_reason,
             e.full_name AS employee_name,
             e.employee_code,
             e.department
         FROM time_logs tl
         LEFT JOIN employees e ON e.id=tl.employee_id
+        LEFT JOIN leave_requests lr
+          ON lr.employee_id = tl.employee_id
+         AND date(tl.work_date) BETWEEN date(lr.start_date) AND date(lr.end_date)
+         AND COALESCE(lr.status,'') NOT IN ('Cancelled','Rejected','Withdrawn','Void','Voided')
+        LEFT JOIN leave_types lt ON lt.id = lr.leave_type_id
         WHERE COALESCE(tl.attendance_status,'')='Needs Review'
         ORDER BY date(tl.work_date), COALESCE(e.full_name,'Unassigned'), tl.id
         """,
@@ -103,16 +112,31 @@ def attendance_items(conn) -> list[dict[str, Any]]:
     for row in rows:
         name = row.get("employee_name") or "Unassigned"
         notes = normalize_note(row.get("notes"))
-        issue = notes or "Attendance upload needs review."
+        absence_type = normalize_note(row.get("absence_type"))
+        leave_type = normalize_note(row.get("leave_type_name"))
+        leave_reason = normalize_note(row.get("leave_reason"))
+        actual_in = normalize_note(row.get("actual_in"))
+        actual_out = normalize_note(row.get("actual_out"))
+
+        saved_leave_type = absence_type or leave_type
+
+        if row.get("is_absent") or saved_leave_type:
+            current_state = saved_leave_type or "Absent"
+        elif actual_in or actual_out:
+            current_state = f"Time log {actual_in or '—'}–{actual_out or '—'}"
+        else:
+            current_state = "Missing time log"
+
+        issue = notes or leave_reason or "Attendance item needs review."
         items.append({
             "source_type": "attendance",
             "id": row["id"],
             "title": name,
-            "subtitle": f"{row.get('work_date')} · {row.get('actual_in') or '—'}–{row.get('actual_out') or '—'}",
+            "subtitle": f"{row.get('work_date')} · {current_state}",
             "date": row.get("work_date"),
             "status": row.get("attendance_status") or "Needs Review",
-            "issue_summary": issue,
-            "detail": f"{row.get('source') or 'attendance'} · OT {row.get('approved_ot_hours') or 0:g}h",
+            "issue_summary": current_state,
+            "detail": issue,
             "priority": 2,
         })
     return items

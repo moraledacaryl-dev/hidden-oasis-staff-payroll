@@ -56,13 +56,6 @@ export async function POST(request: Request) {
     path = "/api/v1/schedule/change-requests";
     method = "GET";
     payload = null;
-  } else if (body.operation === "review_queue") {
-    path = "/api/v1/schedule/review-queue";
-    method = "GET";
-    payload = null;
-  } else if (body.operation === "decide_review_queue") {
-    path = `/api/v1/schedule/review-queue/${String(body.source_type)}/${Number(body.item_id)}/decision`;
-    payload = { decision: "Approved", decision_note: body.decision_note || null };
   } else if (body.operation === "decide_request") {
     path = `/api/v1/schedule/change-requests/${Number(body.request_id)}/decision`;
     payload = { decision: body.decision, decision_note: body.decision_note || null, employee_notified: Boolean(body.employee_notified), coverage_confirmed: Boolean(body.coverage_confirmed), apply_change: body.apply_change !== false };

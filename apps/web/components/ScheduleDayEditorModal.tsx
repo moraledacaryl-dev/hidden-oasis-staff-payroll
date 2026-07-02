@@ -19,7 +19,7 @@ const leaveKinds = [
   "AWOL",
 ];
 const noticeTimings = ["In advance", "At least 1 hour before shift", "After shift start", "No notice"];
-const attendanceStatuses = ["Pending", "Approved", "Needs Review", "Needs Correction", "Rejected"];
+const attendanceStatuses = ["Needs Review", "Approved"];
 
 type TabKey = "scheduled" | "actual" | "leave";
 type Bundle = {
@@ -189,7 +189,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       shift_date: shiftDate,
       actual_in: String(formData.get("actual_in") || "") || null,
       actual_out: String(formData.get("actual_out") || "") || null,
-      attendance_status: String(formData.get("attendance_status") || "Pending"),
+      attendance_status: String(formData.get("attendance_status") || "Needs Review"),
       approved_ot_hours: Number(formData.get("approved_ot_hours") || 0),
       notes: String(formData.get("notes") || "") || null,
     });
@@ -254,7 +254,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
             <label>Employee<select value={employeeId} disabled={readOnly} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
             <label>Actual in<input name="actual_in" type="time" defaultValue={bundle.actual?.actual_in || ""} disabled={readOnly} /></label>
             <label>Actual out<input name="actual_out" type="time" defaultValue={bundle.actual?.actual_out || ""} disabled={readOnly} /></label>
-            <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Pending"} disabled={readOnly}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+            <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Needs Review"} disabled={readOnly}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
             <label>Approved OT<input name="approved_ot_hours" type="number" min="0" step="0.25" defaultValue={bundle.actual?.approved_ot_hours ?? 0} disabled={readOnly} /></label>
             <label>Admin note<input name="notes" defaultValue={bundle.actual?.notes || ""} disabled={readOnly} /></label>
             {canEdit ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save actual"}</button> : null}

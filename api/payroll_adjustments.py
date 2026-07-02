@@ -70,7 +70,16 @@ def ensure_schema(conn) -> None:
 
 
 def reserved(conn, advance_id: int, run_id: int) -> float:
-    row = fetchone(conn, "SELECT COALESCE(SUM(amount),0) total FROM cash_advance_repayments WHERE cash_advance_id=? AND active=1 AND source='Payroll' AND COALESCE(payroll_run_id,0)<>?", (advance_id, run_id)) or {}
+    row = fetchone(conn, """
+        SELECT COALESCE(SUM(r.amount),0) total
+        FROM cash_advance_repayments r
+        LEFT JOIN payroll_runs pr ON pr.id = r.payroll_run_id
+        WHERE r.cash_advance_id=?
+          AND COALESCE(r.active,1)=1
+          AND r.source='Payroll'
+          AND COALESCE(r.payroll_run_id,0)<>?
+          AND COALESCE(pr.status,'') NOT IN ('Paid','Locked','Released')
+    """, (advance_id, run_id)) or {}
     return round(float(row.get("total") or 0), 2)
 
 

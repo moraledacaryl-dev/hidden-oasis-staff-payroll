@@ -35,14 +35,28 @@ function hasActualLog(item: AttendanceException, actual?: ScheduleActual) {
 }
 
 function shouldShowReviewItem(item: AttendanceException, schedule?: ScheduleShift, actual?: ScheduleActual) {
+  const status = (actual?.attendance_status || item.attendance_status || "").trim().toLowerCase();
+
+  // Approved/reviewed/on-time rows are already cleared from the cutoff queue.
+  if (["approved", "reviewed", "on-time", "on time"].includes(status)) return false;
+
+  // Anything explicitly marked for review/correction must remain visible even
+  // if schedule matching is missing or the actual log is blank.
+  if (["needs review", "needs correction", "rejected", "pending", "pending review", "for review"].includes(status)) return true;
+
+  // Auto-clear only true rest-day rows with no schedule and no actual log.
   if (!schedule && !hasActualLog(item, actual)) return false;
+
   return true;
 }
 
 function attendanceReason(item: AttendanceException, schedule?: ScheduleShift, actual?: ScheduleActual) {
   const actualIn = actual?.actual_in || item.actual_in;
   const actualOut = actual?.actual_out || item.actual_out;
+  const absenceType = actual?.absence_type || item.absence_type || "";
   const absent = Number(actual?.is_absent ?? item.is_absent ?? 0) === 1;
+
+  if (absenceType) return absenceType;
   if (!schedule && actualIn) return "Rest-day punch";
   if (schedule && (!actualIn || !actualOut || absent)) return "Absent";
   if (item.ot_status === "Pending") return "OT review";
@@ -59,10 +73,20 @@ function scheduledText(schedule?: ScheduleShift) {
 function actualText(item: AttendanceException, actual?: ScheduleActual, schedule?: ScheduleShift) {
   const actualIn = actual?.actual_in || item.actual_in || "";
   const actualOut = actual?.actual_out || item.actual_out || "";
+  const absenceType = actual?.absence_type || item.absence_type || "";
+  const isAbsent = Number(actual?.is_absent ?? item.is_absent ?? 0) === 1;
   const hasLog = Boolean(actualIn || actualOut);
-  const absent = Boolean(schedule && !hasLog);
-  const status = absent ? "Needs Review" : (actual?.attendance_status || item.attendance_status || "For review");
-  return { time: absent ? "Absent" : `${actualIn || "—"}–${actualOut || "—"}`, status };
+
+  if (absenceType || isAbsent) {
+    return {
+      time: absenceType || "Absent",
+      status: actual?.attendance_status || item.attendance_status || "Needs Review",
+    };
+  }
+
+  const absentByMissingLog = Boolean(schedule && !hasLog);
+  const status = absentByMissingLog ? "Needs Review" : (actual?.attendance_status || item.attendance_status || "For review");
+  return { time: absentByMissingLog ? "Missing time log" : `${actualIn || "—"}–${actualOut || "—"}`, status };
 }
 
 function scheduleKey(employeeId: number, workDate: string) {
