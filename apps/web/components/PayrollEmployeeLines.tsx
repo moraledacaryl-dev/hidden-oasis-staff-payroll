@@ -1,14 +1,38 @@
 "use client";
 
 import { useState } from "react";
-import { numberText, peso, type PayrollReviewItem } from "@/lib/api";
 
-type PayrollPreviewItem = PayrollReviewItem & {
+type PayrollPreviewItem = {
   employee_id: number;
+  employee_name?: string;
   full_name?: string;
   employee_code?: string | null;
+  department?: string | null;
+  regular_hours?: number | null;
+  regular_pay?: number | null;
+  approved_ot_hours?: number | null;
+  ot_pay?: number | null;
+  night_diff_pay?: number | null;
+  paid_leave_pay?: number | null;
+  gross_pay?: number | null;
+  sss_ee?: number | null;
+  philhealth_ee?: number | null;
+  pagibig_ee?: number | null;
+  tax?: number | null;
+  cash_advance_deduction?: number | null;
+  other_deductions?: number | null;
+  total_deductions?: number | null;
+  net_pay?: number | null;
   warnings?: string[] | string | null;
 };
+
+function peso(value?: number | null): string {
+  return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 }).format(Number(value || 0));
+}
+
+function numberText(value?: number | null, digits = 2): string {
+  return Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
 
 function warningsFor(item: PayrollPreviewItem): string[] {
   if (Array.isArray(item.warnings)) return item.warnings.filter(Boolean);
