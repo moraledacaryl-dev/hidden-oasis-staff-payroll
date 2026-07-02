@@ -15,6 +15,8 @@ type Advance = {
   total_repaid?: number; overpayment_credit?: number; repayment_method?: string; status: string; reason?: string | null; repayments?: Repayment[];
 };
 
+const activeStatuses = new Set(["Active", "Approved", "Partially Paid", "Released"]);
+
 async function loadAdvances(): Promise<Advance[]> {
   const response = await fetch(`${apiBaseUrl()}/api/v1/cash-advances`, { headers: await backendHeaders(), cache: "no-store" });
   if (!response.ok) throw new Error(`Cash advances could not be loaded (${response.status}).`);
@@ -35,6 +37,11 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function statusLabel(status: string): string {
+  if (status === "Approved" || status === "Released") return "Active";
+  return status || "Active";
+}
+
 export default async function CashAdvancesPage() {
   const session = await currentSession();
   if (!session) redirect("/login");
@@ -52,7 +59,7 @@ export default async function CashAdvancesPage() {
     );
   }
   const [advances, employees] = loaded.map((result) => result.status === "fulfilled" ? result.value : []) as [Advance[], Employee[]];
-  const active = advances.filter((item) => item.status === "Active");
+  const active = advances.filter((item) => activeStatuses.has(item.status) && Number(item.remaining_balance || 0) > 0);
   const totalBalance = active.reduce((sum, item) => sum + Number(item.remaining_balance || 0), 0);
   const totalRepaid = advances.reduce((sum, item) => sum + Number(item.total_repaid || 0), 0);
 
@@ -90,7 +97,7 @@ export default async function CashAdvancesPage() {
                     <div className="cash-avatar" aria-hidden="true">{(item.full_name || "E").trim().charAt(0).toUpperCase()}</div>
                     <div><h2>{item.full_name || "Employee"}</h2><p>{item.employee_code || "No code"} · {item.department || "Unassigned"}</p></div>
                   </div>
-                  <StatusBadge label={item.status} tone={item.status === "Fully Paid" ? "ok" : item.status === "Cancelled" ? "danger" : "warning"} />
+                  <StatusBadge label={statusLabel(item.status)} tone={item.status === "Fully Paid" ? "ok" : item.status === "Cancelled" ? "danger" : "warning"} />
                 </div>
 
                 <div className="cash-card-main">
