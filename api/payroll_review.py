@@ -209,6 +209,79 @@ def _cash_advance_details(conn, run_id: int, employee_id: int) -> list[dict[str,
     return details
 
 
+def _cash_advance_audit(conn, run_id: int, period_start: str, period_end: str) -> dict[str, Any]:
+    expected_rows = fetchall(
+        conn,
+        """
+        SELECT
+            ca.employee_id,
+            e.full_name,
+            COUNT(*) AS period_advances,
+            SUM(
+                CASE
+                    WHEN COALESCE(ca.deduction_per_payroll, ca.repayment_per_cutoff, 0) <= 0 THEN 0
+                    WHEN COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0)
+                         < COALESCE(ca.deduction_per_payroll, ca.repayment_per_cutoff, 0)
+                    THEN COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0)
+                    ELSE COALESCE(ca.deduction_per_payroll, ca.repayment_per_cutoff, 0)
+                END
+            ) AS expected_deduction
+        FROM cash_advances ca
+        LEFT JOIN employees e ON e.id = ca.employee_id
+        WHERE COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) > 0
+          AND COALESCE(ca.status, '') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
+          AND lower(COALESCE(ca.repayment_method, 'Payroll deduction')) LIKE '%payroll%'
+          AND date(COALESCE(ca.advance_date, ca.request_date)) BETWEEN date(?) AND date(?)
+        GROUP BY ca.employee_id, e.full_name
+        ORDER BY e.full_name
+        """,
+        (period_start, period_end),
+    )
+    items = fetchall(
+        conn,
+        """
+        SELECT employee_id, COALESCE(cash_advance_deduction,0) AS applied
+        FROM payroll_items
+        WHERE payroll_run_id=?
+        """,
+        (run_id,),
+    )
+    applied_by_employee = {int(row.get("employee_id") or 0): float(row.get("applied") or 0) for row in items}
+    rows: list[dict[str, Any]] = []
+    expected_total = 0.0
+    applied_total = 0.0
+    issue_count = 0
+    for row in expected_rows:
+        employee_id = int(row.get("employee_id") or 0)
+        expected = round(float(row.get("expected_deduction") or 0), 2)
+        applied = round(applied_by_employee.get(employee_id, 0.0), 2)
+        expected_total += expected
+        applied_total += applied
+        if applied + 0.005 < expected:
+            status = "MISSING/LOW"
+            issue_count += 1
+        elif applied > expected + 0.005:
+            status = "OVER"
+            issue_count += 1
+        else:
+            status = "OK"
+        rows.append({
+            "employee_id": employee_id,
+            "name": row.get("full_name") or f"Employee {employee_id}",
+            "period_advances": int(row.get("period_advances") or 0),
+            "expected": expected,
+            "applied": applied,
+            "status": status,
+        })
+    return {
+        "expected_total": round(expected_total, 2),
+        "applied_total": round(applied_total, 2),
+        "issue_count": issue_count,
+        "rows": rows,
+        "status": "OK" if issue_count == 0 else "Needs Review",
+    }
+
+
 @router.get("/payroll/runs/{run_id}/review")
 def review_payroll_run(
     run_id: int,
@@ -225,6 +298,8 @@ def review_payroll_run(
         employees = fetchall(conn, "SELECT * FROM employees")
         employee_by_id = {int(row.get("id")): row for row in employees if row.get("id") is not None}
         normalized_items = []
+        period_start = str(run.get("period_start"))
+        period_end = str(run.get("period_end"))
         for item in items:
             employee_id = int(item.get("employee_id") or 0)
             employee = employee_by_id.get(employee_id, {})
@@ -233,10 +308,16 @@ def review_payroll_run(
             row["employee_name"] = full_name
             row["department"] = employee.get("department") or employee.get("department_name") or "Unassigned"
             row["payroll_run_id"] = run_id
-            row["leave_summary"] = _leave_summaries(conn, employee_id, str(run.get("period_start")), str(run.get("period_end")))
+            row["leave_summary"] = _leave_summaries(conn, employee_id, period_start, period_end)
             row["cash_advance_details"] = _cash_advance_details(conn, run_id, employee_id)
             normalized_items.append(row)
         run["totals"] = totals(conn, run_id)
-        return {"ok": True, "run": run, "items": normalized_items, "mode": "review_only_not_released"}
+        return {
+            "ok": True,
+            "run": run,
+            "items": normalized_items,
+            "cash_advance_audit": _cash_advance_audit(conn, run_id, period_start, period_end),
+            "mode": "review_only_not_released",
+        }
     finally:
         conn.close()
