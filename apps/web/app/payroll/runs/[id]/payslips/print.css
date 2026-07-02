@@ -1,1 +1,56 @@
-.payslip-sheet{display:grid;gap:14px;margin-bottom:24px}.payslip-copy{display:grid;gap:12px;padding:18px;border:1px solid #d7d2c8;border-radius: 8px;background:#fff}.payslip-copy.company-copy{border-top:2px dashed #888}.copy-label{display:inline-block;margin-bottom:8px;font-size:12px;font-weight:700;letter-spacing: 0;text-transform:uppercase}
+.payslip-sheet{display:grid;gap:14px;margin-bottom:24px}
+.payslip-copy{display:grid;gap:12px;padding:18px;border:1px solid #d7d2c8;border-radius:8px;background:#fff}
+.payslip-copy.company-copy{display:none;border-top:2px dashed #888}
+.copy-label{display:inline-block;margin-bottom:8px;font-size:12px;font-weight:700;letter-spacing:0;text-transform:uppercase}
+
+@page{size:letter portrait;margin:10mm}
+
+@media print{
+  html,body{margin:0!important;padding:0!important;background:#fff!important}
+  body{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+
+  .app-shell{display:block!important}
+  .sidebar,
+  .page-header,
+  .print-actions{display:none!important}
+
+  .main{display:block!important;margin:0!important;padding:0!important;width:100%!important}
+  .page.payslip-page{margin:0!important;padding:0!important;width:100%!important;max-width:none!important}
+  .payslip-grid{display:block!important;margin:0!important;padding:0!important}
+
+  .payslip-sheet{
+    display:grid!important;
+    grid-template-columns:1fr 1fr!important;
+    gap:8mm!important;
+    margin:0!important;
+    padding:0!important;
+    break-inside:avoid!important;
+    page-break-inside:avoid!important;
+    break-after:page!important;
+    page-break-after:always!important;
+  }
+
+  .payslip-sheet:last-child{
+    break-after:auto!important;
+    page-break-after:auto!important;
+  }
+
+  .payslip-copy,
+  .payslip-copy.company-copy{
+    display:grid!important;
+    box-sizing:border-box!important;
+    width:100%!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:6mm!important;
+    border:1px solid #d7d2c8!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+    break-inside:avoid!important;
+    page-break-inside:avoid!important;
+  }
+
+  .payslip-copy.company-copy{
+    border-left:1px dashed #888!important;
+  }
+}
