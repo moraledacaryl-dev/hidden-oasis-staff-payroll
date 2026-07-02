@@ -166,6 +166,49 @@ def _leave_summaries(conn, employee_id: int, period_start: str, period_end: str)
     return summaries
 
 
+def _cash_advance_details(conn, run_id: int, employee_id: int) -> list[dict[str, Any]]:
+    rows = fetchall(
+        conn,
+        """
+        SELECT
+            r.id AS repayment_id,
+            r.cash_advance_id,
+            r.amount AS paid_this_payroll,
+            COALESCE(r.repayment_date, r.payment_date) AS repayment_date,
+            ca.amount AS original_amount,
+            COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) AS current_balance,
+            ca.status,
+            ca.advance_date,
+            ca.reason
+        FROM cash_advance_repayments r
+        LEFT JOIN cash_advances ca ON ca.id = r.cash_advance_id
+        WHERE r.payroll_run_id=?
+          AND r.employee_id=?
+          AND COALESCE(r.active,1)=1
+        ORDER BY ca.advance_date, r.cash_advance_id, r.id
+        """,
+        (run_id, employee_id),
+    )
+    details: list[dict[str, Any]] = []
+    for row in rows:
+        original = round(float(row.get("original_amount") or 0), 2)
+        paid = round(float(row.get("paid_this_payroll") or 0), 2)
+        balance = round(float(row.get("current_balance") or 0), 2)
+        details.append({
+            "cash_advance_id": row.get("cash_advance_id"),
+            "repayment_id": row.get("repayment_id"),
+            "advance_date": row.get("advance_date"),
+            "repayment_date": row.get("repayment_date"),
+            "original_amount": original,
+            "paid_this_payroll": paid,
+            "current_balance": balance,
+            "balance_after_this_payroll": balance,
+            "status": row.get("status") or ("Fully Paid" if balance <= 0 else "Active"),
+            "reason": row.get("reason"),
+        })
+    return details
+
+
 @router.get("/payroll/runs/{run_id}/review")
 def review_payroll_run(
     run_id: int,
@@ -191,6 +234,7 @@ def review_payroll_run(
             row["department"] = employee.get("department") or employee.get("department_name") or "Unassigned"
             row["payroll_run_id"] = run_id
             row["leave_summary"] = _leave_summaries(conn, employee_id, str(run.get("period_start")), str(run.get("period_end")))
+            row["cash_advance_details"] = _cash_advance_details(conn, run_id, employee_id)
             normalized_items.append(row)
         run["totals"] = totals(conn, run_id)
         return {"ok": True, "run": run, "items": normalized_items, "mode": "review_only_not_released"}
