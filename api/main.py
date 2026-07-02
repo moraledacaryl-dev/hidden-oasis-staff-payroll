@@ -292,11 +292,8 @@ def build_app() -> FastAPI:
                         "target_id": int(user["id"]),
                         "target_name": user.get("display_name") or "",
                     }
-                if path not in exempt and int(user.get("must_change_password") or 0):
-                    return JSONResponse(
-                        {"detail": "Change your temporary password first.", "code": "password_change_required"},
-                        status_code=428,
-                    )
+                # Temporary passwords are now a dismissible UI reminder, not an API blocker.
+                # Staff can continue using self-service pages and change the password when convenient.
             except HTTPException:
                 pass
         response = await call_next(request)
