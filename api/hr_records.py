@@ -38,6 +38,8 @@ class LeaveEntitlementPayload(BaseModel):
     year: int
     credits: float
     entitled: int = 1
+    effective_start: date | None = None
+    effective_end: date | None = None
 
 
 class LeaveDecisionPayload(BaseModel):
@@ -97,12 +99,7 @@ def _add_column_if_missing(conn, table_name: str, column_name: str, ddl: str) ->
 
 
 def _employee_profile_sql(conn, *, name_alias: str = "full_name") -> tuple[str, str]:
-    """Return schema-safe employee select expressions and optional joins.
-
-    Some live databases have employees.department; newer ones have
-    employees.department_id -> departments.name. Some older databases may also
-    lack employees.position. HR pages should not crash for either shape.
-    """
+    """Return schema-safe employee select expressions and optional joins."""
     employee_columns = _columns(conn, "employees")
     if "department" in employee_columns:
         department_expr = "e.department"
@@ -128,6 +125,21 @@ def _employee_list_sql(conn, where_clause: str = "") -> str:
     )
 
 
+def _date_text(value: date | str | None, fallback: str | None = None) -> str | None:
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value or "").strip()
+    return text[:10] if text else fallback
+
+
+def entitlement_start(entitlement: dict[str, Any], year: int) -> str:
+    return _date_text(entitlement.get("effective_start"), f"{year}-01-01") or f"{year}-01-01"
+
+
+def entitlement_end(entitlement: dict[str, Any], year: int) -> str:
+    return _date_text(entitlement.get("effective_end"), f"{year}-12-31") or f"{year}-12-31"
+
+
 def ensure_schema(conn) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS leave_types (
@@ -150,6 +162,11 @@ def ensure_schema(conn) -> None:
         "notes": "TEXT",
     }.items():
         _add_column_if_missing(conn, "leave_types", column, f"ALTER TABLE leave_types ADD COLUMN {column} {definition}")
+    for name, credits, paid, statutory in (("SIL", 5, 1, 1), ("Sick Leave", 0, 1, 0), ("Bereavement Leave", 0, 1, 0), ("Unpaid Leave", 0, 0, 0)):
+        conn.execute(
+            "INSERT OR IGNORE INTO leave_types(name, default_credits, paid, statutory, active) VALUES(?,?,?,?,1)",
+            (name, credits, paid, statutory),
+        )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS employee_leave_entitlements (
@@ -160,6 +177,8 @@ def ensure_schema(conn) -> None:
             credits REAL NOT NULL DEFAULT 0,
             used REAL NOT NULL DEFAULT 0,
             entitled INTEGER NOT NULL DEFAULT 1,
+            effective_start TEXT,
+            effective_end TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(employee_id, leave_type_id, year)
@@ -169,6 +188,8 @@ def ensure_schema(conn) -> None:
         "credits": "REAL NOT NULL DEFAULT 0",
         "used": "REAL NOT NULL DEFAULT 0",
         "entitled": "INTEGER NOT NULL DEFAULT 1",
+        "effective_start": "TEXT",
+        "effective_end": "TEXT",
         "created_at": "TEXT",
         "updated_at": "TEXT",
     }.items():
@@ -249,19 +270,26 @@ def ensure_schema(conn) -> None:
     conn.commit()
 
 
-def leave_request_used_days(conn, employee_id: int, leave_type_id: int, year: int) -> float:
+def leave_request_used_days(conn, employee_id: int, leave_type_id: int, start_date: str, end_date: str) -> float:
     row = fetchone(conn, """
         SELECT COALESCE(SUM(days), 0) AS used
         FROM leave_requests
-        WHERE employee_id=? AND leave_type_id=? AND strftime('%Y', start_date)=?
+        WHERE employee_id=? AND leave_type_id=?
+          AND date(start_date) <= date(?)
+          AND date(end_date) >= date(?)
           AND status IN ('Approved', 'Paid', 'Used')
-    """, (employee_id, leave_type_id, str(year)))
+    """, (employee_id, leave_type_id, end_date, start_date))
     return float(row.get("used") or 0) if row else 0.0
 
 
-def sync_entitlement_usage(conn, employee_id: int, leave_type_id: int, year: int) -> float:
-    used = leave_request_used_days(conn, employee_id, leave_type_id, year)
-    conn.execute("UPDATE employee_leave_entitlements SET used=?, updated_at=CURRENT_TIMESTAMP WHERE employee_id=? AND leave_type_id=? AND year=?", (used, employee_id, leave_type_id, year))
+def sync_entitlement_usage(conn, employee_id: int, leave_type_id: int, year: int, effective_start: str | None = None, effective_end: str | None = None) -> float:
+    start = effective_start or f"{year}-01-01"
+    end = effective_end or f"{year}-12-31"
+    used = leave_request_used_days(conn, employee_id, leave_type_id, start, end)
+    conn.execute(
+        "UPDATE employee_leave_entitlements SET used=?, updated_at=CURRENT_TIMESTAMP WHERE employee_id=? AND leave_type_id=? AND year=?",
+        (used, employee_id, leave_type_id, year),
+    )
     return used
 
 
@@ -289,7 +317,9 @@ def leave_balances(year: int = Query(default_factory=lambda: date.today().year),
             employee_id = int(ent["employee_id"])
             if employee_id not in allowed_ids:
                 continue
-            used = sync_entitlement_usage(conn, employee_id, int(ent["leave_type_id"]), year)
+            start = entitlement_start(ent, year)
+            end = entitlement_end(ent, year)
+            used = sync_entitlement_usage(conn, employee_id, int(ent["leave_type_id"]), year, start, end)
             credits = float(ent.get("credits") or 0)
             by_employee.setdefault(employee_id, []).append({
                 "leave_type_id": ent["leave_type_id"],
@@ -299,6 +329,8 @@ def leave_balances(year: int = Query(default_factory=lambda: date.today().year),
                 "remaining": max(0.0, credits - used),
                 "entitled": int(ent.get("entitled") or 0),
                 "paid": int(ent.get("paid") or 0),
+                "effective_start": start,
+                "effective_end": end,
             })
         conn.commit()
         return {"ok": True, "year": year, "leave_types": types, "items": [{**dict(emp), "balances": by_employee.get(int(emp["id"]), [])} for emp in employees]}
@@ -316,17 +348,21 @@ def save_leave_entitlement(payload: LeaveEntitlementPayload, authorization: str 
             raise HTTPException(status_code=404, detail="Employee not found.")
         if not fetchone(conn, "SELECT id FROM leave_types WHERE id=?", (payload.leave_type_id,)):
             raise HTTPException(status_code=404, detail="Leave type not found.")
+        start = _date_text(payload.effective_start, f"{payload.year}-01-01")
+        end = _date_text(payload.effective_end, f"{payload.year}-12-31")
+        if start and end and start > end:
+            raise HTTPException(status_code=422, detail="Effective end cannot be before effective start.")
         stamp = now_sql(conn)
+        used = leave_request_used_days(conn, payload.employee_id, payload.leave_type_id, start or f"{payload.year}-01-01", end or f"{payload.year}-12-31")
         conn.execute("""
-            INSERT INTO employee_leave_entitlements(employee_id, leave_type_id, year, credits, entitled, used, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+            INSERT INTO employee_leave_entitlements(employee_id, leave_type_id, year, credits, used, entitled, effective_start, effective_end, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(employee_id, leave_type_id, year)
-            DO UPDATE SET credits=excluded.credits, entitled=excluded.entitled, updated_at=excluded.updated_at
-        """, (payload.employee_id, payload.leave_type_id, payload.year, payload.credits, int(payload.entitled or 0), stamp, stamp))
-        sync_entitlement_usage(conn, payload.employee_id, payload.leave_type_id, payload.year)
-        log_audit(conn, actor=user.get("display_name"), action="Leave entitlement saved", table_name="employee_leave_entitlements", details={"employee_id": payload.employee_id, "leave_type_id": payload.leave_type_id, "year": payload.year, "credits": payload.credits, "entitled": int(payload.entitled or 0)})
+            DO UPDATE SET credits=excluded.credits, used=excluded.used, entitled=excluded.entitled, effective_start=excluded.effective_start, effective_end=excluded.effective_end, updated_at=excluded.updated_at
+        """, (payload.employee_id, payload.leave_type_id, payload.year, payload.credits, used, int(payload.entitled or 0), start, end, stamp, stamp))
+        log_audit(conn, actor=user.get("display_name"), action="Leave entitlement saved", table_name="employee_leave_entitlements", details={"employee_id": payload.employee_id, "leave_type_id": payload.leave_type_id, "year": payload.year, "credits": payload.credits, "used": used, "entitled": int(payload.entitled or 0), "effective_start": start, "effective_end": end})
         conn.commit()
-        return {"ok": True, "message": "Leave entitlement saved."}
+        return {"ok": True, "message": "Leave entitlement saved.", "used": used}
     finally:
         conn.close()
 
@@ -367,7 +403,10 @@ def decide_leave_request(request_id: int, payload: LeaveDecisionPayload, authori
             raise HTTPException(status_code=409, detail="This leave request has already been reviewed.")
         conn.execute("UPDATE leave_requests SET status=?, reviewed_by=?, reviewed_at=?, decision_note=? WHERE id=?", (decision, user.get("display_name"), now_sql(conn), payload.decision_note, request_id))
         if row.get("leave_type_id"):
-            sync_entitlement_usage(conn, int(row["employee_id"]), int(row["leave_type_id"]), int(str(row["start_date"])[:4]))
+            year = int(str(row["start_date"])[:4])
+            entitlements = fetchall(conn, "SELECT * FROM employee_leave_entitlements WHERE employee_id=? AND leave_type_id=? AND year=?", (int(row["employee_id"]), int(row["leave_type_id"]), year))
+            for entitlement in entitlements:
+                sync_entitlement_usage(conn, int(row["employee_id"]), int(row["leave_type_id"]), year, entitlement_start(entitlement, year), entitlement_end(entitlement, year))
         log_audit(conn, actor=user.get("display_name"), action=f"Leave request {decision.lower()}", table_name="leave_requests", record_id=request_id, details={"decision_note": payload.decision_note})
         conn.commit()
         return {"ok": True, "message": f"Leave request {decision.lower()}."}
