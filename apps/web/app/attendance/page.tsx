@@ -159,19 +159,19 @@ export default async function AttendancePage({
           </div>
 
           <div className="table-wrap">
-            <table>
+            <table className="compliance-table">
               <thead>
                 <tr>
-                  <th>Employee</th>
-                  <th>Scheduled</th>
-                  <th>Missing</th>
-                  <th>Grace</th>
-                  <th>Lates</th>
-                  <th>Partial</th>
-                  <th>Absences</th>
-                  <th>Details</th>
-                  <th>Handbook action</th>
-                  <th>Memo</th>
+                  <th className="employee-col">Employee</th>
+                  <th className="number-col">Scheduled</th>
+                  <th className="number-col">Missing</th>
+                  <th className="number-col">Grace</th>
+                  <th className="number-col">Lates</th>
+                  <th className="number-col">Partial</th>
+                  <th className="absences-col">Absences</th>
+                  <th className="details-col">Details</th>
+                  <th className="action-col">Handbook action</th>
+                  <th className="memo-col">Memo</th>
                 </tr>
               </thead>
               <tbody>
@@ -193,29 +193,37 @@ export default async function AttendancePage({
                       <br />AWOL: {Number(item.awol || 0)}
                     </td>
                     <td>
-                      {(item.late_details || []).length ? (
-                        <div>
-                          <strong>Lates</strong>
-                          {(item.late_details || []).map((late) => (
-                            <div key={`${late.date}-${late.actual_in}`} className="muted">
-                              {late.date}: {late.scheduled_start} → {late.actual_in} ({late.minutes_late} min, {late.status})
+                      {(item.late_details || []).length || (item.absence_details || []).length ? (
+                        <details className="compliance-details">
+                          <summary>
+                            View details ({(item.late_details || []).length + (item.absence_details || []).length})
+                          </summary>
+
+                          {(item.late_details || []).length ? (
+                            <div className="compliance-details-list">
+                              <strong>Lates</strong>
+                              {(item.late_details || []).map((late) => (
+                                <div key={`${late.date}-${late.actual_in}`} className="muted">
+                                  {late.date}: {late.scheduled_start} → {late.actual_in} ({late.minutes_late} min, {late.status})
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      {(item.absence_details || []).length ? (
-                        <div>
-                          <strong>Absences</strong>
-                          {(item.absence_details || []).map((absence) => (
-                            <div key={`${absence.date}-${absence.type}`} className="muted">
-                              {absence.date}: {absence.type}
+                          ) : null}
+
+                          {(item.absence_details || []).length ? (
+                            <div className="compliance-details-list">
+                              <strong>Absences</strong>
+                              {(item.absence_details || []).map((absence) => (
+                                <div key={`${absence.date}-${absence.type}`} className="muted">
+                                  {absence.date}: {absence.type}
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      {!(item.late_details || []).length && !(item.absence_details || []).length ? <span className="muted">—</span> : null}
+                          ) : null}
+                        </details>
+                      ) : <span className="muted">—</span>}
                     </td>
-                    <td>
+                    <td className="compliance-action">
                       <strong>{item.handbook_action}</strong>
                       <br />
                       <span className="muted">{item.attendance_reward_status}</span>

@@ -71,7 +71,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 4mm !important;
     width: 100% !important;
-    height: 190mm !important;
+    height: 175mm !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: hidden !important;
@@ -89,7 +89,7 @@
   .payslip-page .payslip-copy {
     display: block !important;
     width: 100% !important;
-    height: 190mm !important;
+    height: 175mm !important;
     min-width: 0 !important;
     min-height: 0 !important;
     margin: 0 !important;

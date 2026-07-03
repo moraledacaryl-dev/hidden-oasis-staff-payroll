@@ -35,7 +35,41 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
         if amount > current["balance"]:
             raise HTTPException(status_code=422, detail=f"Repayment cannot exceed the current balance of {current['balance']:.2f}.")
         stamp = now_iso()
-        cur = conn.execute("INSERT INTO cash_advance_repayments(cash_advance_id,employee_id,repayment_date,amount,source,payment_method,reference,notes,active,created_by,created_at,updated_by,updated_at) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?)", (cash_advance_id,int(advance["employee_id"]),payload.repayment_date,amount,"Manual",payload.payment_method,payload.reference,payload.notes,user.get("display_name"),stamp,user.get("display_name"),stamp))
+        cur = conn.execute("""
+            INSERT INTO cash_advance_repayments(
+                cash_advance_id,
+                employee_id,
+                payment_date,
+                repayment_date,
+                amount,
+                source,
+                method,
+                payment_method,
+                reference,
+                notes,
+                active,
+                created_by,
+                created_at,
+                updated_by,
+                updated_at
+            )
+            VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)
+        """, (
+            cash_advance_id,
+            int(advance["employee_id"]),
+            payload.repayment_date,
+            payload.repayment_date,
+            amount,
+            "Manual",
+            payload.payment_method,
+            payload.payment_method,
+            payload.reference,
+            payload.notes,
+            user.get("display_name"),
+            stamp,
+            user.get("display_name"),
+            stamp,
+        ))
         summary = recalculate_balance(conn, cash_advance_id)
         conn.commit()
         return {"ok": True, "repayment_id": int(cur.lastrowid), "summary": summary}

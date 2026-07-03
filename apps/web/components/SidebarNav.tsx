@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Banknote,
   CalendarDays,
@@ -92,6 +93,14 @@ export function SidebarNav({ role }: { role: RoleKey }) {
     .filter((item) => item.roles.includes(role))
     .map((item) => item.href);
   const activeHref = activeHrefFor(pathname, visibleHrefs);
+  const activeGroupLabel = navGroups.find((group) =>
+    group.label && group.items.some((item) => item.href === activeHref && item.roles.includes(role))
+  )?.label || null;
+  const [openGroup, setOpenGroup] = useState<string | null>(activeGroupLabel);
+
+  useEffect(() => {
+    setOpenGroup(activeGroupLabel);
+  }, [activeGroupLabel]);
 
   return (
     <nav className={`nav-list ${styles.nav}`} aria-label="Main navigation">
@@ -119,8 +128,15 @@ export function SidebarNav({ role }: { role: RoleKey }) {
         return (
           <details
             className={styles.group}
-            open={groupActive || undefined}
-            key={`${group.label}-${pathname}`}
+            open={openGroup === group.label}
+            key={group.label}
+            onToggle={(event) => {
+              if (event.currentTarget.open) {
+                setOpenGroup(group.label);
+              } else if (openGroup === group.label && !groupActive) {
+                setOpenGroup(null);
+              }
+            }}
           >
             <summary className={groupActive ? styles.active : ""} title={group.label}>
               <strong>{group.label}</strong>

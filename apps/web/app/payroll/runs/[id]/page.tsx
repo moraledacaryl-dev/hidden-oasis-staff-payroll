@@ -6,7 +6,8 @@ import { MarkPaidButton } from "@/components/MarkPaidButton";
 import { PayrollWorkflowButton } from "@/components/PayrollWorkflowButton";
 import { RecalculatePayrollButton } from "@/components/RecalculatePayrollButton";
 import { PayrollRevisionBanner } from "@/components/PayrollRevisionBanner";
-import { EmployeePayrollCard } from "@/components/EmployeePayrollCard";
+import { PayrollEmployeeAccordion } from "@/components/PayrollEmployeeAccordion";
+import { PayrollReviewAccordion, ReviewAccordionDetails } from "@/components/PayrollReviewAccordion";
 import { getPayrollRunChangeDelta, getPayrollRunReview, peso } from "@/lib/api";
 import { currentSession } from "@/lib/session";
 import "./payroll-run.css";
@@ -56,7 +57,7 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
   const auditIssues = Number(audit?.issue_count || 0);
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
-      <div className="page">
+      <div className="page"><PayrollReviewAccordion>
         <header className="page-header">
           <div className="grid">
             <span className="eyebrow">Payroll Review</span>
@@ -99,7 +100,7 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
         </section>
 
         {audit ? (
-          <details className="cash-advance-panel">
+          <ReviewAccordionDetails id="cash-advance-panel" className="cash-advance-panel">
             <summary className="cash-advance-summary">
               <div className="cash-advance-header">
                 <div>
@@ -166,7 +167,7 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
                 <p className="cash-advance-empty">No payroll-deduction cash advances dated inside this payroll period.</p>
               )}
             </div>
-          </details>
+          </ReviewAccordionDetails>
         ) : null}
 
         <section>
@@ -174,11 +175,10 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
             <div><h2>Employees</h2><p className="muted">Open an employee to review earnings, deductions, final adjustments, and the read-only payslip preview.</p></div>
           </div>
           <div className="employee-payroll-list">
-            {items.map((item) => <EmployeePayrollCard key={item.id} runId={run.id} item={item} editable={editable} />)}
-            {items.length === 0 ? <div className="card"><p>No payroll items found.</p></div> : null}
+            <PayrollEmployeeAccordion runId={run.id} items={items} editable={editable} />
           </div>
         </section>
-      </div>
+      </PayrollReviewAccordion></div>
     </Shell>
   );
 }

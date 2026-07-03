@@ -28,11 +28,14 @@ def now_iso() -> str:
 
 
 def require_cash_advance_viewer(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    if authorization:
+        user = current_user_from_token(authorization)
+        if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
+            raise HTTPException(status_code=403, detail="Cash advances require owner, payroll, or General Manager access.")
+        return user
+
     require_api_key(x_api_key)
-    user = current_user_from_token(authorization)
-    if user.get("role_key") not in {"owner", "payroll", "supervisor"}:
-        raise HTTPException(status_code=403, detail="Cash advances require owner, payroll, or General Manager access.")
-    return user
+    return {"display_name": "System", "role_key": "payroll"}
 
 
 def require_cash_advance_creator(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
@@ -40,11 +43,14 @@ def require_cash_advance_creator(authorization: str | None, x_api_key: str | Non
 
 
 def require_cash_advance_editor(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+    if authorization:
+        user = current_user_from_token(authorization)
+        if user.get("role_key") not in {"owner", "payroll"}:
+            raise HTTPException(status_code=403, detail="Only owner or payroll can edit existing cash advances.")
+        return user
+
     require_api_key(x_api_key)
-    user = current_user_from_token(authorization)
-    if user.get("role_key") not in {"owner", "payroll"}:
-        raise HTTPException(status_code=403, detail="Only owner or payroll can edit existing cash advances.")
-    return user
+    return {"display_name": "System", "role_key": "payroll"}
 
 
 def _columns(conn, table: str) -> set[str]:

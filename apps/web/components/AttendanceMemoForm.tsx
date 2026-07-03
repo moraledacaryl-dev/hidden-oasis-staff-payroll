@@ -46,7 +46,7 @@ export function AttendanceMemoForm({ employeeId, employeeName, periodMonth, sugg
   }
 
   if (!open) {
-    return <button className="button small" type="button" onClick={() => setOpen(true)}>Issue memo</button>;
+    return <button className="button small memo-button" type="button" onClick={() => setOpen(true)}>Issue memo</button>;
   }
 
   return (

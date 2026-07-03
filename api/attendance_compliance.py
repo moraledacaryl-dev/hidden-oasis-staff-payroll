@@ -190,12 +190,34 @@ def handbook_action(lates: int, partial_absences: int, unexcused_absences: int, 
     return "; ".join(actions) if actions else "No action required"
 
 
-def reward_status(year_unexcused: int) -> str:
-    if year_unexcused == 0:
+def reward_status(year_attendance_infractions: int) -> str:
+    if year_attendance_infractions == 0:
         return "Eligible: 2 additional paid leave days next year"
-    if 1 <= year_unexcused <= 3:
+    if 1 <= year_attendance_infractions <= 3:
         return "Eligible: 1 additional paid leave day next year"
     return "Not eligible for attendance-based reward"
+
+
+def is_excused_attendance_row(row: dict[str, Any]) -> bool:
+    marker = " ".join([
+        str(row.get("absence_type") or ""),
+        str(row.get("attendance_status") or ""),
+        str(row.get("notes") or ""),
+    ]).lower()
+
+    excused_markers = (
+        "excused",
+        "approved leave",
+        "sick leave",
+        "bereavement",
+        "sil",
+        "service incentive leave",
+        "vacation leave",
+        "paid leave",
+        "corrected log",
+    )
+
+    return any(token in marker for token in excused_markers)
 
 
 @router.get("/attendance/compliance")
@@ -231,14 +253,13 @@ def attendance_compliance(
             """,
             (period_start, period_end),
         ) if table_exists(conn, "time_logs") else []
+        year_shifts = fetch_compliance_shifts(conn, year_start, year_end)
         year_actuals = fetchall(
             conn,
             """
-            SELECT employee_id, absence_type
+            SELECT *
             FROM time_logs
             WHERE date(work_date) BETWEEN date(?) AND date(?)
-              AND lower(COALESCE(absence_type, '')) IN
-                  ('unexcused', 'unexcused absence', 'awol')
             """,
             (year_start, year_end),
         ) if table_exists(conn, "time_logs") else []
@@ -259,10 +280,48 @@ def attendance_compliance(
             for row in actuals
             if row.get("employee_id")
         }
+        year_actual_by_key = {
+            (int(row.get("employee_id") or 0), str(row.get("work_date"))[:10]): row
+            for row in year_actuals
+            if row.get("employee_id")
+        }
+
         year_counts: dict[int, int] = {}
-        for row in year_actuals:
-            employee_id = int(row.get("employee_id") or 0)
-            year_counts[employee_id] = year_counts.get(employee_id, 0) + 1
+        for shift in year_shifts:
+            employee_id = int(shift.get("employee_id") or 0)
+            if not employee_id:
+                continue
+
+            work_date = str(shift.get("shift_date"))[:10]
+            actual = year_actual_by_key.get((employee_id, work_date))
+
+            # No saved/corrected log for a scheduled shift counts as an annual infraction.
+            if not actual:
+                year_counts[employee_id] = year_counts.get(employee_id, 0) + 1
+                continue
+
+            if is_excused_attendance_row(actual):
+                continue
+
+            absence_type = str(actual.get("absence_type") or "").strip()
+            attendance_status = str(actual.get("attendance_status") or "").strip()
+            absence_label = absence_type or attendance_status
+            absence_label_lower = absence_label.lower()
+
+            if "unexcused" in absence_label_lower or "awol" in absence_label_lower:
+                year_counts[employee_id] = year_counts.get(employee_id, 0) + 1
+                continue
+
+            minutes = minutes_late_from_times(
+                shift.get("start_time"),
+                actual.get("actual_in"),
+            )
+
+            # Count one annual attendance infraction per affected day.
+            # A >30-minute late is classified as a partial absence for reporting,
+            # but should not double-count as both late + partial for yearly eligibility.
+            if minutes is not None and minutes > 5:
+                year_counts[employee_id] = year_counts.get(employee_id, 0) + 1
 
         stats: dict[int, dict[str, Any]] = {}
         for employee in employees:

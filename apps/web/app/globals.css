@@ -248,3 +248,66 @@ input[type="checkbox"], input[type="radio"] { width: 18px; min-width: 18px; heig
 .action-item,
 td,
 th { overflow-wrap: anywhere; }
+
+/* Attendance monthly compliance table */
+.compliance-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.compliance-table th,
+.compliance-table td {
+  vertical-align: top;
+}
+
+.compliance-table .employee-col {
+  width: 150px;
+}
+
+.compliance-table .number-col {
+  width: 74px;
+  text-align: center;
+}
+
+.compliance-table .absences-col {
+  width: 105px;
+}
+
+.compliance-table .details-col {
+  width: 150px;
+}
+
+.compliance-table .action-col {
+  width: 290px;
+}
+
+.compliance-table .memo-col {
+  width: 100px;
+}
+
+.compliance-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.compliance-details-list {
+  margin-top: 8px;
+  max-height: 140px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.compliance-action {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.memo-button {
+  min-width: 86px;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  text-align: center;
+}

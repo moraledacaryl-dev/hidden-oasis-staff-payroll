@@ -190,6 +190,8 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       actual_in: String(formData.get("actual_in") || "") || null,
       actual_out: String(formData.get("actual_out") || "") || null,
       attendance_status: String(formData.get("attendance_status") || "Needs Review"),
+      actual_exception_status: String(formData.get("actual_exception_status") || "") || null,
+      evidence_ref: String(formData.get("evidence_ref") || "") || null,
       approved_ot_hours: Number(formData.get("approved_ot_hours") || 0),
       notes: String(formData.get("notes") || "") || null,
     });
@@ -213,6 +215,13 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       evidence_ref: String(formData.get("evidence_ref") || "") || null,
     });
   }
+
+  const actualAbsenceType = String(bundle.actual?.absence_type || "").toLowerCase();
+  const actualExceptionDefault = actualAbsenceType.includes("unexcused")
+    ? "Unexcused"
+    : actualAbsenceType.includes("excused")
+      ? "Excused"
+      : "";
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
@@ -255,6 +264,12 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
             <label>Actual in<input name="actual_in" type="time" defaultValue={bundle.actual?.actual_in || ""} disabled={readOnly} /></label>
             <label>Actual out<input name="actual_out" type="time" defaultValue={bundle.actual?.actual_out || ""} disabled={readOnly} /></label>
             <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Needs Review"} disabled={readOnly}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+            <label>Late / partial classification<select name="actual_exception_status" defaultValue={actualExceptionDefault} disabled={readOnly}>
+              <option value="">None / not applicable</option>
+              <option value="Excused">Excused</option>
+              <option value="Unexcused">Unexcused</option>
+            </select></label>
+            <label>Evidence / photo reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Required if excused late/partial" disabled={readOnly} /></label>
             <label>Approved OT<input name="approved_ot_hours" type="number" min="0" step="0.25" defaultValue={bundle.actual?.approved_ot_hours ?? 0} disabled={readOnly} /></label>
             <label>Admin note<input name="notes" defaultValue={bundle.actual?.notes || ""} disabled={readOnly} /></label>
             {canEdit ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save actual"}</button> : null}

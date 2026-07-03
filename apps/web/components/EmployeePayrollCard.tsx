@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { PayrollAdjustmentEditor } from "@/components/PayrollAdjustmentEditor";
 
 function peso(value?: number | null): string {
@@ -40,8 +39,19 @@ type PayrollItem = {
   warnings?: string | null;
 };
 
-export function EmployeePayrollCard({ runId, item, editable }: { runId: number; item: PayrollItem; editable: boolean }) {
-  const [open, setOpen] = useState(false);
+export function EmployeePayrollCard({
+  runId,
+  item,
+  editable,
+  open,
+  onOpenChange,
+}: {
+  runId: number;
+  item: PayrollItem;
+  editable: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const government = Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0) + Number(item.tax || 0);
   const warnings = String(item.warnings || "").split("\n").map((line) => line.trim()).filter(Boolean);
   const initials = String(item.employee_name || "E").split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase();
@@ -49,7 +59,7 @@ export function EmployeePayrollCard({ runId, item, editable }: { runId: number; 
   return (
     <article className="employee-payroll-card">
       <div className="employee-payroll-summary">
-        <button className="employee-payroll-toggle" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+        <button className="employee-payroll-toggle" type="button" onClick={() => onOpenChange(!open)} aria-expanded={open}>
           <span className="employee-payroll-avatar">{initials}</span>
           <span className="employee-payroll-person">
             <strong>{item.employee_name}</strong>

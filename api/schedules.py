@@ -66,6 +66,8 @@ class DayActualPayload(BaseModel):
     actual_in: str | None = None
     actual_out: str | None = None
     attendance_status: str = "Needs Review"
+    actual_exception_status: str | None = None
+    evidence_ref: str | None = None
     approved_ot_hours: float = 0
     notes: str | None = None
 
@@ -768,6 +770,60 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
             saved_notes = (saved_notes + "\n" if saved_notes else "") + approval_note
         if was_needs_review and not explicitly_approved:
             status_value = "Needs Review"
+
+        exception_status = (payload.actual_exception_status or "").strip()
+        if exception_status not in {"", "Excused", "Unexcused"}:
+            raise HTTPException(status_code=422, detail="Invalid late / partial classification.")
+
+        evidence_ref = (payload.evidence_ref or "").strip() or None
+
+        def time_to_minutes(value: Any) -> int | None:
+            if value is None:
+                return None
+            text = str(value).strip()
+            if not text:
+                return None
+            parts = text[:5].split(":")
+            if len(parts) != 2:
+                return None
+            try:
+                return int(parts[0]) * 60 + int(parts[1])
+            except ValueError:
+                return None
+
+        shift_row = fetchone(
+            conn,
+            """
+            SELECT shift_start
+            FROM schedules
+            WHERE employee_id=?
+              AND date(work_date)=date(?)
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (payload.employee_id, shift_date),
+        ) or {}
+
+        scheduled_start = time_to_minutes(shift_row.get("shift_start"))
+        actual_in_minutes = time_to_minutes(payload.actual_in)
+        minutes_late = None
+        if scheduled_start is not None and actual_in_minutes is not None:
+            minutes_late = actual_in_minutes - scheduled_start
+
+        late_kind = None
+        if minutes_late is not None and minutes_late > 30:
+            late_kind = "Partial"
+        elif minutes_late is not None and minutes_late > 5:
+            late_kind = "Late"
+
+        if exception_status and not late_kind:
+            raise HTTPException(status_code=422, detail="Late / partial classification is only for late actual-in records.")
+
+        if late_kind and exception_status == "Excused" and not evidence_ref:
+            raise HTTPException(status_code=422, detail="Evidence / photo reference is required for excused late or partial absence.")
+
+        actual_absence_type = f"{exception_status} {late_kind}" if late_kind and exception_status else None
+
         if existing:
             conn.execute(
                 """
@@ -775,7 +831,8 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
                 SET actual_in=?,
                     actual_out=?,
                     is_absent=0,
-                    absence_type=NULL,
+                    absence_type=?,
+                    evidence_ref=?,
                     attendance_status=?,
                     approved_ot_hours=?,
                     reviewed_by=CASE WHEN ? THEN reviewed_by ELSE ? END,
@@ -787,6 +844,8 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
                 (
                     payload.actual_in,
                     payload.actual_out,
+                    actual_absence_type,
+                    evidence_ref,
                     status_value,
                     float(payload.approved_ot_hours or 0),
                     1 if was_needs_review else 0,
@@ -802,10 +861,10 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
         else:
             cur = conn.execute(
                 """
-                INSERT INTO time_logs(employee_id, work_date, actual_in, actual_out, source, verification_type, is_absent, detected_ot_hours, approved_ot_hours, ot_status, attendance_status, reviewed_by, reviewed_at, notes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'manual', 'Manual', 0, 0, ?, 'None', ?, ?, ?, ?, ?, ?)
+                INSERT INTO time_logs(employee_id, work_date, actual_in, actual_out, absence_type, evidence_ref, source, verification_type, is_absent, detected_ot_hours, approved_ot_hours, ot_status, attendance_status, reviewed_by, reviewed_at, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'manual', 'Manual', 0, 0, ?, 'None', ?, ?, ?, ?, ?, ?)
                 """,
-                (payload.employee_id, shift_date, payload.actual_in, payload.actual_out, float(payload.approved_ot_hours or 0), status_value, user.get("display_name"), timestamp, payload.notes, timestamp, timestamp),
+                (payload.employee_id, shift_date, payload.actual_in, payload.actual_out, actual_absence_type, evidence_ref, float(payload.approved_ot_hours or 0), status_value, user.get("display_name"), timestamp, payload.notes, timestamp, timestamp),
             )
             log_id = int(cur.lastrowid)
         after = dict(fetchone(conn, "SELECT * FROM time_logs WHERE id=?", (log_id,)) or {})
