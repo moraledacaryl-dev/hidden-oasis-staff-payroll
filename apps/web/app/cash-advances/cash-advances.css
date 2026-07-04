@@ -358,3 +358,33 @@
     width: 100%;
   }
 }
+
+.cash-credit-settlement{
+  display:grid;
+  gap:12px;
+  margin-top:12px;
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--surface);
+}
+.cash-credit-settlement label{
+  display:grid;
+  gap:6px;
+}
+.cash-credit-settlement label>span{
+  color:var(--muted);
+  font-size:.7rem;
+  font-weight:850;
+  text-transform:uppercase;
+  letter-spacing:.065em;
+}
+.cash-credit-settlement small{
+  color:var(--muted);
+}
+.danger-text{
+  margin:0;
+  color:var(--danger);
+  font-size:.82rem;
+  font-weight:750;
+}

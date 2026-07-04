@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { CashAdvanceForm } from "@/components/CashAdvanceForm";
+import { CashAdvanceCreditSettlementForm } from "@/components/CashAdvanceCreditSettlementForm";
 import { ManualRepaymentForm } from "@/components/ManualRepaymentForm";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -118,7 +119,13 @@ export default async function CashAdvancesPage() {
                   <div className="cash-progress-label"><span>{Math.round(paidPercent)}% repaid</span><span>{balance <= 0 ? "Complete" : `${peso(balance)} left`}</span></div>
                 </div>
 
-                {credit > 0 ? <div className="cash-reason"><span>Employee credit</span><p>{peso(credit)} was over-deducted and requires settlement.</p></div> : null}
+                {credit > 0 ? (
+                  <div className="cash-reason">
+                    <span>Employee credit</span>
+                    <p>{peso(credit)} was over-deducted and requires settlement.</p>
+                    {isOwner ? <CashAdvanceCreditSettlementForm advanceId={item.id} employeeId={item.employee_id} credit={credit} options={advances} /> : null}
+                  </div>
+                ) : null}
                 {item.reason ? <div className="cash-reason"><span>Reason</span><p>{item.reason}</p></div> : null}
 
                 <div className="cash-card-footer">
