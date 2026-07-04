@@ -363,6 +363,34 @@ def confirm_shift_swap(
         conn.close()
 
 
+@router.post("/me/shift-change-requests/{request_id}/decline-swap")
+def decline_shift_swap(
+    request_id: int,
+    user: dict[str, Any] = Depends(current_user_from_token),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    require_staff_user(x_api_key, user)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        employee = employee_for_user(conn, user)
+        row = fetchone(conn, "SELECT * FROM shift_change_requests WHERE id=? AND proposed_swap_employee_id=?", (request_id, employee["id"]))
+        if not row:
+            raise HTTPException(status_code=404, detail="Swap request not found for your confirmation.")
+        if row["status"] != "Swap Confirmation":
+            raise HTTPException(status_code=409, detail="This swap is no longer awaiting confirmation.")
+        declined_at = now_iso()
+        conn.execute(
+            "UPDATE shift_change_requests SET status='Swap Declined', decision_note=COALESCE(NULLIF(decision_note,''),'Swap declined by proposed swap employee.'), reviewed_at=COALESCE(reviewed_at, ?) WHERE id=?",
+            (declined_at, request_id),
+        )
+        audit(conn, request_id, "Swap Declined", int(user["id"]), int(employee["id"]))
+        conn.commit()
+        return {"ok": True, "status": "Swap Declined"}
+    finally:
+        conn.close()
+
+
 @router.post("/me/shift-change-requests/{request_id}/attachment")
 def upload_shift_request_attachment(
     request_id: int,

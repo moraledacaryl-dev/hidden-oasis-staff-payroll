@@ -42,6 +42,9 @@ export async function POST(request: Request) {
   } else if (body.operation === "confirm_swap") {
     path = `/api/v1/me/shift-change-requests/${Number(body.request_id)}/confirm-swap`;
     payload = {};
+  } else if (body.operation === "decline_swap") {
+    path = `/api/v1/me/shift-change-requests/${Number(body.request_id)}/decline-swap`;
+    payload = {};
   } else if (body.operation === "acknowledge_schedule") {
     path = `/api/v1/me/schedules/week/${String(body.week_start)}/acknowledge`;
     payload = { notes: body.notes || null };

@@ -101,7 +101,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkerShi
     }
   }
 
-  async function act(operation: "withdraw_request" | "confirm_swap", requestId: number) {
+  async function act(operation: "withdraw_request" | "confirm_swap" | "decline_swap", requestId: number) {
     setBusy(true);
     setMessage("");
     try {
@@ -170,7 +170,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkerShi
           {requests.map((item) => {
             const waitingForMe = item.proposed_swap_employee_id === employeeId && item.status === "Swap Confirmation";
             const canWithdraw = item.employee_id === employeeId && ["Pending", "Swap Confirmation", "Emergency Review"].includes(item.status);
-            return <tr key={item.id}><td><strong>{item.request_no}</strong><br /><span className="muted">{item.request_type} · {item.submitted_at}</span>{item.attachment_path ? <><br /><span className="muted">Attachment uploaded</span></> : null}</td><td>{item.original_date}<br />{item.original_start_time}–{item.original_end_time}</td><td>{item.requested_date || "Same date"}<br />{item.requested_start_time || item.original_start_time}–{item.requested_end_time || item.original_end_time}{item.swap_employee_name ? <><br /><span className="muted">Swap: {item.swap_employee_name}</span></> : null}</td><td>{item.reason}</td><td><strong>{item.status}</strong>{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td>{waitingForMe ? <button className="button small" disabled={busy} onClick={() => act("confirm_swap", item.id)}>Confirm swap</button> : null}{canWithdraw ? <button className="button small secondary" disabled={busy} onClick={() => act("withdraw_request", item.id)}>Withdraw</button> : null}</td></tr>;
+            return <tr key={item.id}><td><strong>{item.request_no}</strong><br /><span className="muted">{item.request_type} · {item.submitted_at}</span>{item.attachment_path ? <><br /><span className="muted">Attachment uploaded</span></> : null}</td><td>{item.original_date}<br />{item.original_start_time}–{item.original_end_time}</td><td>{item.requested_date || "Same date"}<br />{item.requested_start_time || item.original_start_time}–{item.requested_end_time || item.original_end_time}{item.swap_employee_name ? <><br /><span className="muted">Swap: {item.swap_employee_name}</span></> : null}</td><td>{item.reason}</td><td><strong>{item.status}</strong>{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td>{waitingForMe ? <><button className="button small" disabled={busy} onClick={() => act("confirm_swap", item.id)}>Confirm swap</button><button className="button small secondary" disabled={busy} onClick={() => act("decline_swap", item.id)}>Decline swap</button></> : null}{canWithdraw ? <button className="button small secondary" disabled={busy} onClick={() => act("withdraw_request", item.id)}>Withdraw</button> : null}</td></tr>;
           })}
           {!requests.length ? <tr><td colSpan={6}>No requests submitted.</td></tr> : null}
         </tbody></table></div>
