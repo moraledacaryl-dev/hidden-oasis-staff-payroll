@@ -18,6 +18,42 @@ function statusTone(status: string): "ok" | "warning" | "danger" {
   return "danger";
 }
 
+type RevisionComparisonRow = {
+  employee_id: number;
+  employee_name: string;
+  original_net: number;
+  revised_net: number;
+  difference: number;
+};
+
+function buildRevisionComparison(originalItems: Array<{ employee_id: number; employee_name: string; net_pay: number }>, revisedItems: Array<{ employee_id: number; employee_name: string; net_pay: number }>): RevisionComparisonRow[] {
+  const originalByEmployee = new Map(originalItems.map((item) => [Number(item.employee_id), item]));
+  const employeeIds = new Set<number>([
+    ...originalItems.map((item) => Number(item.employee_id)),
+    ...revisedItems.map((item) => Number(item.employee_id)),
+  ]);
+
+  return Array.from(employeeIds).map((employeeId) => {
+    const original = originalByEmployee.get(employeeId);
+    const revised = revisedItems.find((item) => Number(item.employee_id) === employeeId);
+    const originalNet = Number(original?.net_pay || 0);
+    const revisedNet = Number(revised?.net_pay || 0);
+    return {
+      employee_id: employeeId,
+      employee_name: revised?.employee_name || original?.employee_name || `Employee #${employeeId}`,
+      original_net: originalNet,
+      revised_net: revisedNet,
+      difference: revisedNet - originalNet,
+    };
+  }).sort((a, b) => a.employee_name.localeCompare(b.employee_name));
+}
+
+function differenceAction(amount: number): string {
+  if (amount > 0.009) return "Additional pay";
+  if (amount < -0.009) return "Recover / offset";
+  return "No change";
+}
+
 export default async function PayrollRunReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
@@ -30,6 +66,10 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
   ]);
   const run = review.run;
   const items = review.items;
+  const originalReview = run.revision_of_run_id ? await getPayrollRunReview(run.revision_of_run_id).catch(() => null) : null;
+  const revisionComparison = originalReview ? buildRevisionComparison(originalReview.items, items) : [];
+  const revisionDifferenceTotal = revisionComparison.reduce((sum, row) => sum + row.difference, 0);
+  const isPaidAdjustmentRevision = run.revision_treatment === "adjust_paid";
   const editable = run.status === "Draft";
   const canRecalculate = editable && run.revision_treatment !== "adjust_paid";
   const warningCount = items.filter((item) => String(item.warnings || "").trim()).length;
@@ -83,6 +123,48 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
         <div className="payroll-run-version-note">
           <strong>{versionText}.</strong> Only the latest approved version is the active payroll for this period. Older versions remain for audit and comparison.{run.revision_reason ? ` Revision reason: ${run.revision_reason}` : ""}
         </div>
+
+        {isPaidAdjustmentRevision ? (
+          <section className="card danger-card">
+            <div className="panel-title">
+              <div>
+                <span className="eyebrow">Paid payroll adjustment</span>
+                <h2>This is not a second full payroll payout</h2>
+                <p className="muted">Use only the difference amounts below. The original paid run remains the historical payout record.</p>
+              </div>
+              <StatusBadge label={revisionDifferenceTotal >= 0 ? `Net add ${peso(revisionDifferenceTotal)}` : `Net recover ${peso(Math.abs(revisionDifferenceTotal))}`} tone={Math.abs(revisionDifferenceTotal) > 0.009 ? "warning" : "ok"} />
+            </div>
+
+            {revisionComparison.length ? (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th className="amount">Original paid net</th>
+                      <th className="amount">Corrected net</th>
+                      <th className="amount">Difference</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {revisionComparison.map((row) => (
+                      <tr key={row.employee_id}>
+                        <td><strong>{row.employee_name}</strong></td>
+                        <td className="amount">{peso(row.original_net)}</td>
+                        <td className="amount">{peso(row.revised_net)}</td>
+                        <td className="amount"><strong>{row.difference >= 0 ? "+" : "−"}{peso(Math.abs(row.difference))}</strong></td>
+                        <td>{differenceAction(row.difference)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="muted">Original run comparison could not be loaded. Do not manually pay this run as a full second payroll.</p>
+            )}
+          </section>
+        ) : null}
 
         <PayrollRevisionBanner runId={run.id} delta={delta} runStatus={run.status} paidAt={run.paid_at} />
 

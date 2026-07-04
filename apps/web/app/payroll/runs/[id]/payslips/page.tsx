@@ -108,6 +108,8 @@ export default async function PayslipPreviewPage({ params }: { params: Promise<{
             <span className="eyebrow">Payslip Preview</span>
             <h1>Run #{run.id}</h1>
             <p className="muted">{run.period_start} to {run.period_end}. Employer contributions stay in payroll reports, not on employee payslips.</p>
+             {run.superseded_by_run_id ? <p className="muted">This is an older payroll version superseded by Run #{run.superseded_by_run_id}. Use it for audit/history only; normal Payslip Distribution should use the latest active version.</p> : null}
+             {run.revision_of_run_id ? <p className="muted">This is a revision of Run #{run.revision_of_run_id}. For already-paid payroll, distribute/pay only the adjustment difference unless this run is explicitly approved as the active corrected version.</p> : null}
             <div className="action-row"><Link className="primary-link" href="/payroll/runs">All runs</Link><Link className="primary-link" href={`/payroll/runs/${run.id}/reports`}>Report</Link><Link className="primary-link" href={`/payroll/runs/${run.id}/audit`}>Audit</Link></div>
           </div>
         </header>
