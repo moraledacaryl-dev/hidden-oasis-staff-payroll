@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/v1")
 
 class ReturnDraftRequest(BaseModel):
     reason: str
+    confirmation: str | None = None
 
 @router.post("/payroll/runs/{run_id}/reopen")
 def return_payroll_run_to_draft(
@@ -25,8 +26,11 @@ def return_payroll_run_to_draft(
     if user.get("role_key") != "owner":
         raise HTTPException(status_code=403, detail="Only owner can reopen payroll.")
     reason = (payload.reason or "").strip()
-    if len(reason) < 3:
-        raise HTTPException(status_code=422, detail="Reopen reason is required.")
+    confirmation = (payload.confirmation or "").strip()
+    if len(reason) < 10:
+        raise HTTPException(status_code=422, detail="Reopen reason must be at least 10 characters.")
+    if confirmation != "REOPEN PAYROLL":
+        raise HTTPException(status_code=422, detail="Type REOPEN PAYROLL to confirm reopening.")
     conn = get_conn(DB_PATH)
     try:
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
