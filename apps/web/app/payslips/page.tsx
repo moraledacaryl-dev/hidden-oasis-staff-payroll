@@ -58,6 +58,32 @@ async function markDistributed(formData: FormData) {
   revalidatePath("/payslips");
 }
 
+async function markAllDistributed(formData: FormData) {
+  "use server";
+  const runId = Number(formData.get("run_id"));
+  const employeeIds = String(formData.get("employee_ids") || "")
+    .split(",")
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (!runId || employeeIds.length === 0) return;
+
+  for (const employeeId of employeeIds) {
+    const response = await fetch(`${apiBaseUrl()}/api/v1/payslips/runs/${runId}/employees/${employeeId}/distributed`, {
+      method: "POST",
+      headers: await backendHeaders(true),
+      body: JSON.stringify({ method: "Printed - bulk" }),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Distribution update failed for employee #${employeeId} (${response.status}).`);
+    }
+  }
+
+  revalidatePath("/payslips");
+}
+
 function hasValue(value: number | null | undefined) {
   return Number(value || 0) > 0;
 }
@@ -128,13 +154,30 @@ export default async function PayslipDistributionPage({ searchParams }: { search
   try { detail = selectedRunId ? await loadDetail(selectedRunId) : null; } catch (error) { return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div className="page"><section className="card"><strong>Payslips unavailable</strong><p className="muted">{error instanceof Error ? error.message : "Try again shortly."}</p></section></div></Shell>; }
   const run = detail?.run;
   const items = detail?.items || [];
-  const pending = items.filter((item) => !item.distribution?.distributed).length;
+  const pendingItems = items.filter((item) => !item.distribution?.distributed);
+  const pending = pendingItems.length;
+  const pendingEmployeeIds = pendingItems.map((item) => item.employee_id).join(",");
 
   return (
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className="page payslip-page">
         <header className="page-header"><div className="grid"><span className="eyebrow">Payslip Distribution</span><h1>Approved payslips</h1><p className="muted">Distribution shows only the latest active payroll version for each period. Older payroll versions remain available from Payroll Runs for audit.</p></div><StatusBadge label={pending ? `${pending} pending` : "complete"} tone={pending ? "warning" : "ok"} /></header>
-        <section className="card"><div className="panel-title"><h2>Payroll period</h2>{items.length ? <PrintButton label="Print payslips" /> : null}</div><div className="action-row">{activeRuns.map((item) => <a className={item.id === selectedRunId ? "button" : "button ghost"} href={`/payslips?run_id=${item.id}`} key={item.id}>#{item.id} · {item.period_start} to {item.period_end}{item.revision_of_run_id ? " · Latest revision" : ""}</a>)}</div></section>
+        <section className="card">
+          <div className="panel-title">
+            <h2>Payroll period</h2>
+            <div className="action-row">
+              {items.length ? <PrintButton label="Print payslips" /> : null}
+              {pending ? (
+                <form action={markAllDistributed}>
+                  <input type="hidden" name="run_id" value={selectedRunId} />
+                  <input type="hidden" name="employee_ids" value={pendingEmployeeIds} />
+                  <button className="button ghost" type="submit">Mark all distributed</button>
+                </form>
+              ) : null}
+            </div>
+          </div>
+          <div className="action-row">{activeRuns.map((item) => <a className={item.id === selectedRunId ? "button" : "button ghost"} href={`/payslips?run_id=${item.id}`} key={item.id}>#{item.id} · {item.period_start} to {item.period_end}{item.revision_of_run_id ? " · Latest revision" : ""}</a>)}</div>
+        </section>
         {run ? <section className="grid cols-3"><div className="card"><strong>{items.length}</strong><p className="muted">Payslips</p></div><div className="card"><strong>{items.length - pending}</strong><p className="muted">Distributed</p></div><div className="card"><strong>{peso(run.totals?.net_pay)}</strong><p className="muted">Net payroll</p></div></section> : null}
         <section className="card"><div className="panel-title"><h2>Distribution list</h2></div><div className="table-wrap"><table><thead><tr><th>Employee</th><th>Department</th><th>Net pay</th><th>Status</th><th>Action</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td><strong>{item.employee_name}</strong><br /><span className="muted">{item.employee_code || "—"}</span></td><td>{item.department || "—"}</td><td>{peso(item.net_pay)}</td><td>{item.distribution?.distributed ? `Distributed · ${item.distribution.distributed_at || ""}` : "Pending"}</td><td>{item.distribution?.distributed ? <span className="muted">{item.distribution.distributed_by || "Recorded"}</span> : <form action={markDistributed}><input type="hidden" name="run_id" value={selectedRunId} /><input type="hidden" name="employee_id" value={item.employee_id} /><button className="button small" type="submit">Mark distributed</button></form>}</td></tr>)}{items.length === 0 ? <tr><td colSpan={5}>No approved payslips available.</td></tr> : null}</tbody></table></div></section>
         {run ? <section className="payslip-grid">{items.map((item) => <article className="payslip-sheet" key={`sheet-${item.id}`}><PayslipCopy item={item} run={run} copyLabel="Employee Copy" /><div className="print-only-payslip-copy"><PayslipCopy item={item} run={run} copyLabel="Company Copy" companyCopy /></div></article>)}</section> : null}
