@@ -16,6 +16,8 @@ router = APIRouter(prefix="/api/v1")
 class ResetDayPayload(BaseModel):
     employee_id: int
     work_date: date
+    clear_reason: str | None = None
+    confirmation: str | None = None
 
 
 def _date(value: Any) -> date:
@@ -90,6 +92,12 @@ def _split_or_shrink_leave(conn, row: dict[str, Any], selected: date, actor: str
 @router.post("/schedules/day/reset")
 def reset_day(payload: ResetDayPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     user = require_schedule_editor(authorization, x_api_key)
+    clear_reason = (payload.clear_reason or "").strip()
+    confirmation = (payload.confirmation or "").strip()
+    if len(clear_reason) < 10:
+        raise HTTPException(status_code=422, detail="Clear Day reason must be at least 10 characters.")
+    if confirmation != "CLEAR DAY":
+        raise HTTPException(status_code=422, detail="Type CLEAR DAY to confirm clearing this employee day.")
     work_date = payload.work_date.isoformat()
     conn = get_conn(DB_PATH)
     try:
@@ -115,7 +123,17 @@ def reset_day(payload: ResetDayPayload, authorization: str | None = Header(defau
             "leave_requests": _active_leave_rows(conn, payload.employee_id, work_date),
             "markers": fetchall(conn, "SELECT * FROM schedule_day_markers WHERE employee_id=? AND date(work_date)=date(?)", (payload.employee_id, work_date)),
         }
-        log_schedule_change(conn, change_type="reset_day", entity_type="employee_day", entity_id=payload.employee_id, employee_id=payload.employee_id, work_date=work_date, before=before, after=after, changed_by=user.get("display_name"))
+        log_schedule_change(
+            conn,
+            change_type="reset_day",
+            entity_type="employee_day",
+            entity_id=payload.employee_id,
+            employee_id=payload.employee_id,
+            work_date=work_date,
+            before=before,
+            after={**after, "clear_reason": clear_reason, "confirmation": "CLEAR DAY"},
+            changed_by=user.get("display_name"),
+        )
         conn.commit()
         return {"ok": True, "message": "Day cleared."}
     finally:

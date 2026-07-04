@@ -55,6 +55,9 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
   const [bundle, setBundle] = useState<Bundle>(emptyBundle());
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearReason, setClearReason] = useState("");
+  const [clearConfirm, setClearConfirm] = useState("");
 
   const initialEmployeeIdValue = shift?.employee_id ? String(shift.employee_id) : (initialEmployeeId ? String(initialEmployeeId) : "");
   const [employeeId, setEmployeeId] = useState(initialEmployeeIdValue);
@@ -64,6 +67,9 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
     if (!open) return;
     setTab(initialTab);
     setMessage("");
+    setClearOpen(false);
+    setClearReason("");
+    setClearConfirm("");
     setEmployeeId(shift?.employee_id ? String(shift.employee_id) : (initialEmployeeId ? String(initialEmployeeId) : ""));
     setShiftDate(shift?.shift_date || day);
     const params = new URLSearchParams();
@@ -122,7 +128,16 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
 
   async function clearDay() {
     if (!employeeId) return;
-    if (!window.confirm("Clear this entire day? This removes the shift, actual attendance, leave or absence, and rest-day marker so you can choose again.")) return;
+    const reason = clearReason.trim();
+    const confirmation = clearConfirm.trim();
+    if (reason.length < 10) {
+      setMessage("Enter a Clear Day reason with at least 10 characters.");
+      return;
+    }
+    if (confirmation !== "CLEAR DAY") {
+      setMessage("Type CLEAR DAY to confirm.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     const response = await fetch("/api/schedule/day", {
@@ -132,6 +147,8 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
         section: "reset",
         employee_id: Number(employeeId),
         work_date: shiftDate,
+        clear_reason: reason,
+        confirmation,
       }),
     });
     const data = await response.json().catch(() => ({}));
@@ -141,6 +158,9 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
       return;
     }
     setBundle(emptyBundle());
+    setClearOpen(false);
+    setClearReason("");
+    setClearConfirm("");
     router.refresh();
     onClose();
   }
@@ -286,7 +306,31 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
             <label>Notice timing<select name="notice_timing" defaultValue={bundle.actual?.notice_timing || ""} disabled={readOnly || lockedSnapshot}><option value="">Select notice timing</option>{noticeTimings.map((timing) => <option key={timing}>{timing}</option>)}</select></label>
             <label>Evidence / reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Medical certificate, chat screenshot, approval note, etc." disabled={readOnly || lockedSnapshot} /></label>
             <label>Reason / notes<input name="reason" defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || lockedSnapshot} /></label>
-            {canEdit && !lockedSnapshot ? <div className="action-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : hasLeave ? "Update leave" : "Save leave / absence"}</button>{hasLeave ? <button className="button ghost" type="button" disabled={busy} onClick={clearDay}>Clear day</button> : null}</div> : null}
+            {canEdit && !lockedSnapshot ? (
+              <div className="action-row">
+                <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : hasLeave ? "Update leave" : "Save leave / absence"}</button>
+                {hasLeave ? <button className="button ghost" type="button" disabled={busy} onClick={() => setClearOpen(true)}>Clear day</button> : null}
+              </div>
+            ) : null}
+            {clearOpen ? (
+              <section className="clear-day-confirm-card">
+                <div>
+                  <strong>Clear employee day</strong>
+                  <p className="muted">This removes the scheduled shift, actual attendance, leave/absence entry, and rest-day marker for this employee/date. Payroll runs already saved stay unchanged unless a revised run is saved.</p>
+                </div>
+                <ul>
+                  <li>Employee: {selectedEmployee?.full_name || currentShift?.employee_name || "Selected employee"}</li>
+                  <li>Date: {shiftDate}</li>
+                  <li>Will clear: shift, actual attendance, leave/absence, and rest-day marker if present.</li>
+                </ul>
+                <label>Reason<textarea rows={3} value={clearReason} onChange={(event) => setClearReason(event.target.value)} placeholder="Example: Wrong leave entry / correcting schedule setup" /></label>
+                <label>Type CLEAR DAY<input value={clearConfirm} onChange={(event) => setClearConfirm(event.target.value)} placeholder="CLEAR DAY" /></label>
+                <div className="action-row">
+                  <button className="button ghost" type="button" disabled={busy} onClick={() => { setClearOpen(false); setClearReason(""); setClearConfirm(""); }}>Cancel</button>
+                  <button className="button danger" type="button" disabled={busy || clearReason.trim().length < 10 || clearConfirm.trim() !== "CLEAR DAY"} onClick={clearDay}>{busy ? "Clearing..." : "Confirm clear day"}</button>
+                </div>
+              </section>
+            ) : null}
           </form>
         ) : null}
 

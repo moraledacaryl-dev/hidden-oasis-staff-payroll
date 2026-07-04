@@ -57,13 +57,21 @@ export async function POST(request: Request) {
   if (section === "reset") {
     const employeeId = Number(body.employee_id || 0);
     const workDate = String(body.work_date || body.shift_date || "");
+    const clearReason = String(body.clear_reason || "").trim();
+    const confirmation = String(body.confirmation || "").trim();
     if (!employeeId || !workDate) {
       return NextResponse.json({ ok: false, message: "Employee and date are required to clear the day." }, { status: 422 });
+    }
+    if (clearReason.length < 10) {
+      return NextResponse.json({ ok: false, message: "Clear Day reason must be at least 10 characters." }, { status: 422 });
+    }
+    if (confirmation !== "CLEAR DAY") {
+      return NextResponse.json({ ok: false, message: "Type CLEAR DAY to confirm clearing this employee day." }, { status: 422 });
     }
     const response = await fetch(`${apiBaseUrl()}/api/v1/schedules/day/reset`, {
       method: "POST",
       headers: await backendHeaders(true),
-      body: JSON.stringify({ employee_id: employeeId, work_date: workDate }),
+      body: JSON.stringify({ employee_id: employeeId, work_date: workDate, clear_reason: clearReason, confirmation }),
       cache: "no-store",
     });
     const data = await response.json().catch(() => ({}));
