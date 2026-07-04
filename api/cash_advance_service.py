@@ -104,6 +104,10 @@ def ensure_schema(conn) -> None:
         "updated_by": "TEXT",
         "updated_at": "TEXT",
         "ledger_opening_balance": "REAL",
+        "approved_by_user_id": "INTEGER",
+        "approved_by_name": "TEXT",
+        "approved_at": "TEXT",
+        "approval_note": "TEXT",
     })
 
     conn.execute("UPDATE cash_advances SET advance_date=COALESCE(NULLIF(advance_date,''), request_date, date('now'))")
@@ -111,6 +115,13 @@ def ensure_schema(conn) -> None:
     conn.execute("UPDATE cash_advances SET deduction_per_payroll=repayment_per_cutoff WHERE COALESCE(deduction_per_payroll,0)=0 AND COALESCE(repayment_per_cutoff,0)>0")
     conn.execute("UPDATE cash_advances SET repayment_per_cutoff=deduction_per_payroll WHERE COALESCE(repayment_per_cutoff,0)=0 AND COALESCE(deduction_per_payroll,0)>0")
     conn.execute("UPDATE cash_advances SET ledger_opening_balance=COALESCE(ledger_opening_balance,outstanding_balance,remaining_balance,amount,0)")
+    conn.execute("""
+        UPDATE cash_advances
+           SET approved_by_name=COALESCE(NULLIF(approved_by_name,''), NULLIF(approved_by,''), NULLIF(created_by,''), 'Legacy approved'),
+               approved_at=COALESCE(NULLIF(approved_at,''), updated_at, created_at, CURRENT_TIMESTAMP)
+         WHERE status IN ('Active','Approved','Partially Paid','Fully Paid')
+           AND (approved_at IS NULL OR trim(approved_at)='')
+    """)
     conn.execute("UPDATE cash_advances SET remaining_balance=COALESCE(NULLIF(remaining_balance,0), outstanding_balance, amount, 0)")
     conn.execute("UPDATE cash_advances SET outstanding_balance=COALESCE(NULLIF(outstanding_balance,0), remaining_balance, amount, 0)")
 
@@ -206,8 +217,12 @@ def recalculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
         status = "Fully Paid"
     elif total_paid > 0:
         status = "Partially Paid"
+    elif old_status in {"Pending", "Rejected"}:
+        status = old_status
+    elif old_status == "Approved":
+        status = "Approved"
     else:
-        status = "Approved" if normalize_method(str(row.get("repayment_method") or "Payroll deduction")) == "Payroll deduction" else "Active"
+        status = "Active"
     conn.execute(
         "UPDATE cash_advances SET remaining_balance=?, outstanding_balance=?, status=?, repayment_per_cutoff=COALESCE(NULLIF(repayment_per_cutoff,0), deduction_per_payroll), updated_at=? WHERE id=?",
         (balance, balance, status, now_iso(), cash_advance_id),

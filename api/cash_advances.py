@@ -114,7 +114,7 @@ def _insert_cash_advance(
         "remaining_balance": amount,
         "outstanding_balance": amount,
         "ledger_opening_balance": amount,
-        "status": "Active",
+        "status": "Pending",
         "notes": payload.notes,
         "created_by": display_name,
         "created_at": stamp,
@@ -194,7 +194,22 @@ def save_cash_advance(
             if not old:
                 raise HTTPException(status_code=404, detail="Cash advance not found.")
 
-            new_opening = amount
+            advance_id = int(payload.id)
+            stored_amount = round(float(old.get("amount") or 0), 2)
+            stored_basis = round(float(old.get("ledger_opening_balance") if old.get("ledger_opening_balance") is not None else stored_amount), 2)
+            if abs(amount - stored_basis) >= 0.005:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Original amount / balance basis cannot be changed in normal edit. Use owner correction instead.",
+                )
+
+            allowed_statuses = {"Pending", "Active", "Approved", "Partially Paid", "Fully Paid", "Cancelled", "Rejected"}
+            requested_status = str(payload.status or old.get("status") or "Pending").strip()
+            if requested_status not in allowed_statuses:
+                requested_status = str(old.get("status") or "Pending")
+            if requested_status in {"Active", "Approved"} and str(old.get("status") or "") in {"Pending", "Rejected"}:
+                raise HTTPException(status_code=409, detail="Use Approve cash advance to activate a pending advance.")
+
             conn.execute(
                 "UPDATE cash_advances SET employee_id=?,advance_date=?,reason=?,approved_by=?,repayment_method=?,status=?,notes=?,updated_by=?,updated_at=? WHERE id=?",
                 (
@@ -203,15 +218,14 @@ def save_cash_advance(
                     payload.reason,
                     payload.approved_by,
                     method,
-                    payload.status,
+                    requested_status,
                     payload.notes,
                     display_name,
                     stamp,
                     payload.id,
                 ),
             )
-            advance_id = int(payload.id)
-            _sync_legacy_fields(conn, advance_id, amount, deduction, new_opening, payload.advance_date)
+            _sync_legacy_fields(conn, advance_id, stored_amount, deduction, stored_basis, payload.advance_date)
         else:
             if not fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,)):
                 raise HTTPException(status_code=404, detail="Employee not found.")
@@ -227,7 +241,10 @@ def save_cash_advance(
             _sync_legacy_fields(conn, advance_id, amount, deduction, amount, payload.advance_date)
 
         summary = recalculate_balance(conn, advance_id)
-        _sync_legacy_fields(conn, advance_id, amount, deduction, summary["balance"], payload.advance_date)
+        saved = fetchone(conn, "SELECT amount, ledger_opening_balance FROM cash_advances WHERE id=?", (advance_id,)) or {}
+        saved_amount = round(float(saved.get("amount") or amount or 0), 2)
+        saved_basis = round(float(saved.get("ledger_opening_balance") if saved.get("ledger_opening_balance") is not None else saved_amount), 2)
+        _sync_legacy_fields(conn, advance_id, saved_amount, deduction, summary["balance"] if payload.id else saved_basis, payload.advance_date)
         conn.commit()
 
         item = fetchone(
@@ -243,6 +260,56 @@ def save_cash_advance(
                 "repayments": repayment_history(conn, advance_id),
             }
         )
+        return {"ok": True, "item": item}
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post("/cash-advances/{cash_advance_id}/approve")
+def approve_cash_advance(
+    cash_advance_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = require_cash_advance_editor(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
+        if not advance:
+            raise HTTPException(status_code=404, detail="Cash advance not found.")
+        status = str(advance.get("status") or "")
+        if status in {"Cancelled", "Fully Paid"}:
+            raise HTTPException(status_code=409, detail=f"Cannot approve a {status} cash advance.")
+        stamp = now_iso()
+        display_name = user.get("display_name") or "System"
+        user_id = user.get("id")
+        conn.execute(
+            """
+            UPDATE cash_advances
+               SET status='Active',
+                   approved_by=COALESCE(NULLIF(approved_by,''), ?),
+                   approved_by_user_id=?,
+                   approved_by_name=?,
+                   approved_at=?,
+                   updated_by=?,
+                   updated_at=?
+             WHERE id=?
+            """,
+            (display_name, user_id, display_name, stamp, display_name, stamp, cash_advance_id),
+        )
+        summary = recalculate_balance(conn, cash_advance_id)
+        conn.commit()
+        item = fetchone(conn, _cash_advance_select_sql(conn, "WHERE ca.id=?"), (cash_advance_id,)) or {}
+        item.update({
+            "remaining_balance": summary["balance"],
+            "status": summary["status"],
+            "total_repaid": summary["paid"],
+            "repayments": repayment_history(conn, cash_advance_id),
+        })
         return {"ok": True, "item": item}
     except HTTPException:
         conn.rollback()

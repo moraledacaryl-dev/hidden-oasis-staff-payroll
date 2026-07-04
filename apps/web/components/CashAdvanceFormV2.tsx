@@ -79,6 +79,24 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
     router.refresh();
   }
 
+  async function approve() {
+    if (!item?.id) return;
+    setBusy(true);
+    setMessage("");
+    const response = await fetch("/api/cash-advances", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "approve", cash_advance_id: item.id }),
+    });
+    const data = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok || !data.ok) {
+      setMessage(data.detail || "Cash advance was not approved.");
+      return;
+    }
+    router.refresh();
+  }
+
   if (!open) return <button className="button small" type="button" onClick={() => setOpen(true)}>Edit details</button>;
 
   return (
@@ -90,7 +108,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
           <div>
             <span className="cash-edit-eyebrow">{item ? "Edit cash advance" : "New cash advance"}</span>
             <h3>{item ? "Update advance details" : "Add advance"}</h3>
-            {item ? <p>Change repayment settings or correct the balance basis.</p> : null}
+            {item ? <p>Change repayment settings and internal details. Original amount is locked after creation.</p> : null}
           </div>
           {item ? <button className="cash-edit-close" type="button" aria-label="Close" onClick={() => { setAmount(currentBasis); setOpen(false); }}>×</button> : null}
         </div>
@@ -111,8 +129,8 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
 
           <label className="cash-edit-field cash-edit-field-emphasis">
             <span>{item ? "Balance basis" : "Original amount"}</span>
-            <input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value || 0))} disabled={Boolean(item) && !isOwner} required />
-            {item ? <small>Confirmed repayments remain applied.</small> : null}
+            <input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value || 0))} disabled={Boolean(item)} required />
+            {item ? <small>Locked after creation. Use Owner correction for principal/balance-basis changes.</small> : null}
           </label>
 
           <label className="cash-edit-field">
@@ -149,12 +167,14 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
           {item ? (
             <label className="cash-edit-field">
               <span>Status</span>
-              <select name="status" defaultValue={item.status === "Approved" ? "Active" : item.status || "Active"}>
+              <select name="status" defaultValue={item.status || "Pending"}>
+                <option>Pending</option>
                 <option>Active</option>
                 <option>Cancelled</option>
+                <option>Rejected</option>
               </select>
             </label>
-          ) : <input type="hidden" name="status" value="Active" />}
+          ) : <input type="hidden" name="status" value="Pending" />}
         </div>
 
         {item && changed ? (
@@ -180,6 +200,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
           {message ? <p>{message}</p> : <span />}
           <div>
             {item ? <button className="button ghost" type="button" onClick={() => { setAmount(currentBasis); setOpen(false); }}>Cancel</button> : null}
+            {item && ["Pending", "Rejected"].includes(String(item.status || "")) ? <button className="button" type="button" disabled={busy} onClick={approve}>Approve</button> : null}
             <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save changes" : "Add cash advance"}</button>
           </div>
         </div>

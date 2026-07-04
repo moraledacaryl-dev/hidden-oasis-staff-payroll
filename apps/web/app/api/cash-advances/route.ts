@@ -14,17 +14,23 @@ export async function GET() {
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const correctionId = Number(body.cash_advance_id || 0);
+  const approveId = Number(body.cash_advance_id || body.id || 0);
   const isCorrection = body.action === "correct_amount" && correctionId > 0;
+  const isApproval = body.action === "approve" && approveId > 0;
   const endpoint = isCorrection
     ? `${apiBaseUrl()}/api/v1/cash-advances/${correctionId}/correct-amount`
-    : `${apiBaseUrl()}/api/v1/cash-advances`;
+    : isApproval
+      ? `${apiBaseUrl()}/api/v1/cash-advances/${approveId}/approve`
+      : `${apiBaseUrl()}/api/v1/cash-advances`;
   const payload = isCorrection
     ? {
         corrected_amount: body.corrected_amount,
         correction_reason: body.correction_reason,
         reference: body.reference || null,
       }
-    : body;
+    : isApproval
+      ? {}
+      : body;
   const response = await fetch(endpoint, {
     method: "POST",
     headers: await backendHeaders(true),
