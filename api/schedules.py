@@ -670,6 +670,8 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
         ensure_schema(conn)
         if employee_id and not employee_exists(conn, employee_id):
             raise HTTPException(status_code=404, detail="Employee not found.")
+        if employee_id and fetch_leave(conn, employee_id, payload.shift_date.isoformat()):
+            raise HTTPException(status_code=409, detail="This employee already has leave/absence for this date. Clear the leave day first before adding a scheduled shift.")
         timestamp = now_iso()
         cur = conn.execute(
             """
@@ -723,7 +725,7 @@ def save_day_schedule(payload: DaySchedulePayload, authorization: str | None = H
                 INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time, position, department, break_minutes, status, notes, source, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'Draft', ?, 'planned', ?, ?)
                 """,
-                (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, int(payload.break_minutes or 0), saved_notes, timestamp, timestamp),
+                (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, int(payload.break_minutes or 0), payload.notes, timestamp, timestamp),
             )
             shift_id = int(cur.lastrowid)
         review = set_schedule_review_state(conn, int(shift_id), user.get("display_name"))
@@ -752,6 +754,8 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
         ensure_schema(conn)
         if not employee_exists(conn, payload.employee_id):
             raise HTTPException(status_code=404, detail="Employee not found.")
+        if fetch_leave(conn, payload.employee_id, shift_date):
+            raise HTTPException(status_code=409, detail="This employee already has leave/absence for this date. Clear the leave day first before saving actual attendance.")
         timestamp = now_iso()
         shift = fetch_shift(conn, None, payload.employee_id, shift_date)
         if status_value in {"Pending", "ON-TIME", "Grace Period", "LATE", "Partial Absence"}:
