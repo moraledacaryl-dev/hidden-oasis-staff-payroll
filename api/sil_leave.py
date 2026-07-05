@@ -109,6 +109,8 @@ def save_sil_leave(
         leave_type_id = ensure_leave_type(conn, "SIL", 1)
         existing_leave = fetch_leave(conn, payload.employee_id, shift_date)
         before_leave = dict(existing_leave) if existing_leave else None
+        if existing_leave and int(existing_leave.get("leave_type_id") or 0) != int(leave_type_id):
+            raise HTTPException(status_code=409, detail="This date already has a different active leave/absence. Clear the day first before saving SIL.")
         if existing_leave:
             conn.execute(
                 """

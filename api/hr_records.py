@@ -401,6 +401,28 @@ def decide_leave_request(request_id: int, payload: LeaveDecisionPayload, authori
             raise HTTPException(status_code=404, detail="Leave request not found.")
         if row.get("status") != "Pending":
             raise HTTPException(status_code=409, detail="This leave request has already been reviewed.")
+        if decision == "Approved":
+            overlap = fetchone(
+                conn,
+                """
+                SELECT id
+                FROM leave_requests
+                WHERE employee_id=?
+                  AND id<>?
+                  AND status IN ('Pending','Approved','Paid','Used')
+                  AND date(start_date)<=date(?)
+                  AND date(end_date)>=date(?)
+                LIMIT 1
+                """,
+                (
+                    int(row["employee_id"]),
+                    request_id,
+                    str(row["end_date"])[:10],
+                    str(row["start_date"])[:10],
+                ),
+            )
+            if overlap:
+                raise HTTPException(status_code=409, detail="Another active leave request already overlaps these dates. Reject, cancel, or clear the other leave before approving this request.")
         conn.execute("UPDATE leave_requests SET status=?, reviewed_by=?, reviewed_at=?, decision_note=? WHERE id=?", (decision, user.get("display_name"), now_sql(conn), payload.decision_note, request_id))
         if row.get("leave_type_id"):
             year = int(str(row["start_date"])[:4])
