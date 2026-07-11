@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PrintButton } from "@/components/PrintButton";
 import { Shell } from "@/components/Shell";
-import { StatusBadge } from "@/components/StatusBadge";
 import { currentSession } from "@/lib/session";
 import { numberText } from "@/lib/api";
 import { ScheduleShiftForm } from "@/components/ScheduleShiftForm";
