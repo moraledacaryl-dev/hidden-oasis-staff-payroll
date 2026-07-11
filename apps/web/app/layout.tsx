@@ -5,6 +5,7 @@ import "./print-payslips.css";
 import "./responsive-quality.css";
 import "./cutoff-review.css";
 import "./pass1-theme.css";
+import "./prototype-foundation.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",
