@@ -1,0 +1,158 @@
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 34;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: -28px clamp(-38px, -2.6vw, -18px) 28px;
+  padding: 0 clamp(18px, 2.6vw, 38px);
+  border-bottom: 1px solid rgba(203, 216, 209, 0.78);
+  background: rgba(243, 246, 244, 0.9);
+  backdrop-filter: blur(18px);
+}
+
+.topLeft,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.menuButton,
+.iconButton {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.menuButton {
+  display: none;
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.crumb strong {
+  color: var(--ink);
+}
+
+.crumb b {
+  color: #a7b1ab;
+  font-weight: 500;
+}
+
+.search {
+  width: 260px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.search kbd {
+  margin-left: auto;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-soft);
+  font-size: 0.65rem;
+}
+
+.iconButton {
+  position: relative;
+}
+
+.iconButton span {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #c86a43;
+}
+
+.mobileNav {
+  display: none;
+}
+
+@media (max-width: 980px) {
+  .topbar {
+    margin: -20px -16px 20px;
+    padding: 0 16px;
+  }
+
+  .menuButton {
+    display: grid;
+  }
+
+  .search {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .topbar {
+    min-height: 62px;
+    margin: -14px -12px 16px;
+    padding: 0 12px;
+  }
+
+  .crumb span,
+  .crumb b {
+    display: none;
+  }
+
+  .mobileNav {
+    position: fixed;
+    z-index: 45;
+    left: 10px;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    padding: 5px;
+    border: 1px solid rgba(203, 216, 209, 0.9);
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 12px 35px rgba(10, 35, 26, 0.16);
+    backdrop-filter: blur(18px);
+  }
+
+  .mobileNav a {
+    min-height: 48px;
+    display: grid;
+    place-items: center;
+    gap: 2px;
+    border-radius: 10px;
+    color: var(--muted);
+    font-size: 0.62rem;
+    font-weight: 760;
+  }
+
+  .mobileNav a.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+}
