@@ -1,0 +1,291 @@
+.dashboardPage {
+  gap: 22px;
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: end;
+  overflow: hidden;
+  padding: 26px 28px;
+  border: 1px solid #cddbd2;
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(23, 79, 60, 0.98), rgba(30, 96, 72, 0.92)),
+    var(--accent);
+  color: #fff;
+  box-shadow: 0 18px 44px rgba(23, 79, 60, 0.17);
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  width: 290px;
+  height: 290px;
+  right: -110px;
+  top: -155px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 42px rgba(255, 255, 255, 0.045),
+    0 0 0 84px rgba(255, 255, 255, 0.025);
+}
+
+.heroCopy,
+.heroStatus {
+  position: relative;
+  z-index: 1;
+}
+
+.heroCopy {
+  display: grid;
+  gap: 8px;
+}
+
+.heroCopy :global(.eyebrow) {
+  color: #cfe9da;
+}
+
+.heroCopy h1 {
+  max-width: none;
+  color: #fff;
+  font-size: clamp(2rem, 3.1vw, 3rem);
+}
+
+.heroCopy p {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.heroStatus {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.periodPill {
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.78rem;
+  font-weight: 760;
+  backdrop-filter: blur(8px);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.6fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.queueCard,
+.quickCard {
+  border-radius: 14px;
+}
+
+.queueCard {
+  min-height: 390px;
+}
+
+.queueHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.queueHeader > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.queueList {
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.queueItem {
+  position: relative;
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 14px 13px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.queueItem:hover {
+  transform: translateY(-1px);
+  border-color: #b8c9bf;
+  box-shadow: 0 8px 20px rgba(20, 37, 29, 0.055);
+}
+
+.queueRail {
+  align-self: stretch;
+  border-radius: 999px;
+  background: var(--warning);
+}
+
+.queueRailDanger {
+  background: var(--danger);
+}
+
+.queueRailOk {
+  background: var(--ok);
+}
+
+.queueCopy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.queueCopy strong {
+  font-size: 0.9rem;
+}
+
+.queueCopy p {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.quickCard {
+  position: sticky;
+  top: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.quickHeader {
+  display: grid;
+  gap: 5px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.quickActions {
+  display: grid;
+  gap: 8px;
+}
+
+.quickLink {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+
+.quickLink:hover {
+  transform: translateX(2px);
+  border-color: #adc4b6;
+  background: var(--accent-softer);
+}
+
+.quickIcon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.quickCopy {
+  display: grid;
+  gap: 2px;
+}
+
+.quickCopy strong {
+  font-size: 0.86rem;
+}
+
+.quickCopy span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.quickArrow {
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+.emptyQueue {
+  display: grid;
+  place-items: center;
+  min-height: 210px;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+@media (max-width: 1100px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .contentGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .quickCard {
+    position: static;
+  }
+
+  .quickActions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .hero {
+    grid-template-columns: 1fr;
+    padding: 22px 18px;
+  }
+
+  .heroStatus {
+    justify-items: start;
+  }
+
+  .metrics,
+  .quickActions {
+    grid-template-columns: 1fr;
+  }
+
+  .queueHeader {
+    display: grid;
+  }
+
+  .queueItem {
+    grid-template-columns: 4px minmax(0, 1fr);
+  }
+
+  .queueItem > :last-child {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
