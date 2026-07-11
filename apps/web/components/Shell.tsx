@@ -5,6 +5,7 @@ import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { PasswordReminderDialog } from "@/components/PasswordReminderDialog";
 import { SidebarNav } from "@/components/SidebarNav";
 import { SidebarToggle } from "@/components/SidebarToggle";
+import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { roleLabels } from "@/lib/navigation";
 import { currentSession } from "@/lib/session";
 import type { RoleKey } from "@/lib/types";
@@ -77,6 +78,7 @@ export async function Shell({
         <div className={`sidebar-footer ${styles.footer}`}><AppLinks /><LogoutButton /></div>
       </aside>
       <main className="main">
+        <WorkspaceChrome role={role} />
         {session.is_impersonating ? <ImpersonationBanner targetName={session.display_name} targetRole={roleLabels[role]} /> : null}
         {!session.is_impersonating && !allowAccountSetup && session.must_change_password ? <PasswordReminderDialog userId={session.id} /> : null}
         {allowed ? children : <AccessRestricted role={role} allowedRoles={allowedRoles} />}
