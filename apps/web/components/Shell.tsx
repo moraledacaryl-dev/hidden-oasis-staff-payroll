@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LogoutButton } from "@/components/LogoutButton";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
+import { MobileSidebarOverlay } from "@/components/MobileSidebarOverlay";
 import { PasswordReminderDialog } from "@/components/PasswordReminderDialog";
 import { SidebarNav } from "@/components/SidebarNav";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
@@ -92,12 +93,7 @@ export async function Shell({
         </div>
       </aside>
 
-      <button
-        aria-label="Close navigation"
-        className={styles.overlay}
-        type="button"
-        onClick={undefined}
-      />
+      <MobileSidebarOverlay className={styles.overlay} />
 
       <section className={styles.shell}>
         <main className={styles.main}>
