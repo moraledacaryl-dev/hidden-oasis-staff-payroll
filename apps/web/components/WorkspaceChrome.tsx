@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { Bell, CalendarDays, CircleUserRound, Menu, Search, Users, WalletCards } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { roleLabels } from "@/lib/navigation";
 import type { RoleKey } from "@/lib/types";
 import styles from "./WorkspaceChrome.module.css";
 
 const labels: Array<[string, string]> = [
+  ["/attendance/review", "Attendance Decisions"],
   ["/schedule/import", "Attendance Upload"],
   ["/schedule/requests", "Shift Requests"],
   ["/schedule", "Schedule"],
@@ -56,14 +58,15 @@ export function WorkspaceChrome({ role }: { role: RoleKey }) {
     <>
       <header className={styles.topbar}>
         <div className={styles.topLeft}>
-          <button className={styles.menuButton} type="button" aria-label="Toggle navigation" onClick={() => document.documentElement.toggleAttribute("data-sidebar-mobile-open")}>
+          <button className={styles.menuButton} type="button" aria-label="Open navigation" onClick={() => document.documentElement.setAttribute("data-sidebar-mobile-open", "true")}>
             <Menu size={18} />
           </button>
           <div className={styles.crumb}><span>Staff &amp; Payroll</span><b>/</b><strong>{label}</strong></div>
         </div>
         <div className={styles.actions}>
           <div className={styles.search} aria-label="Search shortcut"><Search size={16} /><span>Search staff, payroll, requests</span><kbd>⌘ K</kbd></div>
-          <button className={styles.iconButton} type="button" aria-label="Open notifications"><Bell size={18} /><span /></button>
+          <button className={styles.iconButton} type="button" aria-label="Notifications"><Bell size={18} /><span /></button>
+          <div className={styles.roleSwitch} aria-label="Current role">{roleLabels[role]}</div>
         </div>
       </header>
 
