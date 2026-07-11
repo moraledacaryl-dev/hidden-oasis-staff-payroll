@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import {
   Banknote,
   CalendarDays,
@@ -38,6 +37,7 @@ const icons: Record<string, LucideIcon> = {
   "/schedule/import": Upload,
   "/schedule/requests": FileClock,
   "/attendance": Clock3,
+  "/attendance/review": ClipboardCheck,
   "/staff": Users,
   "/performance-reviews": Star,
   "/hr": FileText,
@@ -61,101 +61,42 @@ function routeMatches(pathname: string, href: string): boolean {
 }
 
 function activeHrefFor(pathname: string, hrefs: string[]): string | null {
-  return hrefs
-    .filter((href) => routeMatches(pathname, href))
-    .sort((a, b) => b.length - a.length)[0] || null;
-}
-
-function NavLink({ href, label, active, subcard = false }: {
-  href: string;
-  label: string;
-  active: boolean;
-  subcard?: boolean;
-}) {
-  const Icon = icons[href] || FileText;
-  return (
-    <Link
-      className={`nav-card ${styles.link} ${subcard ? styles.subcard : ""} ${active ? styles.activeLink : ""}`}
-      href={href}
-      title={label}
-      aria-current={active ? "page" : undefined}
-    >
-      <span className={styles.glyph} aria-hidden="true"><Icon size={17} strokeWidth={1.9} /></span>
-      <span className={styles.copy}>
-        <strong>{label}</strong>
-      </span>
-    </Link>
-  );
+  return hrefs.filter((href) => routeMatches(pathname, href)).sort((a, b) => b.length - a.length)[0] || null;
 }
 
 export function SidebarNav({ role }: { role: RoleKey }) {
   const pathname = usePathname();
-  const visibleHrefs = navGroups
-    .flatMap((group) => group.items)
-    .filter((item) => item.roles.includes(role))
-    .map((item) => item.href);
-  const activeHref = activeHrefFor(pathname, visibleHrefs);
-  const activeGroupLabel = navGroups.find((group) =>
-    group.label && group.items.some((item) => item.href === activeHref && item.roles.includes(role))
-  )?.label || null;
-  const [openGroup, setOpenGroup] = useState<string | null>(activeGroupLabel);
-
-  useEffect(() => {
-    setOpenGroup(activeGroupLabel);
-  }, [activeGroupLabel]);
+  const visibleItems = navGroups.flatMap((group) => group.items).filter((item) => item.roles.includes(role));
+  const activeHref = activeHrefFor(pathname, visibleItems.map((item) => item.href));
 
   return (
-    <nav className={`nav-list ${styles.nav}`} aria-label="Main navigation">
-      {navGroups.map((group, groupIndex) => {
+    <nav className={styles.nav} aria-label="Main navigation">
+      {navGroups.map((group, index) => {
         const items = group.items.filter((item) => item.roles.includes(role));
         if (!items.length) return null;
-
-        const groupActive = items.some((item) => item.href === activeHref);
-
-        if (!group.label) {
-          return (
-            <div className={styles.standalone} key={`standalone-${groupIndex}`}>
-              {items.map((item) => (
-                <NavLink
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  active={item.href === activeHref}
-                />
-              ))}
-            </div>
-          );
-        }
-
         return (
-          <details
-            className={styles.group}
-            open={openGroup === group.label}
-            key={group.label}
-            onToggle={(event) => {
-              if (event.currentTarget.open) {
-                setOpenGroup(group.label);
-              } else if (openGroup === group.label && !groupActive) {
-                setOpenGroup(null);
-              }
-            }}
-          >
-            <summary className={groupActive ? styles.active : ""} title={group.label}>
-              <strong>{group.label}</strong>
-              <span className={styles.chevron} aria-hidden="true">›</span>
-            </summary>
-            <div className={styles.sublist}>
-              {items.map((item) => (
-                <NavLink
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  active={item.href === activeHref}
-                  subcard
-                />
-              ))}
+          <section className={styles.section} key={`${group.label || "primary"}-${index}`}>
+            {group.label ? <div className={styles.label}>{group.label}</div> : null}
+            <div className={styles.list}>
+              {items.map((item) => {
+                const Icon = icons[item.href] || FileText;
+                const active = item.href === activeHref;
+                return (
+                  <Link
+                    aria-current={active ? "page" : undefined}
+                    className={`${styles.link} ${active ? styles.active : ""}`}
+                    href={item.href}
+                    key={item.href}
+                    onClick={() => document.documentElement.removeAttribute("data-sidebar-mobile-open")}
+                    title={item.label}
+                  >
+                    <span className={styles.icon} aria-hidden="true"><Icon size={17} strokeWidth={1.9} /></span>
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
             </div>
-          </details>
+          </section>
         );
       })}
     </nav>
