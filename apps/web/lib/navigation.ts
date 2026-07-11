@@ -26,6 +26,7 @@ export const navGroups: NavGroup[] = [
       { href: "/schedule/import", label: "Attendance Upload", roles: ["owner", "payroll", "supervisor"] },
       { href: "/schedule/requests", label: "Shift Requests", roles: ["owner", "payroll", "supervisor"] },
       { href: "/attendance", label: "Attendance", roles: ["owner", "supervisor"] },
+      { href: "/attendance/review", label: "Attendance Decisions", roles: ["owner", "supervisor"] },
     ],
   },
   {
