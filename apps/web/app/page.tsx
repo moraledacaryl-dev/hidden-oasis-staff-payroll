@@ -40,7 +40,6 @@ export default async function DashboardPage() {
   const otPending = exceptions.filter((item) => item.ot_status === "Pending").length;
   const openCount = preview ? preview.checks.length : exceptions.length;
   const readiness = Math.max(0, Math.min(100, 100 - blockers * 15 - warnings * 4 - (!preview ? Math.min(openCount, 10) * 3 : 0)));
-  const queueItems = preview ? preview.checks.slice(0, 4) : exceptions.slice(0, 4);
 
   return (
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
@@ -63,10 +62,28 @@ export default async function DashboardPage() {
         </section>
 
         <section className={styles.twoCol}>
-          <div className={`card ${styles.cardPad}`}><div className={styles.cardHead}><div><h2>{canSeePayroll ? "Priority review queue" : "Today’s action queue"}</h2><p>Only items that require a decision are shown.</p></div><Link href={canSeePayroll ? "/attendance" : "/schedule/requests"}>View all →</Link></div><div className={styles.queue}>{queueItems.length ? queueItems.map((item, index) => {
-            if (preview) return <div className={styles.queueItem} key={`${item.category}-${index}`}><span className={`${styles.queueIcon} ${item.severity === "Blocker" ? styles.danger : ""}`}>{item.severity === "Blocker" ? "!" : "?"}</span><div><strong>{item.category}</strong><p>{item.issue}</p></div><StatusBadge label={item.severity} tone={item.severity === "Blocker" ? "danger" : "warning"} /></div>;
-            const exception = item as AttendanceException; return <div className={styles.queueItem} key={exception.id}><span className={`${styles.queueIcon} ${exception.is_absent ? styles.danger : ""}`}>{exception.is_absent ? "!" : "?"}</span><div><strong>{exception.full_name}</strong><p>{exception.work_date} · {exception.attendance_status}</p></div><StatusBadge label={exception.is_absent ? "Absent" : "Review"} tone={exception.is_absent ? "danger" : "warning"} /></div>;
-          }) : <div className="empty-state"><strong>No open items</strong><span>The review queue is clear.</span></div>}</div></div>
+          <div className={`card ${styles.cardPad}`}>
+            <div className={styles.cardHead}><div><h2>{canSeePayroll ? "Priority review queue" : "Today’s action queue"}</h2><p>Only items that require a decision are shown.</p></div><Link href={canSeePayroll ? "/attendance" : "/schedule/requests"}>View all →</Link></div>
+            <div className={styles.queue}>
+              {preview ? (
+                preview.checks.length ? preview.checks.slice(0, 4).map((check, index) => (
+                  <div className={styles.queueItem} key={`${check.category}-${index}`}>
+                    <span className={`${styles.queueIcon} ${check.severity === "Blocker" ? styles.danger : ""}`}>{check.severity === "Blocker" ? "!" : "?"}</span>
+                    <div><strong>{check.category}</strong><p>{check.issue}</p></div>
+                    <StatusBadge label={check.severity} tone={check.severity === "Blocker" ? "danger" : "warning"} />
+                  </div>
+                )) : <div className="empty-state"><strong>No open items</strong><span>The review queue is clear.</span></div>
+              ) : (
+                exceptions.length ? exceptions.slice(0, 4).map((exception) => (
+                  <div className={styles.queueItem} key={exception.id}>
+                    <span className={`${styles.queueIcon} ${exception.is_absent ? styles.danger : ""}`}>{exception.is_absent ? "!" : "?"}</span>
+                    <div><strong>{exception.full_name}</strong><p>{exception.work_date} · {exception.attendance_status}</p></div>
+                    <StatusBadge label={exception.is_absent ? "Absent" : "Review"} tone={exception.is_absent ? "danger" : "warning"} />
+                  </div>
+                )) : <div className="empty-state"><strong>No open items</strong><span>The review queue is clear.</span></div>
+              )}
+            </div>
+          </div>
 
           <aside className={`card ${styles.cardPad}`}><div className={styles.cardHead}><div><h2>Quick actions</h2><p>Common management tasks.</p></div></div><div className={styles.quickGrid}><Quick href="/schedule" code="+" label="Add shift" detail="Schedule staff" /><Quick href="/schedule/import" code="UP" label="Upload logs" detail="Import attendance" /><Quick href="/staff/manage" code="ST" label="Add employee" detail="Create record" /><Quick href="/cash-advances" code="CA" label="Cash advance" detail="Review request" /></div></aside>
         </section>
