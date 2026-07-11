@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Star,
+  Upload,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -34,6 +35,7 @@ const icons: Record<string, LucideIcon> = {
   "/": LayoutDashboard,
   "/me": CircleUserRound,
   "/schedule": CalendarDays,
+  "/schedule/import": Upload,
   "/schedule/requests": FileClock,
   "/attendance": Clock3,
   "/staff": Users,
