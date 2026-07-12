@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { ScheduleAddShiftBridge } from "@/components/ScheduleAddShiftBridge";
 import "./globals.css";
 import "./auth.css";
 import "./print-payslips.css";
@@ -18,7 +17,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body><ScheduleAddShiftBridge />{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
