@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { StatusBadge } from "@/components/StatusBadge";
 import {
   StaffSchedulePublication,
   StaffShift,
@@ -31,6 +32,13 @@ type SelfServiceData = {
 
 function money(value: number) {
   return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(value || 0));
+}
+
+function statusTone(status: string): "ok" | "warning" | "danger" {
+  const normalized = status.toLowerCase();
+  if (["approved", "paid", "active", "completed", "reviewed"].some((value) => normalized.includes(value))) return "ok";
+  if (["pending", "for review", "draft"].some((value) => normalized.includes(value))) return "warning";
+  return "danger";
 }
 
 export function StaffSelfServicePanel() {
@@ -97,67 +105,87 @@ export function StaffSelfServicePanel() {
     await load();
   }
 
-  if (error) return <section className="card"><strong>Self-service unavailable</strong><p className="muted">{error}</p><button className="button small" type="button" onClick={() => void load()}>Retry</button></section>;
-  if (!data) return <section className="card"><p className="muted">Loading...</p></section>;
-  if (!data.employee) return <section className="card"><strong>Employee account not linked</strong></section>;
+  if (error) return <section className="staff-section"><div className="staff-section-body"><strong>Self-service unavailable</strong><p className="muted">{error}</p><button className="button small" type="button" onClick={() => void load()}>Retry</button></div></section>;
+  if (!data) return <section className="staff-section"><div className="staff-section-body"><p className="muted">Loading staff workspace…</p></div></section>;
+  if (!data.employee) return <section className="staff-section"><div className="staff-section-body"><strong>Employee account not linked</strong><p className="muted">Ask an administrator to link this account to the correct employee record.</p></div></section>;
+
+  const pendingLeave = data.leave_requests.filter((item) => item.status === "Pending").length;
+  const openAdvances = data.cash_advances.filter((item) => Number(item.remaining_balance || 0) > 0).length;
 
   return (
     <>
-      <StaffShiftRequests
-        employeeId={data.employee.id}
-        schedule={data.schedule || []}
-        requests={data.requests || []}
-        coworkerShifts={data.coworker_shifts || []}
-        publications={data.publications || []}
-        onChanged={load}
-      />
-
-      <section className="grid cols-2">
-        <div className="card">
-          <div className="panel-title"><h2>Leave balances</h2></div>
-          {(data.leave_balances || []).map((item) => <p key={item.leave_type_id}><strong>{item.leave_type_name}</strong><br /><span className="muted">{item.paid ? `${Number(item.remaining || 0).toLocaleString("en-PH")} available · ${Number(item.pending || 0).toLocaleString("en-PH")} pending · ${Number(item.credits || 0).toLocaleString("en-PH")} total` : "Unpaid"}</span></p>)}
-          {!data.leave_balances?.length ? <p className="muted">No leave balances.</p> : null}
-        </div>
-        <div className="card">
-          <div className="panel-title"><h2>Request leave</h2></div>
-          <form className="form-grid" onSubmit={submitLeave}>
-            <label>Leave type<select name="leave_type_id" required defaultValue=""><option value="" disabled>Select</option>{data.leave_balances.map((item) => <option value={item.leave_type_id} key={item.leave_type_id}>{item.leave_type_name}</option>)}</select></label>
-            <label>Start<input name="start_date" type="date" required /></label>
-            <label>End<input name="end_date" type="date" required /></label>
-            <label>Reason<textarea name="reason" rows={3} minLength={3} required /></label>
-            <button className="button" type="submit" disabled={busy}>Submit</button>
-          </form>
-          {message ? <p className="muted">{message}</p> : null}
-        </div>
+      <section id="my-schedule">
+        <StaffShiftRequests
+          employeeId={data.employee.id}
+          schedule={data.schedule || []}
+          requests={data.requests || []}
+          coworkerShifts={data.coworker_shifts || []}
+          publications={data.publications || []}
+          onChanged={load}
+        />
       </section>
 
-      <section className="card">
-        <div className="panel-title"><h2>Leave requests</h2></div>
-        <div className="table-wrap"><table><thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead><tbody>
-          {data.leave_requests.map((item) => <tr key={item.id}><td>{item.leave_type_name}</td><td>{item.start_date} to {item.end_date}</td><td>{item.days}</td><td>{item.status}{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td>{item.reason || "—"}</td><td>{item.status === "Pending" ? <button className="button small secondary" type="button" disabled={busy} onClick={() => void withdrawLeave(item.id)}>Withdraw</button> : "—"}</td></tr>)}
-          {!data.leave_requests.length ? <tr><td colSpan={6}>No leave requests.</td></tr> : null}
+      <section className="staff-two-col" id="my-leave">
+        <article className="staff-section">
+          <header><div><h2>Leave balances</h2><p>Your current entitlement and pending usage.</p></div><StatusBadge label={`${pendingLeave} pending`} tone={pendingLeave ? "warning" : "ok"} /></header>
+          <div className="staff-section-body staff-balance-list">
+            {(data.leave_balances || []).map((item) => (
+              <div className="staff-balance-row" key={item.leave_type_id}>
+                <div><strong>{item.leave_type_name}</strong><small>{item.paid ? `${Number(item.credits || 0).toLocaleString("en-PH")} total · ${Number(item.used || 0).toLocaleString("en-PH")} used` : "Unpaid leave"}</small></div>
+                <strong>{item.paid ? `${Number(item.remaining || 0).toLocaleString("en-PH")} available` : "As approved"}</strong>
+              </div>
+            ))}
+            {!data.leave_balances?.length ? <p className="staff-empty">No leave balances.</p> : null}
+          </div>
+        </article>
+
+        <article className="staff-section">
+          <header><div><h2>Request leave</h2><p>Submit a leave request for review.</p></div></header>
+          <div className="staff-section-body">
+            <form className="staff-form" onSubmit={submitLeave}>
+              <label>Leave type<select name="leave_type_id" required defaultValue=""><option value="" disabled>Select leave type</option>{data.leave_balances.map((item) => <option value={item.leave_type_id} key={item.leave_type_id}>{item.leave_type_name}</option>)}</select></label>
+              <label>Start date<input name="start_date" type="date" required /></label>
+              <label>End date<input name="end_date" type="date" required /></label>
+              <label>Reason<textarea name="reason" rows={3} minLength={3} required placeholder="Brief reason for the request" /></label>
+              <button className="button" type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit request"}</button>
+            </form>
+            {message ? <p className="muted">{message}</p> : null}
+          </div>
+        </article>
+      </section>
+
+      <section className="staff-section">
+        <header><div><h2>Leave requests</h2><p>Track approval status and withdraw pending requests.</p></div></header>
+        <div className="table-wrap"><table className="staff-table"><thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead><tbody>
+          {data.leave_requests.map((item) => <tr key={item.id}><td><strong>{item.leave_type_name}</strong></td><td>{item.start_date} to {item.end_date}</td><td>{item.days}</td><td><StatusBadge label={item.status} tone={statusTone(item.status)} />{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td>{item.reason || "—"}</td><td>{item.status === "Pending" ? <button className="button small secondary" type="button" disabled={busy} onClick={() => void withdrawLeave(item.id)}>Withdraw</button> : "—"}</td></tr>)}
+          {!data.leave_requests.length ? <tr><td colSpan={6} className="staff-empty">No leave requests.</td></tr> : null}
         </tbody></table></div>
       </section>
 
-      <section className="grid cols-2">
-        <div className="card">
-          <div className="panel-title"><h2>Attendance</h2></div>
-          <div className="table-wrap"><table><thead><tr><th>Date</th><th>Time</th><th>Status</th><th>OT</th></tr></thead><tbody>
-            {data.attendance.map((item, index) => <tr key={`${item.work_date}-${index}`}><td>{item.work_date}</td><td>{item.is_absent ? item.absence_type || "Absent" : `${item.actual_in || "—"}–${item.actual_out || "—"}`}</td><td>{item.attendance_status}</td><td>{Number(item.approved_ot_hours || 0).toLocaleString("en-PH")}</td></tr>)}
-            {!data.attendance.length ? <tr><td colSpan={4}>No attendance records.</td></tr> : null}
+      <section className="staff-two-col" id="my-attendance">
+        <article className="staff-section">
+          <header><div><h2>My attendance</h2><p>Recorded time and approved overtime.</p></div><StatusBadge label={`${data.attendance.length} records`} tone="ok" /></header>
+          <div className="table-wrap"><table className="staff-table"><thead><tr><th>Date</th><th>Time</th><th>Status</th><th>OT</th></tr></thead><tbody>
+            {data.attendance.map((item, index) => <tr key={`${item.work_date}-${index}`}><td>{item.work_date}</td><td>{item.is_absent ? item.absence_type || "Absent" : `${item.actual_in || "—"}–${item.actual_out || "—"}`}</td><td><StatusBadge label={item.attendance_status} tone={statusTone(item.attendance_status)} /></td><td>{Number(item.approved_ot_hours || 0).toLocaleString("en-PH")} hrs</td></tr>)}
+            {!data.attendance.length ? <tr><td colSpan={4} className="staff-empty">No attendance records.</td></tr> : null}
           </tbody></table></div>
-        </div>
-        <div className="card">
-          <div className="panel-title"><h2>Cash advances</h2></div>
-          {data.cash_advances.map((item) => <p key={item.id}><strong>{money(item.remaining_balance)} remaining</strong><br /><span className="muted">{item.advance_date} · {item.status} · original {money(item.amount)}</span></p>)}
-          {!data.cash_advances.length ? <p className="muted">No cash advances.</p> : null}
-        </div>
+        </article>
+
+        <article className="staff-section">
+          <header><div><h2>Cash advances</h2><p>Current balances and repayment settings.</p></div><StatusBadge label={`${openAdvances} open`} tone={openAdvances ? "warning" : "ok"} /></header>
+          <div className="staff-section-body staff-status-list">
+            {data.cash_advances.map((item) => <div className="staff-status-row" key={item.id}><div><strong>{money(item.remaining_balance)} remaining</strong><small>{item.advance_date} · original {money(item.amount)} · {item.repayment_method || "Repayment plan"}</small></div><StatusBadge label={item.status} tone={statusTone(item.status)} /></div>)}
+            {!data.cash_advances.length ? <p className="staff-empty">No cash advances.</p> : null}
+          </div>
+        </article>
       </section>
 
-      <section className="card">
-        <div className="panel-title"><h2>HR records</h2></div>
-        {data.hr_records.map((item) => <p key={item.id}><strong>{item.record_date} · {item.record_type}</strong><br />{item.subject}<br /><span className="muted">{item.status} · {item.severity}{item.issued_by ? ` · ${item.issued_by}` : ""}</span></p>)}
-        {!data.hr_records.length ? <p className="muted">No HR records.</p> : null}
+      <section className="staff-section">
+        <header><div><h2>HR records</h2><p>Formal records visible to your employee account.</p></div><StatusBadge label={`${data.hr_records.length} records`} tone="ok" /></header>
+        <div className="staff-section-body staff-status-list">
+          {data.hr_records.map((item) => <div className="staff-status-row" key={item.id}><div><strong>{item.record_date} · {item.record_type}</strong><span>{item.subject}</span><small>{item.issued_by ? `Issued by ${item.issued_by}` : "Employer record"}</small></div><div><StatusBadge label={item.status} tone={statusTone(item.status)} /><small>{item.severity}</small></div></div>)}
+          {!data.hr_records.length ? <p className="staff-empty">No HR records.</p> : null}
+        </div>
       </section>
     </>
   );
