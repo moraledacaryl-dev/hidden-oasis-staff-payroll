@@ -4,6 +4,7 @@ import { LogoutButton } from "@/components/LogoutButton";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { MobileSidebarOverlay } from "@/components/MobileSidebarOverlay";
 import { PasswordReminderDialog } from "@/components/PasswordReminderDialog";
+import { SidebarCollapseController } from "@/components/SidebarCollapseController";
 import { SidebarNav } from "@/components/SidebarNav";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { roleLabels } from "@/lib/navigation";
@@ -65,6 +66,7 @@ export async function Shell({
   return (
     <div className={styles.app}>
       <aside className={styles.sidebar} aria-label="Workspace navigation">
+        <SidebarCollapseController />
         <div className={styles.brand}>
           <div className={styles.brandMark}>HO</div>
           <div className={styles.brandText}>
