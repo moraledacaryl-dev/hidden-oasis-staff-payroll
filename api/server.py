@@ -13,6 +13,7 @@ from api.cash_repayments import router as cash_repayments_router
 from api.employees import router as employees_router
 from api.hr_records import router as hr_records_router
 from api.impersonation import router as impersonation_router
+from api.integrations import router as integrations_router
 from api.main import (
     API_PREFIX,
     ROLE_OWNER,
@@ -56,6 +57,7 @@ from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
 from api.users import router as users_router
 from core.db import get_conn, init_db
+from core.integration_outbox import ensure_integration_schema
 from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 from core.quality import build_payroll_preflight_checks, summarize_checks
 from core.runtime_guard import validate_runtime_environment
@@ -70,6 +72,7 @@ def initialize_runtime() -> None:
         ensure_schedule_schema(conn)
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
+        ensure_integration_schema(conn)
         conn.commit()
     finally:
         conn.close()
@@ -172,6 +175,7 @@ ROUTERS = (
     sil_leave_router,
     users_router,
     employees_router,
+    integrations_router,
     schedule_publication_router,
     schedule_canonical_runtime_router,
     staff_published_portal_router,
@@ -196,4 +200,3 @@ for router in ROUTERS:
 _include_router_filtered(app, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
 app.include_router(staff_self_service_router)
 assert_unique_route_registry(app)
-
