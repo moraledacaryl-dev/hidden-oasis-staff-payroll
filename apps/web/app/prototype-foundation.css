@@ -58,6 +58,15 @@ input:hover,select:hover,textarea:hover{border-color:#aebdb5}
 .footer-note{border-radius:10px}
 .action-item{border-radius:10px}
 
+[class*="matrixHeader"]{display:grid;gap:3px}
+[class*="matrixHeader"]>strong{font-size:11px;line-height:1.15}
+[class*="matrixHeader"]>span{color:var(--muted);font-size:9px;font-weight:500;line-height:1.2}
+[class*="matrixHeader"]::after{display:none!important}
+[class*="employeeCell"]::before{display:none!important}
+[class*="employeeCell"]{display:flex!important;align-items:center!important;gap:10px!important;padding-left:14px!important}
+[class*="employeeCell"]>div{display:grid;min-width:0}
+[class*="employeeAvatar"]{width:36px;height:36px;flex:0 0 36px;display:grid;place-items:center;border-radius:50%;background:#e7d0a6;color:#315544;border:1px solid #dcc38f;font-size:10px;font-weight:900}
+
 @media(max-width:920px){
   .page{gap:16px}
   .page-header{display:grid}
@@ -68,4 +77,5 @@ input:hover,select:hover,textarea:hover{border-color:#aebdb5}
   .card{padding:14px}
   .page-header h1,.page h1{font-size:1.75rem}
   .button,.primary-button,.primary-link{min-height:40px}
+  [class*="employeeAvatar"]{width:32px;height:32px;flex-basis:32px}
 }
