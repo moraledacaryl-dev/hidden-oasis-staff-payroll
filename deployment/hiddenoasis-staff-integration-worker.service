@@ -1,0 +1,22 @@
+[Unit]
+Description=Hidden Oasis Staff Payroll Integration Worker
+After=network-online.target hiddenoasis-staff-payroll-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/hidden-oasis-staff-payroll
+EnvironmentFile=/etc/hiddenoasis/staff-payroll.env
+ExecStart=/opt/hidden-oasis-staff-payroll/.venv-api/bin/python scripts/run_integration_worker.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/hidden-oasis-staff-payroll /var/lib/hiddenoasis /srv/backups
+
+[Install]
+WantedBy=multi-user.target
