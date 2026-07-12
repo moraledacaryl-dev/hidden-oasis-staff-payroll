@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, Printer, Repeat2 } from "lucide-react";
+import { AppDrawer, SurfaceContext, SurfaceSection } from "@/components/AppSurface";
+import { StatusBadge } from "@/components/StatusBadge";
 
 type Item = {
   id: number;
@@ -39,42 +42,68 @@ async function post(body: Record<string, unknown>) {
   return data;
 }
 
+function toneForStatus(status: string): "ok" | "warning" | "danger" | "neutral" {
+  if (status === "Approved") return "ok";
+  if (status === "Rejected") return "danger";
+  if (status === "Emergency Review") return "danger";
+  if (status === "Pending") return "warning";
+  return "neutral";
+}
+
 export function ScheduleChangeReview() {
   const router = useRouter();
   const [items, setItems] = useState<Item[]>([]);
+  const [selected, setSelected] = useState<Item | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
+  const [decisionNote, setDecisionNote] = useState("");
+  const [coverageConfirmed, setCoverageConfirmed] = useState(false);
+  const [employeeNotified, setEmployeeNotified] = useState(false);
+  const [applyChange, setApplyChange] = useState(true);
 
   async function load() {
     try {
       const data = await post({ operation: "review_requests" });
       setItems(data.items || []);
+      if (selected) setSelected((data.items || []).find((item: Item) => item.id === selected.id) || null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load requests.");
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, []);
+  useEffect(() => { void load(); }, []);
 
-  async function decide(id: number, decision: "Approved" | "Rejected", form: HTMLFormElement) {
-    setBusy(id);
+  const counts = useMemo(() => ({
+    open: items.filter((item) => ["Pending", "Emergency Review"].includes(item.status)).length,
+    emergency: items.filter((item) => Boolean(item.emergency) && ["Pending", "Emergency Review"].includes(item.status)).length,
+    approved: items.filter((item) => item.status === "Approved").length,
+    rejected: items.filter((item) => item.status === "Rejected").length,
+  }), [items]);
+
+  function openItem(item: Item) {
+    setSelected(item);
+    setDecisionNote(item.decision_note || "");
+    setCoverageConfirmed(Boolean(item.coverage_confirmed));
+    setEmployeeNotified(Boolean(item.employee_notified));
+    setApplyChange(true);
+  }
+
+  async function decide(decision: "Approved" | "Rejected") {
+    if (!selected) return;
+    setBusy(selected.id);
     setError("");
-    const data = new FormData(form);
-
     try {
       await post({
         operation: "decide_request",
-        request_id: id,
+        request_id: selected.id,
         decision,
-        decision_note: String(data.get("decision_note") || ""),
-        employee_notified: data.get("employee_notified") === "on",
-        coverage_confirmed: data.get("coverage_confirmed") === "on",
-        apply_change: data.get("apply_change") !== "off",
+        decision_note: decisionNote,
+        employee_notified: employeeNotified,
+        coverage_confirmed: coverageConfirmed,
+        apply_change: applyChange,
       });
-
       await load();
+      setSelected(null);
       router.refresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Decision failed.");
@@ -83,96 +112,87 @@ export function ScheduleChangeReview() {
     }
   }
 
+  const pending = selected ? ["Pending", "Emergency Review"].includes(selected.status) : false;
+  const isSwap = selected?.request_type.trim().toLowerCase() === "shift swap";
+
   return (
-    <div className="grid">
-      <div className="print-actions">
-        <button className="button secondary" type="button" onClick={() => window.print()}>
-          Print requests
-        </button>
+    <div className="request-workspace">
+      <div className="request-kpis">
+        <div><Clock3 size={17} /><span>Open requests</span><strong>{counts.open}</strong></div>
+        <div><AlertTriangle size={17} /><span>Emergency</span><strong>{counts.emergency}</strong></div>
+        <div><CheckCircle2 size={17} /><span>Approved</span><strong>{counts.approved}</strong></div>
+        <div><Repeat2 size={17} /><span>Rejected</span><strong>{counts.rejected}</strong></div>
       </div>
 
-      {error ? (
-        <section className="card">
-          <strong>Could not complete action</strong>
-          <p className="muted">{error}</p>
-        </section>
-      ) : null}
+      <section className="request-queue-card">
+        <header className="request-queue-head">
+          <div><span className="eyebrow">Open first</span><h2>Request queue</h2><p>Review the original assignment, proposed change, coverage, and employee communication before deciding.</p></div>
+          <button className="button secondary" type="button" onClick={() => window.print()}><Printer size={15} />Print requests</button>
+        </header>
 
-      {items.map((item) => {
-        const pending = ["Pending", "Emergency Review"].includes(item.status);
-        const isSwap = item.request_type.trim().toLowerCase() === "shift swap";
+        {error ? <div className="request-error"><strong>Could not complete action</strong><span>{error}</span></div> : null}
 
-        return (
-          <article className="card shift-request-print" key={item.id}>
-            <div className="panel-title">
-              <div>
-                <span className="eyebrow">{item.request_no}</span>
-                <h2>{item.employee_name}</h2>
-                <p className="muted">
-                  {item.employee_code || "—"} · {item.department || "Unassigned"} · submitted {item.submitted_at}
-                </p>
-              </div>
-              <strong>{item.status}{item.emergency ? " · Emergency" : ""}</strong>
+        <div className="request-list">
+          {items.map((item) => {
+            const requestedDate = item.requested_date || item.original_date;
+            const requestedStart = item.requested_start_time || item.original_start_time;
+            const requestedEnd = item.requested_end_time || item.original_end_time;
+            return (
+              <button className="request-row" key={item.id} onClick={() => openItem(item)} type="button">
+                <span className="request-avatar">{item.employee_name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</span>
+                <span className="request-person"><strong>{item.employee_name}</strong><small>{item.employee_code || "—"} · {item.department || "Unassigned"}</small></span>
+                <span className="request-type"><strong>{item.request_type}</strong><small>{item.request_no}</small></span>
+                <span className="request-shift"><small>Original</small><strong>{item.original_date}</strong><span>{item.original_start_time}–{item.original_end_time}</span></span>
+                <ArrowRight className="request-arrow" size={16} />
+                <span className="request-shift"><small>Requested</small><strong>{requestedDate}</strong><span>{requestedStart}–{requestedEnd}</span></span>
+                <StatusBadge label={item.emergency ? `${item.status} · Emergency` : item.status} tone={toneForStatus(item.status)} />
+              </button>
+            );
+          })}
+          {!items.length && !error ? <div className="request-empty"><CheckCircle2 size={22} /><strong>No shift-change requests</strong><span>The queue is clear.</span></div> : null}
+        </div>
+      </section>
+
+      <AppDrawer
+        open={Boolean(selected)}
+        eyebrow="Shift request"
+        title={selected ? `${selected.request_type} · ${selected.employee_name}` : "Shift request"}
+        description={selected ? `${selected.request_no} · submitted ${selected.submitted_at}` : undefined}
+        onClose={() => setSelected(null)}
+        footer={selected ? <><div>{pending ? <button className="button secondary" disabled={busy === selected.id} onClick={() => void decide("Rejected")} type="button">Reject</button> : null}</div><div className="badge-row"><button className="button ghost" onClick={() => setSelected(null)} type="button">Close</button>{pending ? <button className="button" disabled={busy === selected.id} onClick={() => void decide("Approved")} type="button">Approve request</button> : null}</div></> : null}
+      >
+        {selected ? <>
+          <SurfaceContext>
+            <div><span className="eyebrow">Employee</span><strong>{selected.employee_name}</strong><small>{selected.employee_code || "—"}</small></div>
+            <div><span className="eyebrow">Department</span><strong>{selected.department || "Unassigned"}</strong><small>{selected.request_type}</small></div>
+            <div><span className="eyebrow">Status</span><StatusBadge label={selected.emergency ? `${selected.status} · Emergency` : selected.status} tone={toneForStatus(selected.status)} /></div>
+          </SurfaceContext>
+
+          <SurfaceSection number="1" title="Assignment change" description="Compare the published shift and the requested replacement.">
+            <div className="request-change-grid">
+              <div><span>Original shift</span><strong>{selected.original_date}</strong><small>{selected.original_start_time}–{selected.original_end_time}</small></div>
+              <ArrowRight size={18} />
+              <div><span>Requested shift</span><strong>{selected.requested_date || selected.original_date}</strong><small>{selected.requested_start_time || selected.original_start_time}–{selected.requested_end_time || selected.original_end_time}</small></div>
             </div>
+            {selected.swap_employee_name ? <p className="request-note">Swap with <strong>{selected.swap_employee_name}</strong>. Approval exchanges both shift assignments together.</p> : null}
+          </SurfaceSection>
 
-            <div className="grid cols-3">
-              <div>
-                <strong>Original shift</strong>
-                <p>{item.original_date}<br />{item.original_start_time}–{item.original_end_time}</p>
-              </div>
-              <div>
-                <strong>Requested shift</strong>
-                <p>{item.requested_date || item.original_date}<br />{item.requested_start_time || item.original_start_time}–{item.requested_end_time || item.original_end_time}</p>
-              </div>
-              <div>
-                <strong>Request type</strong>
-                <p>{item.request_type}{item.swap_employee_name ? <><br />Swap with {item.swap_employee_name}</> : null}</p>
-              </div>
+          <SurfaceSection number="2" title="Employee reason" description="Reason and supporting evidence submitted with the request.">
+            <p className="request-reason">{selected.reason}</p>
+            {selected.attachment_path ? <p className="request-note">A supporting document is attached to this request.</p> : null}
+          </SurfaceSection>
+
+          {pending ? <SurfaceSection number="3" title="Decision controls" description="Confirm coverage and communication before applying the change.">
+            <label className="field">Decision note<textarea rows={4} value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} /></label>
+            <div className="request-checks">
+              <label><input type="checkbox" checked={coverageConfirmed} onChange={(event) => setCoverageConfirmed(event.target.checked)} />Coverage confirmed</label>
+              <label><input type="checkbox" checked={employeeNotified} onChange={(event) => setEmployeeNotified(event.target.checked)} />Employee notified</label>
+              <label><input type="checkbox" checked={applyChange} onChange={(event) => setApplyChange(event.target.checked)} />Apply approved change to schedule</label>
             </div>
-
-            <div>
-              <strong>Reason</strong>
-              <p>{item.reason}</p>
-            </div>
-
-            {item.attachment_path ? <p className="muted">Supporting document is attached to this request.</p> : null}
-            {isSwap ? <p className="muted">Approval exchanges both shift assignments together.</p> : null}
-            {item.decision_note ? <div><strong>Decision note</strong><p>{item.decision_note}</p></div> : null}
-
-            {pending ? (
-              <form className="grid cols-2" onSubmit={(event) => event.preventDefault()}>
-                <label className="field" style={{ gridColumn: "1 / -1" }}>
-                  Decision note
-                  <textarea name="decision_note" rows={3} />
-                </label>
-
-                <label><input type="checkbox" name="coverage_confirmed" /> Coverage confirmed</label>
-                <label><input type="checkbox" name="employee_notified" /> Employee notified</label>
-                <label><input type="checkbox" name="apply_change" defaultChecked /> Apply to schedule</label>
-
-                <div className="badge-row">
-                  <button className="button" type="button" disabled={busy === item.id} onClick={(event) => decide(item.id, "Approved", event.currentTarget.form!)}>
-                    Approve
-                  </button>
-                  <button className="button secondary" type="button" disabled={busy === item.id} onClick={(event) => decide(item.id, "Rejected", event.currentTarget.form!)}>
-                    Reject
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <p className="muted">
-                Reviewed by {item.reviewed_by_name || "management"}. Coverage: {item.coverage_confirmed ? "confirmed" : "not recorded"}. Employee notification: {item.employee_notified ? "recorded" : "not recorded"}.
-              </p>
-            )}
-          </article>
-        );
-      })}
-
-      {!items.length && !error ? (
-        <section className="card">
-          <p className="muted">No shift-change requests yet.</p>
-        </section>
-      ) : null}
+            {isSwap ? <p className="request-note">This request updates both employees’ assignments as one transaction.</p> : null}
+          </SurfaceSection> : <SurfaceSection number="3" title="Decision record" description="Recorded review outcome for this request."><p className="request-reason">{selected.decision_note || "No decision note recorded."}</p><div className="request-record"><span>Reviewed by <strong>{selected.reviewed_by_name || "management"}</strong></span><span>Coverage {selected.coverage_confirmed ? "confirmed" : "not recorded"}</span><span>Employee notification {selected.employee_notified ? "recorded" : "not recorded"}</span></div></SurfaceSection>}
+        </> : null}
+      </AppDrawer>
     </div>
   );
 }
