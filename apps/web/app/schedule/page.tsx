@@ -9,6 +9,7 @@ import { ScheduleCopyWeekForm } from "@/components/ScheduleCopyWeekForm";
 import { ScheduleBoardClient } from "@/components/ScheduleBoardClient";
 import { ScheduleRiskPanel } from "@/components/ScheduleRiskPanel";
 import { SchedulePublishControl } from "@/components/SchedulePublishControl";
+import { ScheduleAddShiftButton } from "@/components/ScheduleAddShiftButton";
 import { apiBaseUrl as baseUrl, backendHeaders } from "@/lib/backend";
 import { addIsoDays, formatIsoDay, mondayOfWeek } from "@/lib/period";
 import type { ScheduleActual, ScheduleEmployee, ScheduleShift } from "@/lib/schedule-types";
@@ -76,7 +77,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
       <div className={`page ${styles.page}`}>
         <header className={styles.pageHeading}>
           <div><span className="eyebrow">Operations</span><h1>Weekly schedule</h1><p>Click any employee-day cell to edit it. Drag a shift card to another employee/date, then choose Move or Copy.</p></div>
-          <div className={styles.headingActions}><PrintButton label="Print / Save PDF" /><ScheduleCopyWeekForm currentWeekStart={week.week_start} previousWeekStart={previousWeekStart} /><Link className="button" href="#schedule-grid">+ Add shift</Link></div>
+          <div className={styles.headingActions}><PrintButton label="Print / Save PDF" /><ScheduleCopyWeekForm currentWeekStart={week.week_start} previousWeekStart={previousWeekStart} /><ScheduleAddShiftButton /></div>
         </header>
 
         <section className={styles.kpiGrid}>
