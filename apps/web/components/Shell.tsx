@@ -65,6 +65,7 @@ export async function Shell({
 
   return (
     <div className={styles.app}>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className={styles.sidebar} aria-label="Workspace navigation">
         <SidebarCollapseController />
         <div className={styles.brand}>
@@ -98,7 +99,7 @@ export async function Shell({
       <MobileSidebarOverlay className={styles.overlay} />
 
       <section className={styles.shell}>
-        <main className={styles.main}>
+        <main className={styles.main} id="main-content" tabIndex={-1}>
           <WorkspaceChrome role={role} />
           {session.is_impersonating ? <ImpersonationBanner targetName={session.display_name} targetRole={roleLabels[role]} /> : null}
           {!session.is_impersonating && !allowAccountSetup && session.must_change_password ? <PasswordReminderDialog userId={session.id} /> : null}
