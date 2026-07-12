@@ -8,6 +8,7 @@ import "./pass1-theme.css";
 import "./prototype-foundation.css";
 import "./pass1-surfaces.css";
 import "./schedule-drawer.css";
+import "./core-operations.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",
