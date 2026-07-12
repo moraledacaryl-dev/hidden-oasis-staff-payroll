@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
+import { PageHeading, SectionBody, SectionCard, SectionHeader } from "@/components/UiPrimitives";
 import { getEmployees } from "@/lib/api";
 import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import type { Employee } from "@/lib/types";
@@ -49,22 +50,39 @@ async function saveEmployee(id: number | null, data: FormData) {
 }
 
 function Fields({ item, canEditBenefits }: { item?: Employee; canEditBenefits: boolean }) {
-  return <div className="form-grid">
-    <label>Code<input name="employee_code" defaultValue={item?.employee_code || ""} required /></label>
-    <label>Full name<input name="full_name" defaultValue={item?.full_name || ""} required /></label>
-    <label>Department<input name="department_name" defaultValue={item?.department_name || ""} /></label>
-    <label>Position<input name="position" defaultValue={item?.position || ""} /></label>
-    <label>Type<select name="employment_type" defaultValue={item?.employment_type || "Regular"}><option>Regular</option><option>Probationary</option><option>Part-time</option><option>Freelance</option><option>Seasonal</option></select></label>
-    <label>Status<select name="status" defaultValue={item?.status || "Active"}><option>Active</option><option>Inactive</option><option>On Leave</option><option>Separated</option></select></label>
-    <label>Shift start<input type="time" name="default_shift_start" defaultValue={item?.default_shift_start || ""} /></label>
-    <label>Shift end<input type="time" name="default_shift_end" defaultValue={item?.default_shift_end || ""} /></label>
-    <label>Shift hours<input type="number" min="0" max="24" step="0.25" name="standard_shift_hours" defaultValue={item?.standard_shift_hours ?? ""} /></label>
-    <label>Break minutes<input type="number" min="0" max="1440" name="unpaid_break_minutes" defaultValue={item?.unpaid_break_minutes ?? ""} /></label>
-    {canEditBenefits ? <label className="check-field"><input type="checkbox" name="benefits_sss" defaultChecked={Boolean(item?.benefits_sss)} />SSS</label> : null}
-    {canEditBenefits ? <label className="check-field"><input type="checkbox" name="benefits_philhealth" defaultChecked={Boolean(item?.benefits_philhealth)} />PhilHealth</label> : null}
-    {canEditBenefits ? <label className="check-field"><input type="checkbox" name="benefits_pagibig" defaultChecked={Boolean(item?.benefits_pagibig)} />Pag-IBIG</label> : null}
-    {canEditBenefits ? <label className="check-field"><input type="checkbox" name="benefits_tax" defaultChecked={Boolean(item?.benefits_tax)} />Tax</label> : null}
-  </div>;
+  return <>
+    <section className="app-surface-section">
+      <header className="app-surface-section-header"><span>1</span><div><h3>Worker identity</h3><p>Core identity and organizational assignment.</p></div></header>
+      <div className="app-surface-section-body staff-drawer-grid">
+        <label>Code<input name="employee_code" defaultValue={item?.employee_code || ""} required /></label>
+        <label>Full name<input name="full_name" defaultValue={item?.full_name || ""} required /></label>
+        <label>Department<input name="department_name" defaultValue={item?.department_name || ""} /></label>
+        <label>Position<input name="position" defaultValue={item?.position || ""} /></label>
+        <label>Engagement type<select name="employment_type" defaultValue={item?.employment_type || "Regular"}><option>Regular</option><option>Probationary</option><option>Part-time</option><option>Freelance</option><option>Seasonal</option></select></label>
+        <label>Lifecycle status<select name="status" defaultValue={item?.status || "Active"}><option>Active</option><option>Inactive</option><option>On Leave</option><option>Separated</option></select></label>
+      </div>
+    </section>
+
+    <section className="app-surface-section">
+      <header className="app-surface-section-header"><span>2</span><div><h3>Schedule defaults</h3><p>Default work pattern used when creating shifts.</p></div></header>
+      <div className="app-surface-section-body staff-drawer-grid">
+        <label>Shift start<input type="time" name="default_shift_start" defaultValue={item?.default_shift_start || ""} /></label>
+        <label>Shift end<input type="time" name="default_shift_end" defaultValue={item?.default_shift_end || ""} /></label>
+        <label>Shift hours<input type="number" min="0" max="24" step="0.25" name="standard_shift_hours" defaultValue={item?.standard_shift_hours ?? ""} /></label>
+        <label>Break minutes<input type="number" min="0" max="1440" name="unpaid_break_minutes" defaultValue={item?.unpaid_break_minutes ?? ""} /></label>
+      </div>
+    </section>
+
+    {canEditBenefits ? <section className="app-surface-section">
+      <header className="app-surface-section-header"><span>3</span><div><h3>Payroll and benefits</h3><p>Restricted payroll participation settings.</p></div></header>
+      <div className="app-surface-section-body staff-drawer-checks">
+        <label><input type="checkbox" name="benefits_sss" defaultChecked={Boolean(item?.benefits_sss)} />SSS</label>
+        <label><input type="checkbox" name="benefits_philhealth" defaultChecked={Boolean(item?.benefits_philhealth)} />PhilHealth</label>
+        <label><input type="checkbox" name="benefits_pagibig" defaultChecked={Boolean(item?.benefits_pagibig)} />Pag-IBIG</label>
+        <label><input type="checkbox" name="benefits_tax" defaultChecked={Boolean(item?.benefits_tax)} />Tax withholding</label>
+      </div>
+    </section> : null}
+  </>;
 }
 
 export default async function ManageStaffPage({ searchParams }: { searchParams: Promise<{ employee?: string; add?: string }> }) {
@@ -76,28 +94,21 @@ export default async function ManageStaffPage({ searchParams }: { searchParams: 
   const selectedEmployeeId = Number(params.employee || 0) || null;
   const addOpen = params.add === "1";
   const employees = await getEmployees();
+  const selected = selectedEmployeeId ? employees.find((employee) => employee.id === selectedEmployeeId) : undefined;
+  const drawerOpen = addOpen || Boolean(selected);
 
-  return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div className="page">
-    <header className="page-header"><div className="grid"><span className="eyebrow">Staff</span><h1>Manage employees</h1><div className="action-row"><Link className="button ghost" href="/staff">Staff directory</Link></div></div></header>
-    <details id="add-employee" className="card details-card" open={addOpen}>
-      <summary><strong>Add employee</strong></summary>
-      <form action={saveEmployee.bind(null, null)} className="details-body">
-        <Fields canEditBenefits={canEditBenefits} />
-        <div className="action-row"><button className="primary-button" type="submit">Add employee</button></div>
-      </form>
-    </details>
-    <section className="grid">
-      {employees.map((item) => (
-        <details id={`employee-${item.id}`} className="card details-card" key={item.id} open={selectedEmployeeId === item.id}>
-          <summary>
-            <span><strong>{item.full_name}</strong><br /><span className="muted">{item.employee_code} · {item.status}</span></span>
-          </summary>
-          <form action={saveEmployee.bind(null, item.id)} className="details-body">
-            <Fields item={item} canEditBenefits={canEditBenefits} />
-            <div className="action-row"><button className="primary-button" type="submit">Save changes</button><Link className="button ghost" href="/staff">Cancel</Link></div>
-          </form>
-        </details>
-      ))}
-    </section>
+  return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div className="page people-page">
+    <PageHeading eyebrow="People" title="Manage workers" description="Create and maintain worker identity, role, lifecycle, schedule defaults, and authorized payroll settings." actions={<><Link className="button secondary" href="/staff">Staff directory</Link><Link className="button" href="/staff/manage?add=1">Add worker</Link></>} />
+
+    <SectionCard>
+      <SectionHeader title="Worker records" description={`${employees.length} employee records. Open a worker to edit the canonical record.`} />
+      <SectionBody><div className="staff-manage-list">{employees.map((item) => <div className="staff-manage-row" key={item.id}><div><strong>{item.full_name}</strong><small>{item.employee_code} · {item.department_name || "Unassigned"} · {item.status}</small></div><Link className="button small secondary" href={`/staff/manage?employee=${item.id}`}>Open record</Link></div>)}</div></SectionBody>
+    </SectionCard>
+
+    {drawerOpen ? <div className="app-surface-backdrop app-drawer-backdrop" role="presentation"><section className="app-surface app-drawer" role="dialog" aria-modal="true">
+      <header className="app-surface-header"><div className="app-surface-heading"><span className="eyebrow">Worker record</span><h2>{selected ? selected.full_name : "Add worker"}</h2><p>{selected ? `${selected.employee_code} · ${selected.department_name || "Unassigned"}` : "Create the worker identity used by schedule, HR, attendance, and payroll."}</p></div><Link className="app-surface-close" aria-label="Close" href="/staff/manage">×</Link></header>
+      <div className="app-surface-body"><form action={saveEmployee.bind(null, selected?.id || null)} className="staff-drawer-form" id="staff-record-form"><Fields item={selected} canEditBenefits={canEditBenefits} /></form></div>
+      <footer className="app-surface-footer"><div /><div className="badge-row"><Link className="button ghost" href="/staff/manage">Cancel</Link><button className="button" form="staff-record-form" type="submit">{selected ? "Save changes" : "Add worker"}</button></div></footer>
+    </section></div> : null}
   </div></Shell>;
 }
