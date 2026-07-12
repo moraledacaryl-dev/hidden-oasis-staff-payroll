@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,6 +13,11 @@ from core.integration_outbox import DESTINATION_ENV, ensure_integration_schema, 
 router = APIRouter(prefix="/api/v1/integrations", dependencies=[Depends(require_api_key)])
 
 
+def _configured(destination: str) -> bool:
+    url_env, token_env = DESTINATION_ENV[destination]
+    return bool(os.getenv(url_env, "").strip() and os.getenv(token_env, "").strip())
+
+
 def _summary(conn) -> dict[str, Any]:
     rows = fetchall(
         conn,
@@ -20,7 +26,7 @@ def _summary(conn) -> dict[str, Any]:
     destinations: dict[str, dict[str, Any]] = {}
     for destination in DESTINATION_ENV:
         destinations[destination] = {
-            "configured": bool(__import__("os").getenv(DESTINATION_ENV[destination][0], "").strip()),
+            "configured": _configured(destination),
             "statuses": {},
         }
     for row in rows:
@@ -45,6 +51,73 @@ def integration_status(
             """,
         )
         return {**_summary(conn), "latest": latest}
+    finally:
+        conn.close()
+
+
+@router.get("/readiness")
+def integration_readiness(
+    user: dict[str, Any] = Depends(require_roles("owner", "payroll")),
+) -> dict[str, Any]:
+    """Return a fail-closed activation assessment without exposing destination secrets."""
+    conn = get_conn(configured_db_path())
+    try:
+        ensure_integration_schema(conn)
+        summary = _summary(conn)
+        status_counts = {
+            row["status"]: int(row["count"])
+            for row in fetchall(
+                conn,
+                "SELECT status,COUNT(*) AS count FROM integration_outbox GROUP BY status",
+            )
+        }
+        stale_processing = int(
+            (fetchone(
+                conn,
+                """
+                SELECT COUNT(*) AS count FROM integration_outbox
+                WHERE status='Processing'
+                  AND locked_at IS NOT NULL
+                  AND datetime(locked_at) < datetime('now','-15 minutes')
+                """,
+            ) or {}).get("count") or 0
+        )
+        missing = [name for name, data in summary["destinations"].items() if not data["configured"]]
+        dead_letters = status_counts.get("Dead Letter", 0)
+        activation_enabled = os.getenv("STAFF_PAYROLL_INTEGRATION_ACTIVATION_ENABLED", "false").strip().lower() == "true"
+        checks = [
+            {
+                "key": "destinations_configured",
+                "ok": not missing,
+                "detail": "All destination URL/token pairs are configured." if not missing else f"Missing: {', '.join(missing)}",
+            },
+            {
+                "key": "no_dead_letters",
+                "ok": dead_letters == 0,
+                "detail": f"{dead_letters} dead-letter event(s).",
+            },
+            {
+                "key": "no_stale_claims",
+                "ok": stale_processing == 0,
+                "detail": f"{stale_processing} processing event(s) locked for more than 15 minutes.",
+            },
+            {
+                "key": "activation_flag",
+                "ok": activation_enabled,
+                "detail": "Activation is explicitly enabled." if activation_enabled else "Activation flag remains disabled.",
+            },
+        ]
+        technical_ready = all(check["ok"] for check in checks if check["key"] != "activation_flag")
+        return {
+            "technical_ready": technical_ready,
+            "activation_enabled": activation_enabled,
+            "ready": technical_ready and activation_enabled,
+            "checks": checks,
+            "status_counts": status_counts,
+            "destinations": summary["destinations"],
+            "rollout_order": ["accounting", "operations", "pos", "inventory"],
+            "note": "The worker must remain disabled until the canary verifier passes and activation is explicitly approved.",
+        }
     finally:
         conn.close()
 
@@ -134,6 +207,8 @@ def process_integrations_now(
     limit: int = Query(default=25, ge=1, le=100),
     user: dict[str, Any] = Depends(require_roles("owner")),
 ) -> dict[str, Any]:
+    if os.getenv("STAFF_PAYROLL_INTEGRATION_ACTIVATION_ENABLED", "false").strip().lower() != "true":
+        raise HTTPException(status_code=409, detail="Integration activation is disabled. Complete Pass 3 canary verification first.")
     conn = get_conn(configured_db_path())
     try:
         ensure_integration_schema(conn)
