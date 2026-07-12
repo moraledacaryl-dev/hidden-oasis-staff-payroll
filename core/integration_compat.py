@@ -1,16 +1,49 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
+
+
+def _destination_for(event_type: str) -> str:
+    return "accounting" if event_type in {
+        "employee.sync",
+        "payroll.run.approved",
+        "payroll.run.paid",
+        "payroll.13th_month.paid",
+        "cash_advance.released",
+        "cash_advance.repaid",
+    } else "operations"
+
+
+def install_legacy_enqueue_adapter() -> None:
+    """Redirect existing producer helpers to the durable destination-aware outbox."""
+    from core import integration_accounting
+    from core.integration_outbox import enqueue_event
+
+    def compatible_enqueue_payload(
+        conn: sqlite3.Connection,
+        event_type: str,
+        external_id: str,
+        source_type: str,
+        source_id: int | None,
+        payload: dict[str, Any],
+    ) -> int:
+        return enqueue_event(
+            conn,
+            destination=_destination_for(event_type),
+            event_type=event_type,
+            external_source=integration_accounting.EXTERNAL_SOURCE,
+            external_id=external_id,
+            source_type=source_type,
+            source_id=source_id,
+            payload=payload,
+        )
+
+    integration_accounting.enqueue_payload = compatible_enqueue_payload
 
 
 def ensure_legacy_integration_writer_compatibility(conn: sqlite3.Connection) -> None:
-    """Keep older enqueue helpers working while all producers migrate to the durable outbox API.
-
-    Older code inserts rows without destination and uses Ready/Sent/Error states. The
-    compatibility rebuild gives destination a safe default and normalizes new legacy
-    inserts through a trigger. This can be removed after every producer uses
-    core.integration_outbox.enqueue_event directly.
-    """
+    """Keep older database writes readable while producers migrate to the durable API."""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='integration_outbox'"
     ).fetchone()
