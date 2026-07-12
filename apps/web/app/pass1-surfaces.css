@@ -1,0 +1,231 @@
+/* Pass 1 canonical surface behavior */
+
+/* Schedule controls: flatter, tighter, closer to the prototype card-head pattern. */
+[class*="controlsCard"]{
+  padding:18px 20px!important;
+  border-radius:14px!important;
+  box-shadow:0 1px 2px rgba(18,34,27,.04)!important;
+}
+[class*="controlsHead"]{
+  align-items:center!important;
+  gap:18px!important;
+}
+[class*="controlsHead"] h2{
+  font-size:15px!important;
+}
+[class*="controlsHead"] p{
+  max-width:650px!important;
+  font-size:11px!important;
+}
+[class*="weekNav"]{
+  flex-wrap:nowrap!important;
+}
+[class*="weekNav"]>.button,
+[class*="weekNav"]>a{
+  min-height:36px!important;
+  padding:7px 11px!important;
+  white-space:nowrap!important;
+  font-size:11px!important;
+}
+[class*="publishInline"]{
+  min-width:max-content!important;
+}
+[class*="publishInline"] .button,
+[class*="publishInline"] button{
+  min-height:36px!important;
+  padding:7px 11px!important;
+  white-space:nowrap!important;
+  font-size:11px!important;
+}
+[class*="legend"]{
+  margin-top:12px!important;
+  padding-top:12px!important;
+  border-top:1px solid var(--line)!important;
+}
+[class*="legend"] span{
+  min-height:24px!important;
+  padding:0 8px!important;
+  background:#fff!important;
+  font-size:9px!important;
+}
+[class*="dragHelp"]{
+  margin-top:8px!important;
+  padding:7px 9px!important;
+  border-style:dashed!important;
+  background:#fbfcfb!important;
+}
+[class*="filterDisclosure"]{
+  margin-top:8px!important;
+  padding-top:8px!important;
+}
+[class*="filterDisclosure"] summary{
+  width:max-content;
+  list-style:none;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:30px;
+  padding:5px 8px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#fff;
+  color:var(--ink)!important;
+  font-size:10px!important;
+}
+[class*="filterDisclosure"] summary::-webkit-details-marker{display:none}
+[class*="filterDisclosure"] summary::before{content:"⌄";color:var(--muted)}
+[class*="filterDisclosure"][open] summary::before{content:"⌃"}
+
+/* Prototype drawer shell for the employee-day editor. */
+.modal-backdrop:has(.schedule-modal){
+  position:fixed;
+  inset:0;
+  z-index:100;
+  display:grid;
+  justify-items:end;
+  align-items:stretch;
+  padding:0;
+  background:rgba(7,28,20,.42);
+  backdrop-filter:blur(2px);
+}
+.schedule-modal{
+  width:min(620px,100vw)!important;
+  max-width:none!important;
+  height:100dvh!important;
+  max-height:100dvh!important;
+  margin:0!important;
+  padding:0!important;
+  display:grid!important;
+  grid-template-rows:auto minmax(0,1fr)!important;
+  overflow:hidden!important;
+  border:0!important;
+  border-left:1px solid var(--line)!important;
+  border-radius:0!important;
+  background:var(--bg)!important;
+  box-shadow:-24px 0 70px rgba(7,28,20,.2)!important;
+  animation:pass1DrawerIn .2s ease both;
+}
+@keyframes pass1DrawerIn{from{transform:translateX(28px);opacity:.85}to{transform:translateX(0);opacity:1}}
+.schedule-modal>.panel-title{
+  position:sticky;
+  top:0;
+  z-index:5;
+  margin:0!important;
+  padding:20px 22px 17px!important;
+  align-items:flex-start!important;
+  border-bottom:1px solid var(--line);
+  background:#fff;
+}
+.schedule-modal>.panel-title h2{
+  margin:4px 0 0;
+  font-size:20px;
+  letter-spacing:-.025em;
+}
+.schedule-modal>.panel-title p{
+  margin-top:5px;
+  font-size:11px;
+  line-height:1.45;
+}
+.schedule-modal>.panel-title>.button{
+  width:34px;
+  min-width:34px;
+  min-height:34px;
+  padding:0;
+  border-radius:9px;
+  font-size:0;
+}
+.schedule-modal>.panel-title>.button::before{
+  content:"×";
+  font-size:20px;
+  line-height:1;
+}
+.schedule-modal>.tabs,
+.schedule-modal>.modal-form,
+.schedule-modal>.footer-note{
+  margin-left:22px;
+  margin-right:22px;
+}
+.schedule-modal>.tabs{
+  margin-top:16px;
+  margin-bottom:0;
+  position:relative;
+  z-index:2;
+}
+.schedule-modal>.modal-form{
+  align-content:start;
+  overflow:auto;
+  margin-top:14px;
+  margin-bottom:0;
+  padding:16px 0 96px;
+}
+.schedule-modal>.modal-form>label{
+  padding:0;
+}
+.schedule-modal>.modal-form::before{
+  content:"Employee day details";
+  grid-column:1/-1;
+  display:block;
+  margin-bottom:2px;
+  color:var(--muted);
+  font-size:10px;
+  font-weight:850;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.schedule-modal>.modal-form>.primary-button,
+.schedule-modal>.modal-form>.button,
+.schedule-modal>.modal-form>.action-row{
+  position:sticky;
+  bottom:0;
+  z-index:4;
+}
+.schedule-modal>.modal-form>.primary-button{
+  grid-column:2;
+  justify-self:end;
+}
+.schedule-modal>.modal-form>.button{
+  grid-column:1;
+  justify-self:start;
+}
+.schedule-modal>.footer-note{
+  position:absolute;
+  left:22px;
+  right:22px;
+  bottom:72px;
+  z-index:6;
+}
+
+/* Compact confirmation modal for drag move/copy. */
+.modal-backdrop .compact-modal{
+  width:min(520px,calc(100vw - 28px));
+  max-height:min(84dvh,720px);
+  border-radius:16px;
+  overflow:auto;
+}
+
+@media(max-width:1180px){
+  [class*="controlsHead"]{align-items:flex-start!important}
+  [class*="weekNav"]{flex-wrap:wrap!important}
+}
+
+@media(max-width:620px){
+  [class*="controlsCard"]{padding:15px!important}
+  [class*="weekNav"]{display:grid!important;grid-template-columns:1fr 1fr!important;width:100%}
+  [class*="weekNav"]>*{width:100%!important}
+  .modal-backdrop:has(.schedule-modal){align-items:end}
+  .schedule-modal{
+    width:100vw!important;
+    height:100dvh!important;
+    border-left:0!important;
+  }
+  .schedule-modal>.panel-title{padding:16px 16px 14px!important}
+  .schedule-modal>.tabs,.schedule-modal>.modal-form,.schedule-modal>.footer-note{margin-left:14px;margin-right:14px}
+  .schedule-modal>.modal-form{grid-template-columns:1fr!important;padding-bottom:120px}
+  .schedule-modal>.modal-form>.primary-button,.schedule-modal>.modal-form>.button{grid-column:1;width:100%;justify-self:stretch}
+  .modal-backdrop .compact-modal{
+    align-self:end;
+    width:100vw;
+    max-height:92dvh;
+    border-radius:18px 18px 0 0;
+  }
+}
