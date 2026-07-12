@@ -17,6 +17,8 @@
   --warning-soft:#fff5df;
   --ok:#276749;
   --ok-soft:#e8f4ec;
+  --info:#315f87;
+  --info-soft:#eaf2f8;
   --shadow-xs:0 1px 2px rgba(18,34,27,.04);
   --shadow-sm:0 6px 18px rgba(18,34,27,.055);
   --shadow-md:0 14px 36px rgba(18,34,27,.09);
@@ -33,7 +35,6 @@ body{background:var(--bg);color:var(--ink)}
 .page-header p,.page > header p{line-height:1.5}
 .eyebrow{font-size:.68rem;letter-spacing:.11em}
 .card{padding:18px;border-color:var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-xs)}
-.card:hover{box-shadow:var(--shadow-sm)}
 .metric-value{letter-spacing:-.04em}
 .panel-title{margin-bottom:14px}
 .table-wrap{border-radius:10px;border-color:var(--line);box-shadow:var(--shadow-xs)}
@@ -41,6 +42,8 @@ th{background:#f4f7f5;font-size:.67rem;letter-spacing:.06em}
 th,td{padding:11px 13px}
 tbody tr:hover{background:#f8fbf9}
 .badge{padding:5px 9px;font-size:.72rem}
+.badge.neutral{background:var(--surface-soft);border-color:var(--line);color:var(--muted)}
+.badge.info{background:var(--info-soft);border-color:#c2d8e8;color:var(--info)}
 input,select,textarea{min-height:42px;border-radius:8px;border-color:var(--line-strong);background:#fff}
 input:hover,select:hover,textarea:hover{border-color:#aebdb5}
 .primary-button,.button,.primary-link{min-height:42px;padding:9px 13px;border-radius:9px;box-shadow:0 1px 2px rgba(18,34,27,.05);transition:background .15s ease,border-color .15s ease,color .15s ease,transform .15s ease}
