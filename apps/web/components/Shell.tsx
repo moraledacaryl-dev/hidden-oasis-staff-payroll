@@ -31,17 +31,36 @@ function AccessRestricted({ role, allowedRoles }: { role: RoleKey; allowedRoles:
 
 function AppLinks() {
   const apps = [
-    { label: "Operations", href: process.env.NEXT_PUBLIC_OPERATIONS_APP_URL },
-    { label: "POS", href: process.env.NEXT_PUBLIC_POS_APP_URL },
-    { label: "Accounting", href: process.env.NEXT_PUBLIC_ACCOUNTING_APP_URL },
-  ];
+    process.env.NEXT_PUBLIC_OPERATIONS_APP_URL
+      ? { label: "Operations", href: process.env.NEXT_PUBLIC_OPERATIONS_APP_URL }
+      : null,
+    {
+      label: "Accounting",
+      href: process.env.NEXT_PUBLIC_ACCOUNTING_APP_URL || "https://hiddenoasis.app",
+    },
+    {
+      label: "POS",
+      href: process.env.NEXT_PUBLIC_POS_APP_URL || "https://pos.hiddenoasis.app",
+    },
+    {
+      label: "Inventory",
+      href: process.env.NEXT_PUBLIC_INVENTORY_APP_URL || "https://inventory.hiddenoasis.app",
+    },
+  ].filter((app): app is { label: string; href: string } => Boolean(app?.href));
 
   return (
     <div className={styles.appLinks} aria-label="Hidden Oasis applications">
-      {apps.map((app) => app.href ? (
-        <a className={styles.appPill} href={app.href} key={app.label} rel="noreferrer">{app.label}</a>
-      ) : (
-        <span className={styles.appPill} key={app.label}>{app.label}</span>
+      {apps.map((app) => (
+        <a
+          aria-label={`Open ${app.label}`}
+          className={styles.appPill}
+          href={app.href}
+          key={app.label}
+          rel="noreferrer"
+          title={`Open ${app.label}`}
+        >
+          {app.label}
+        </a>
       ))}
     </div>
   );
