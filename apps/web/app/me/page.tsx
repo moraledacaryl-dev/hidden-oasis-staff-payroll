@@ -50,50 +50,58 @@ export default async function MyPortalPage() {
     return <Shell allowedRoles={["staff"]}><div /></Shell>;
   }
   const payroll = await loadMyPayroll();
+  const latest = payroll.items[0];
 
   return (
     <Shell allowedRoles={["staff"]}>
-      <div className="page">
-        <header className="page-header">
-          <div className="grid">
-            <span className="eyebrow">My Portal</span>
+      <div className="page staff-portal">
+        <header className="staff-hero">
+          <div>
+            <span className="eyebrow">My workspace</span>
             <h1>Hi, {session.display_name}.</h1>
-            <p className="muted">{payroll.ok && payroll.employee ? payroll.employee.department : "Staff self-service"}</p>
+            <p className="muted">View your published schedule, requests, attendance, leave, payslips, and account settings in one place.</p>
           </div>
-          <StatusBadge label="staff" tone="warning" />
+          <div className="staff-actions">
+            <Link className="button ghost" href="/settings/password">Account</Link>
+            <StatusBadge label={payroll.ok ? "employee linked" : "link required"} tone={payroll.ok ? "ok" : "warning"} />
+          </div>
         </header>
 
-        <section className="grid cols-3">
-          <div className="card"><strong>Linked employee</strong><p className="muted">{payroll.employee?.name || payroll.message || "Not linked"}</p></div>
-          <div className="card"><strong>Payslips</strong><p className="muted">{payroll.items.length} visible</p></div>
-          <div className="card"><strong>Password</strong><p><Link className="primary-link" href="/settings/password">Change password</Link></p></div>
+        <section className="staff-summary">
+          <div className="staff-summary-card"><span>Employee</span><strong>{payroll.employee?.name || "Not linked"}</strong><small>{payroll.employee?.department || payroll.message || "Contact an administrator"}</small></div>
+          <div className="staff-summary-card"><span>Visible payslips</span><strong>{payroll.items.length}</strong><small>Approved or paid payroll only</small></div>
+          <div className="staff-summary-card"><span>Latest net pay</span><strong>{latest ? peso(latest.net_pay) : "—"}</strong><small>{latest ? `${latest.period_start} to ${latest.period_end}` : "No payroll yet"}</small></div>
+          <div className="staff-summary-card"><span>Latest hours</span><strong>{latest ? `${numberText(latest.regular_hours)}h` : "—"}</strong><small>{latest && hasHours(latest.approved_ot_hours) ? `${numberText(latest.approved_ot_hours)} OT hours` : "Regular hours"}</small></div>
         </section>
+
+        <nav className="staff-quick-grid" aria-label="Staff portal sections">
+          <a className="staff-quick-link" href="#my-schedule"><strong>My schedule</strong><span>Published shifts and change requests</span></a>
+          <a className="staff-quick-link" href="#my-leave"><strong>Leave</strong><span>Balances, requests, and history</span></a>
+          <a className="staff-quick-link" href="#my-attendance"><strong>Attendance</strong><span>Recorded time and decisions</span></a>
+          <a className="staff-quick-link" href="#my-payslips"><strong>Payslips</strong><span>Approved and paid payroll</span></a>
+        </nav>
 
         <StaffSelfServicePanel />
 
-        <section className="card">
-          <div className="panel-title"><div><h2>My payslips</h2><p className="muted">Approved and paid payroll.</p></div></div>
+        <section className="staff-payslip-panel" id="my-payslips">
+          <header><div><h2>My payslips</h2><p>Only approved or paid payroll is available here.</p></div><StatusBadge label={`${payroll.items.length} visible`} tone="ok" /></header>
           <div className="table-wrap">
-            <table>
+            <table className="staff-payslip-table">
               <thead><tr><th>Period</th><th>Payout</th><th>Status</th><th>Hours</th><th>Gross</th><th>Deductions</th><th>Net</th><th>Action</th></tr></thead>
               <tbody>
                 {payroll.items.map((item) => (
                   <tr key={item.id}>
-                    <td>{item.period_start} to {item.period_end}</td>
+                    <td><strong>{item.period_start} to {item.period_end}</strong><br /><span className="muted">{item.run_label || "Regular payroll"}</span></td>
                     <td>{item.payout_date}</td>
-                    <td>{item.status}</td>
-                    <td>
-                      <strong>{numberText(item.regular_hours)} regular hrs</strong>
-                      {hasHours(item.approved_ot_hours) ? <><br /><span className="muted">{numberText(item.approved_ot_hours)} OT hrs</span></> : null}
-                      {hasHours(item.night_diff_hours) ? <><br /><span className="muted">{numberText(item.night_diff_hours)} ND hrs</span></> : null}
-                    </td>
+                    <td><StatusBadge label={item.status} tone="ok" /></td>
+                    <td><strong>{numberText(item.regular_hours)} regular hrs</strong>{hasHours(item.approved_ot_hours) ? <><br /><span className="muted">{numberText(item.approved_ot_hours)} OT hrs</span></> : null}{hasHours(item.night_diff_hours) ? <><br /><span className="muted">{numberText(item.night_diff_hours)} ND hrs</span></> : null}</td>
                     <td>{peso(item.gross_pay)}</td>
                     <td>{peso(item.total_deductions)}</td>
                     <td><strong>{peso(item.net_pay)}</strong></td>
-                    <td><Link className="primary-link" href={`/me/payslips/${item.id}`}>View / Download</Link></td>
+                    <td><Link className="button small" href={`/me/payslips/${item.id}`}>View payslip</Link></td>
                   </tr>
                 ))}
-                {!payroll.items.length ? <tr><td colSpan={8}>{payroll.message || "No payslips yet."}</td></tr> : null}
+                {!payroll.items.length ? <tr><td colSpan={8} className="staff-empty">{payroll.message || "No payslips yet."}</td></tr> : null}
               </tbody>
             </table>
           </div>
