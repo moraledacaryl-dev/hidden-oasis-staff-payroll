@@ -84,6 +84,7 @@ export function SidebarNav({ role }: { role: RoleKey }) {
                 return (
                   <Link
                     aria-current={active ? "page" : undefined}
+                    aria-label={item.label}
                     className={`${styles.link} ${active ? styles.active : ""}`}
                     href={item.href}
                     key={item.href}
