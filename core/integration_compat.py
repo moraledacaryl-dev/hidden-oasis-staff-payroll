@@ -140,3 +140,6 @@ def ensure_legacy_integration_writer_compatibility(conn: sqlite3.Connection) -> 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_outbox_delivery ON integration_outbox(status,next_attempt_at,destination,id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_outbox_source ON integration_outbox(source_type,source_id,event_type)")
     conn.commit()
+
+
+install_legacy_enqueue_adapter()
