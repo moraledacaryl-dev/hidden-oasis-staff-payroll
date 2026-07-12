@@ -57,6 +57,7 @@ from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
 from api.users import router as users_router
 from core.db import get_conn, init_db
+from core.integration_compat import ensure_legacy_integration_writer_compatibility
 from core.integration_outbox import ensure_integration_schema
 from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 from core.quality import build_payroll_preflight_checks, summarize_checks
@@ -73,6 +74,7 @@ def initialize_runtime() -> None:
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
         ensure_integration_schema(conn)
+        ensure_legacy_integration_writer_compatibility(conn)
         conn.commit()
     finally:
         conn.close()
