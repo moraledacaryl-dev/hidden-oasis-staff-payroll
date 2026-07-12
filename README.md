@@ -83,6 +83,26 @@ Privileged accounts must set up an authenticator after sign-in. Password resets 
 
 Owners can use **View as** in User Management for an active General Manager or a staff account linked to an active employee. The temporary session lasts 30 minutes, keeps the Owner session available for return, and records Owner-attributed audit events for actions performed as the selected user. It does not expose or change the selected user's password.
 
+## Automatic integrations
+
+The Staff app uses a durable SQLite outbox. Employee and financial events are queued in the same transaction as their source business change, then delivered asynchronously with idempotency, retries, dead-letter handling, destination-specific credentials, and an Owner-controlled status API.
+
+Run one worker locally:
+
+```bash
+STAFF_PAYROLL_SYNC_INTERVAL_SECONDS=10 \
+STAFF_PAYROLL_SYNC_BATCH_SIZE=25 \
+.venv-api/bin/python scripts/run_integration_worker.py
+```
+
+The production systemd template is:
+
+```text
+deployment/hiddenoasis-staff-integration-worker.service
+```
+
+Configure destination URL/token pairs from `.env.example` before enabling a destination. Blank or unavailable destinations do not block Staff actions; their events remain queued for retry. See `docs/STAFF_INTEGRATION_OUTBOX.md` for the contract, privacy boundary, endpoints, and deployment procedure.
+
 ## Backups
 
 Create a backup from the owner Backups page or from the command line:
@@ -118,17 +138,4 @@ git pull --ff-only origin main
 cd apps/web
 npm ci
 npm run build
-systemctl restart hidden-oasis-payroll-api
-systemctl restart hidden-oasis-payroll-web
-systemctl reload nginx
 ```
-
-The production API entrypoint is `api.server:app`. Before restarting, confirm the systemd unit uses that entrypoint and loads a dedicated `STAFF_PAYROLL_SESSION_SECRET`; `api.server_review:app` is obsolete. Runtime databases, backups, uploads, environment files, and generated builds are ignored by Git.
-
-## Payroll Safety
-
-- `scheduled_shifts` is the editable schedule source; old schedules remain a read-only migration fallback.
-- Paid payroll runs are locked.
-- Later changes use controlled revisions or payroll corrections.
-- Schedule changes are audited and do not silently rewrite saved payroll.
-- Government contribution and tax configuration must be checked against current official tables before live payroll.
