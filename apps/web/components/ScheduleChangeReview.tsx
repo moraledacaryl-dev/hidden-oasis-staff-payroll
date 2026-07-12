@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, Printer, Repeat2 } from "lucide-react";
 import { AppDrawer, SurfaceContext, SurfaceSection } from "@/components/AppSurface";
@@ -61,17 +61,18 @@ export function ScheduleChangeReview() {
   const [employeeNotified, setEmployeeNotified] = useState(false);
   const [applyChange, setApplyChange] = useState(true);
 
-  async function load() {
+  const load = useCallback(async (selectedId?: number) => {
     try {
       const data = await post({ operation: "review_requests" });
-      setItems(data.items || []);
-      if (selected) setSelected((data.items || []).find((item: Item) => item.id === selected.id) || null);
+      const nextItems: Item[] = data.items || [];
+      setItems(nextItems);
+      if (selectedId) setSelected(nextItems.find((item) => item.id === selectedId) || null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load requests.");
     }
-  }
+  }, []);
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [load]);
 
   const counts = useMemo(() => ({
     open: items.filter((item) => ["Pending", "Emergency Review"].includes(item.status)).length,
@@ -90,19 +91,20 @@ export function ScheduleChangeReview() {
 
   async function decide(decision: "Approved" | "Rejected") {
     if (!selected) return;
-    setBusy(selected.id);
+    const selectedId = selected.id;
+    setBusy(selectedId);
     setError("");
     try {
       await post({
         operation: "decide_request",
-        request_id: selected.id,
+        request_id: selectedId,
         decision,
         decision_note: decisionNote,
         employee_notified: employeeNotified,
         coverage_confirmed: coverageConfirmed,
         apply_change: applyChange,
       });
-      await load();
+      await load(selectedId);
       setSelected(null);
       router.refresh();
     } catch (reason) {
