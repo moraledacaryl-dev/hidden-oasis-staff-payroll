@@ -17,9 +17,8 @@ async function healthCheck() {
 export default async function LaunchCenterPage() {
   const session = await currentSession();
   if (!session) redirect("/login");
-  if (session.role_key !== "owner") {
-    return <Shell allowedRoles={["owner"]}><div /></Shell>;
-  }
+  if (session.role_key !== "owner") return <Shell allowedRoles={["owner"]}><div /></Shell>;
+
   const health = await healthCheck();
   const runs = health.ok ? await getPayrollRuns().catch(() => []) : [];
   const latestRun = runs[0];
@@ -31,37 +30,27 @@ export default async function LaunchCenterPage() {
     { title: "Encryption", ok: Boolean(health.health?.backup_encryption_configured), detail: health.health?.backup_encryption_configured ? "Configured" : "Not configured" },
     { title: "Off-server copy", ok: Boolean(health.health?.offsite_backup_configured), detail: health.health?.offsite_backup_configured ? "Configured" : "Not configured" },
   ];
+  const passed = checks.filter((check) => check.ok).length;
+  const ready = health.ok && passed === checks.length;
 
   return (
     <Shell allowedRoles={["owner"]}>
-      <div className="page">
-        <header className="page-header">
-          <div className="grid">
-            <span className="eyebrow">Launch</span>
-            <h1>System health</h1>
-          </div>
-          <StatusBadge label={health.ok ? "API online" : "API issue"} tone={health.ok ? "ok" : "danger"} />
+      <div className="page system-page">
+        <header className="page-header system-hero">
+          <div><span className="eyebrow">Readiness</span><h1>Launch and production readiness</h1><p className="muted">Use live system checks only. Resolve missing configuration or backup coverage before treating the application as fully production-ready.</p></div>
+          <div className="action-row"><StatusBadge label={ready ? "ready" : "needs attention"} tone={ready ? "ok" : "warning"} /><Link className="button ghost" href="/controls/production-health">Full health details</Link></div>
         </header>
 
-        <section className="grid cols-3">
-          <div className="card metric"><span className="eyebrow">API</span><strong className="metric-value">{health.ok ? "OK" : "Check"}</strong></div>
-          <div className="card metric"><span className="eyebrow">Runs</span><strong className="metric-value">{runs.length}</strong></div>
-          <div className="card metric"><span className="eyebrow">Checks</span><strong className="metric-value">{checks.filter((check) => check.ok).length}/{checks.length}</strong></div>
+        <section className="system-health-grid">
+          <div className="system-health-card"><span>API</span><strong>{health.ok ? "Online" : "Issue"}</strong><small>Current backend response</small></div>
+          <div className="system-health-card"><span>Checks passed</span><strong>{passed}/{checks.length}</strong><small>Readiness requirements</small></div>
+          <div className="system-health-card"><span>Backups</span><strong>{health.health?.backup_count || 0}</strong><small>Server-visible copies</small></div>
+          <div className="system-health-card"><span>Payroll runs</span><strong>{runs.length}</strong><small>Saved workflow history</small></div>
         </section>
 
-        <section className="card">
-          <div className="panel-title"><h2>Checks</h2></div>
-          <div className="action-list">
-            {checks.map((check) => (
-              <div className="action-item" key={check.title}>
-                <div className="panel-title"><strong>{check.title}</strong><StatusBadge label={check.ok ? "OK" : "Needed"} tone={check.ok ? "ok" : "warning"} /></div>
-                <p className="muted">{check.detail}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        <section className="system-panel"><header><div><h2>Production checklist</h2><p>Each line is derived from the live health endpoint.</p></div><StatusBadge label={ready ? "all clear" : `${checks.length - passed} remaining`} tone={ready ? "ok" : "warning"} /></header><div className="system-panel-body system-check-list">{checks.map((check) => <div className="system-check-row" key={check.title}><strong>{check.title}</strong><p>{check.detail}</p><StatusBadge label={check.ok ? "OK" : "Needed"} tone={check.ok ? "ok" : "warning"} /></div>)}</div></section>
 
-        <section className="card"><h2>Payroll</h2><div className="action-list"><Link className="action-item" href="/payroll/runs">Run history</Link><Link className="action-item" href="/cutoff">Cutoff</Link>{latestRun ? <Link className="action-item" href={`/payroll/runs/${latestRun.id}/reports`}>Latest report</Link> : null}{latestRun ? <Link className="action-item" href={`/payroll/runs/${latestRun.id}/payslips`}>Latest payslips</Link> : null}</div></section>
+        <section className="system-panel"><header><div><h2>Operational verification</h2><p>Open the canonical workspaces rather than duplicating controls here.</p></div></header><div className="system-panel-body system-catalog"><Link className="system-link-card" href="/backup"><strong>Backups</strong><span>Create, verify, and download recovery files.</span></Link><Link className="system-link-card" href="/settings"><strong>Settings</strong><span>Review backend and database status.</span></Link><Link className="system-link-card" href="/payroll/runs"><strong>Payroll runs</strong><span>Review lifecycle and immutable paid history.</span></Link>{latestRun ? <Link className="system-link-card" href={`/payroll/runs/${latestRun.id}/audit`}><strong>Latest audit</strong><span>Inspect the newest run timeline.</span></Link> : null}</div></section>
       </div>
     </Shell>
   );
