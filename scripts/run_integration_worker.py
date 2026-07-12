@@ -28,6 +28,10 @@ def _positive_int(name: str, default: int, minimum: int = 1) -> int:
         return default
 
 
+def _activation_enabled() -> bool:
+    return os.getenv("STAFF_PAYROLL_INTEGRATION_ACTIVATION_ENABLED", "false").strip().lower() == "true"
+
+
 def main() -> int:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
@@ -43,27 +47,46 @@ def main() -> int:
                 "worker_id": worker_id,
                 "interval_seconds": interval_seconds,
                 "batch_size": batch_size,
+                "activation_enabled": _activation_enabled(),
                 "started_at": datetime.now().astimezone().isoformat(),
             }
         ),
         flush=True,
     )
 
+    last_activation_state: bool | None = None
     while not _STOP:
-        conn = get_conn(configured_db_path())
-        try:
-            ensure_integration_schema(conn)
-            result = process_due_events(conn, limit=batch_size, worker_id=worker_id)
-        except Exception as exc:  # keep the service alive; the next cycle retries safely
-            result = {
-                "claimed": 0,
-                "completed": 0,
-                "failed": 1,
-                "dead_letter": 0,
-                "worker_error": str(exc),
-            }
-        finally:
-            conn.close()
+        enabled = _activation_enabled()
+        if enabled != last_activation_state:
+            print(
+                json.dumps(
+                    {
+                        "event": "integration_activation_state",
+                        "worker_id": worker_id,
+                        "enabled": enabled,
+                        "at": datetime.now().astimezone().isoformat(),
+                    }
+                ),
+                flush=True,
+            )
+            last_activation_state = enabled
+
+        result = {"claimed": 0, "completed": 0, "failed": 0, "dead_letter": 0}
+        if enabled:
+            conn = get_conn(configured_db_path())
+            try:
+                ensure_integration_schema(conn)
+                result = process_due_events(conn, limit=batch_size, worker_id=worker_id)
+            except Exception as exc:  # keep the service alive; the next cycle retries safely
+                result = {
+                    "claimed": 0,
+                    "completed": 0,
+                    "failed": 1,
+                    "dead_letter": 0,
+                    "worker_error": str(exc),
+                }
+            finally:
+                conn.close()
 
         if result.get("claimed") or result.get("worker_error"):
             print(json.dumps(result, ensure_ascii=False, default=str), flush=True)
