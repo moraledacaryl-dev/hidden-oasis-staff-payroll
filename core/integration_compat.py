@@ -16,9 +16,67 @@ def _destination_for(event_type: str) -> str:
 
 
 def install_legacy_enqueue_adapter() -> None:
-    """Redirect existing producer helpers to the durable destination-aware outbox."""
-    from core import integration_accounting
-    from core.integration_outbox import enqueue_event
+    """Bridge legacy producers/readers onto the durable destination-aware outbox.
+
+    Legacy payroll helpers still expect Ready/Sent rows and a sent_at column.
+    The durable worker uses Pending/Retry/Completed. This adapter preserves both
+    contracts without allowing duplicate delivery or mutating Completed events.
+    """
+    from core import integration_accounting, integration_outbox
+
+    original_ensure_schema = integration_outbox.ensure_integration_schema
+    original_claim_events = integration_outbox.claim_events
+
+    def compatible_ensure_schema(conn: sqlite3.Connection) -> None:
+        original_ensure_schema(conn)
+        columns = {
+            item[1]
+            for item in conn.execute("PRAGMA table_info(integration_outbox)").fetchall()
+        }
+        if "sent_at" not in columns:
+            conn.execute("ALTER TABLE integration_outbox ADD COLUMN sent_at TEXT")
+        conn.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_integration_outbox_completed_sent_at
+            AFTER UPDATE OF status ON integration_outbox
+            WHEN NEW.status='Completed' AND NEW.sent_at IS NULL
+            BEGIN
+                UPDATE integration_outbox
+                SET sent_at=COALESCE(NEW.completed_at, NEW.updated_at)
+                WHERE id=NEW.id;
+            END
+            """
+        )
+        conn.commit()
+
+    def compatible_claim_events(
+        conn: sqlite3.Connection,
+        *,
+        limit: int = 25,
+        worker_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        compatible_ensure_schema(conn)
+        # Rows created by still-supported legacy producers remain claimable by
+        # the durable worker. Conversion happens immediately before claiming.
+        conn.execute(
+            """
+            UPDATE integration_outbox
+            SET status='Pending', updated_at=COALESCE(updated_at, CURRENT_TIMESTAMP)
+            WHERE status='Ready'
+            """
+        )
+        conn.execute(
+            """
+            UPDATE integration_outbox
+            SET status='Retry', updated_at=COALESCE(updated_at, CURRENT_TIMESTAMP)
+            WHERE status='Error'
+            """
+        )
+        conn.commit()
+        return original_claim_events(conn, limit=limit, worker_id=worker_id)
+
+    integration_outbox.ensure_integration_schema = compatible_ensure_schema
+    integration_outbox.claim_events = compatible_claim_events
 
     def compatible_enqueue_payload(
         conn: sqlite3.Connection,
@@ -28,7 +86,7 @@ def install_legacy_enqueue_adapter() -> None:
         source_id: int | None,
         payload: dict[str, Any],
     ) -> int:
-        return enqueue_event(
+        event_id = integration_outbox.enqueue_event(
             conn,
             destination=_destination_for(event_type),
             event_type=event_type,
@@ -38,12 +96,24 @@ def install_legacy_enqueue_adapter() -> None:
             source_id=source_id,
             payload=payload,
         )
+        # Preserve legacy manual-delivery behavior while keeping Completed rows
+        # immutable. The durable worker converts Ready to Pending when claiming.
+        conn.execute(
+            """
+            UPDATE integration_outbox
+            SET status='Ready', updated_at=CURRENT_TIMESTAMP
+            WHERE id=? AND status NOT IN ('Completed','Sent')
+            """,
+            (event_id,),
+        )
+        conn.commit()
+        return event_id
 
     integration_accounting.enqueue_payload = compatible_enqueue_payload
 
 
 def ensure_legacy_integration_writer_compatibility(conn: sqlite3.Connection) -> None:
-    """Keep older database writes readable while producers migrate to the durable API."""
+    """Keep older database writes readable while producers migrate."""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='integration_outbox'"
     ).fetchone()
@@ -80,7 +150,10 @@ def ensure_legacy_integration_writer_compatibility(conn: sqlite3.Connection) -> 
             """
         )
         durable_columns = {
-            item[1] for item in conn.execute("PRAGMA table_info(integration_outbox_durable)").fetchall()
+            item[1]
+            for item in conn.execute(
+                "PRAGMA table_info(integration_outbox_durable)"
+            ).fetchall()
         }
         target_columns = [
             "id", "destination", "event_type", "external_source", "external_id",
@@ -110,6 +183,13 @@ def ensure_legacy_integration_writer_compatibility(conn: sqlite3.Connection) -> 
             f"SELECT {','.join(select_parts)} FROM integration_outbox_durable"
         )
         conn.execute("DROP TABLE integration_outbox_durable")
+    else:
+        columns = {
+            item[1]
+            for item in conn.execute("PRAGMA table_info(integration_outbox)").fetchall()
+        }
+        if "sent_at" not in columns:
+            conn.execute("ALTER TABLE integration_outbox ADD COLUMN sent_at TEXT")
 
     conn.execute("DROP TRIGGER IF EXISTS trg_integration_outbox_legacy_insert")
     conn.execute(
@@ -132,13 +212,40 @@ def ensure_legacy_integration_writer_compatibility(conn: sqlite3.Connection) -> 
                     WHEN 'Error' THEN 'Retry'
                     ELSE NEW.status
                 END,
-                completed_at = CASE WHEN NEW.status='Sent' THEN COALESCE(NEW.sent_at, NEW.updated_at) ELSE NEW.completed_at END
+                completed_at = CASE
+                    WHEN NEW.status='Sent'
+                    THEN COALESCE(NEW.sent_at, NEW.updated_at)
+                    ELSE NEW.completed_at
+                END,
+                sent_at = CASE
+                    WHEN NEW.status='Sent'
+                    THEN COALESCE(NEW.sent_at, NEW.updated_at)
+                    ELSE NEW.sent_at
+                END
             WHERE id=NEW.id;
         END
         """
     )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_outbox_delivery ON integration_outbox(status,next_attempt_at,destination,id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_outbox_source ON integration_outbox(source_type,source_id,event_type)")
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_integration_outbox_completed_sent_at
+        AFTER UPDATE OF status ON integration_outbox
+        WHEN NEW.status='Completed' AND NEW.sent_at IS NULL
+        BEGIN
+            UPDATE integration_outbox
+            SET sent_at=COALESCE(NEW.completed_at, NEW.updated_at)
+            WHERE id=NEW.id;
+        END
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_integration_outbox_delivery "
+        "ON integration_outbox(status,next_attempt_at,destination,id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_integration_outbox_source "
+        "ON integration_outbox(source_type,source_id,event_type)"
+    )
     conn.commit()
 
 
