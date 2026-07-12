@@ -12,6 +12,7 @@ import "./core-operations.css";
 import "./pass3-people.css";
 import "./payroll-workflow.css";
 import "./payroll-run-pass4.css";
+import "./pass5-system.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",
