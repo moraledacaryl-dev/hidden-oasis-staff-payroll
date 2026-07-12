@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.main import configured_db_path, require_api_key, require_roles, table_columns
 from core.audit import log_audit
 from core.db import fetchone, get_conn
+from core.integration_outbox import enqueue_employee_sync
 
 router = APIRouter(prefix="/api/v1/staff", dependencies=[Depends(require_api_key)])
 
@@ -127,6 +128,18 @@ def _employee_values(
     return {key: value for key, value in candidates.items() if key in columns}
 
 
+def _queue_employee_sync(conn: Any, employee_id: int, actor: str | None) -> None:
+    event_ids = enqueue_employee_sync(conn, employee_id)
+    log_audit(
+        conn,
+        actor=actor,
+        action="Employee integration events queued",
+        table_name="employees",
+        record_id=employee_id,
+        details={"integration_event_ids": event_ids},
+    )
+
+
 @router.post("/employees")
 def add_employee(
     payload: EmployeeEditorPayload,
@@ -171,9 +184,13 @@ def add_employee(
             record_id=employee_id,
             details={"employee_code": code, "role": user.get("role_key")},
         )
+        _queue_employee_sync(conn, employee_id, user.get("display_name"))
         conn.commit()
         return {"ok": True, "employee_id": employee_id, "message": f"{name} added."}
     except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
         conn.rollback()
         raise
     finally:
@@ -221,9 +238,13 @@ def edit_employee(
             record_id=employee_id,
             details={"employee_code": code, "role": user.get("role_key")},
         )
+        _queue_employee_sync(conn, employee_id, user.get("display_name"))
         conn.commit()
         return {"ok": True, "employee_id": employee_id, "message": f"{name} updated."}
     except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
         conn.rollback()
         raise
     finally:
