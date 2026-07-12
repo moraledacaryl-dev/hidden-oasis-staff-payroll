@@ -1,27 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AppDrawer, AppModal, SurfaceContext, SurfaceSection } from "@/components/AppSurface";
 import type { ScheduleEmployee, ScheduleShift } from "@/lib/schedule-types";
 
 const positions = ["Receptionist", "Cook", "Barista", "Bartender", "Security", "Housekeeper", "Other"];
-const leaveKinds = [
-  "None",
-  "SIL",
-  "Sick Leave",
-  "Vacation Leave",
-  "Emergency Leave",
-  "Bereavement Leave",
-  "Official Business",
-  "Other Approved Absence",
-  "Approved / Excused Absence",
-  "Unexcused Absence",
-  "AWOL",
-];
+const leaveKinds = ["None", "SIL", "Sick Leave", "Vacation Leave", "Emergency Leave", "Bereavement Leave", "Official Business", "Other Approved Absence", "Approved / Excused Absence", "Unexcused Absence", "AWOL"];
 const noticeTimings = ["In advance", "At least 1 hour before shift", "After shift start", "No notice"];
 const attendanceStatuses = ["Needs Review", "Approved"];
 
-type TabKey = "scheduled" | "actual" | "leave";
+type TabKey = "scheduled" | "actual" | "leave" | "rest";
 type Bundle = {
   ok: boolean;
   employee?: ScheduleEmployee | null;
@@ -34,20 +23,10 @@ type Bundle = {
   message?: string | null;
 };
 
-type Props = {
-  open: boolean;
-  day: string;
-  shift: ScheduleShift | null;
-  initialEmployeeId?: number | null;
-  initialTab?: TabKey;
-  employees: ScheduleEmployee[];
-  canEdit: boolean;
-  onClose: () => void;
-};
+type Props = { open: boolean; day: string; shift: ScheduleShift | null; initialEmployeeId?: number | null; initialTab?: "scheduled" | "actual" | "leave"; employees: ScheduleEmployee[]; canEdit: boolean; onClose: () => void };
 
-function emptyBundle(): Bundle {
-  return { ok: true, shift: null, actual: null, leave: null };
-}
+function emptyBundle(): Bundle { return { ok: true, shift: null, actual: null, leave: null }; }
+function formatDate(day: string) { return new Date(`${day}T00:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" }); }
 
 export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = null, initialTab = "scheduled", employees, canEdit, onClose }: Props) {
   const router = useRouter();
@@ -58,7 +37,7 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
   const [clearOpen, setClearOpen] = useState(false);
   const [clearReason, setClearReason] = useState("");
   const [clearConfirm, setClearConfirm] = useState("");
-
+  const formRef = useRef<HTMLFormElement | null>(null);
   const initialEmployeeIdValue = shift?.employee_id ? String(shift.employee_id) : (initialEmployeeId ? String(initialEmployeeId) : "");
   const [employeeId, setEmployeeId] = useState(initialEmployeeIdValue);
   const [shiftDate, setShiftDate] = useState(day);
@@ -76,266 +55,150 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
     params.set("shift_date", shift?.shift_date || day);
     if (shift?.id) params.set("shift_id", String(shift.id));
     else if (shift?.employee_id || initialEmployeeId) params.set("employee_id", String(shift?.employee_id || initialEmployeeId));
-    if (!shift?.id && !shift?.employee_id && !initialEmployeeId) {
-      setBundle(emptyBundle());
-      return;
-    }
+    if (!shift?.id && !shift?.employee_id && !initialEmployeeId) { setBundle(emptyBundle()); return; }
     fetch(`/api/schedule/day?${params.toString()}`)
       .then((res) => res.json())
-      .then((data) => {
-        setBundle(data);
-        if (data.leave) setTab("leave");
-      })
+      .then((data) => { setBundle(data); if (data.leave) setTab("leave"); })
       .catch(() => setMessage("Could not load employee-day details."));
   }, [day, initialEmployeeId, initialTab, open, shift]);
 
   const currentShift = bundle.shift || shift;
   const selectedEmployee = useMemo(() => employees.find((item) => String(item.id) === employeeId), [employeeId, employees]);
-  const readOnly = !canEdit;
+  const readOnly = !canEdit || Boolean(bundle.legacy_read_only);
   const lockedSnapshot = Boolean(bundle.payroll_locked);
   const hasLeave = Boolean(bundle.leave);
 
-  useEffect(() => {
-    if (hasLeave && tab !== "leave") setTab("leave");
-  }, [hasLeave, tab]);
-
-  if (!open) return null;
-
-  async function save(section: TabKey, payload: Record<string, unknown>) {
-    if (hasLeave && section !== "leave") {
-      setMessage("Clear the day first before adding a shift or actual attendance.");
-      setTab("leave");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-    const response = await fetch("/api/schedule/day", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ section, ...payload }),
-    });
+  async function save(section: "scheduled" | "actual" | "leave", payload: Record<string, unknown>) {
+    if (hasLeave && section !== "leave") { setMessage("Clear the day first before adding a shift or actual attendance."); setTab("leave"); return; }
+    setBusy(true); setMessage("");
+    const response = await fetch("/api/schedule/day", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ section, ...payload }) });
     const data = await response.json().catch(() => ({}));
     setBusy(false);
-    if (!response.ok || !data.ok) {
-      setMessage(typeof data.detail === "string" ? data.detail : data.message || "Not saved.");
-      return;
-    }
-    setBundle(data);
-    setTab(data.leave ? "leave" : section);
-    setMessage(data.message || "Saved.");
-    router.refresh();
+    if (!response.ok || !data.ok) { setMessage(typeof data.detail === "string" ? data.detail : data.message || "Not saved."); return; }
+    setBundle(data); setTab(data.leave ? "leave" : section); setMessage(data.message || "Saved."); router.refresh();
+  }
+
+  async function saveRestDay() {
+    if (!employeeId) { setMessage("Choose an employee before marking a Rest Day."); return; }
+    setBusy(true); setMessage("");
+    const response = await fetch("/api/schedule/rest-days", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ employee_id: Number(employeeId), work_date: shiftDate, active: true }) });
+    const data = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok || !data.ok) { setMessage(typeof data.detail === "string" ? data.detail : data.message || "Rest day was not saved."); return; }
+    setMessage("Rest day marked."); router.refresh(); onClose();
   }
 
   async function clearDay() {
     if (!employeeId) return;
-    const reason = clearReason.trim();
-    const confirmation = clearConfirm.trim();
-    if (reason.length < 10) {
-      setMessage("Enter a Clear Day reason with at least 10 characters.");
-      return;
-    }
-    if (confirmation !== "CLEAR DAY") {
-      setMessage("Type CLEAR DAY to confirm.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-    const response = await fetch("/api/schedule/day", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        section: "reset",
-        employee_id: Number(employeeId),
-        work_date: shiftDate,
-        clear_reason: reason,
-        confirmation,
-      }),
-    });
+    if (clearReason.trim().length < 10) { setMessage("Enter a Clear Day reason with at least 10 characters."); return; }
+    if (clearConfirm.trim() !== "CLEAR DAY") { setMessage("Type CLEAR DAY to confirm."); return; }
+    setBusy(true); setMessage("");
+    const response = await fetch("/api/schedule/day", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ section: "reset", employee_id: Number(employeeId), work_date: shiftDate, clear_reason: clearReason.trim(), confirmation: clearConfirm.trim() }) });
     const data = await response.json().catch(() => ({}));
     setBusy(false);
-    if (!response.ok || !data.ok) {
-      setMessage(typeof data.detail === "string" ? data.detail : data.message || "Day was not cleared.");
-      return;
-    }
-    setBundle(emptyBundle());
-    setClearOpen(false);
-    setClearReason("");
-    setClearConfirm("");
-    router.refresh();
-    onClose();
+    if (!response.ok || !data.ok) { setMessage(typeof data.detail === "string" ? data.detail : data.message || "Day was not cleared."); return; }
+    setBundle(emptyBundle()); setClearOpen(false); router.refresh(); onClose();
   }
 
   async function deleteShift() {
     if (!currentShift?.id) return;
-    if (!window.confirm("Delete this scheduled shift? Existing saved payroll runs will not change unless you save a revision.")) return;
-    setBusy(true);
-    const response = await fetch("/api/schedule/day", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ section: "remove", shift_id: currentShift.id }),
-    });
+    setBusy(true); setMessage("");
+    const response = await fetch("/api/schedule/day", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ section: "remove", shift_id: currentShift.id }) });
     const data = await response.json().catch(() => ({}));
     setBusy(false);
-    if (!response.ok || !data.ok) {
-      setMessage(typeof data.detail === "string" ? data.detail : data.message || "Shift was not deleted.");
-      return;
-    }
-    setMessage("Shift deleted.");
-    router.refresh();
-    onClose();
+    if (!response.ok || !data.ok) { setMessage(typeof data.detail === "string" ? data.detail : data.message || "Shift was not deleted."); return; }
+    router.refresh(); onClose();
   }
 
-  function saveScheduled(formData: FormData) {
-    void save("scheduled", {
-      shift_id: currentShift?.id || null,
-      employee_id: Number(formData.get("employee_id") || 0) || null,
-      shift_date: String(formData.get("shift_date") || shiftDate),
-      start_time: String(formData.get("start_time") || "08:00"),
-      end_time: String(formData.get("end_time") || "17:00"),
-      position: String(formData.get("position") || "Other"),
-      department: String(formData.get("department") || "") || null,
-      break_minutes: Number(formData.get("break_minutes") || 0),
-      notes: String(formData.get("notes") || "") || null,
-    });
-  }
-
-  function saveActual(formData: FormData) {
-    if (!employeeId) {
-      setMessage("Choose an employee before saving actual attendance.");
-      return;
-    }
-    void save("actual", {
-      employee_id: Number(employeeId),
-      shift_date: shiftDate,
-      actual_in: String(formData.get("actual_in") || "") || null,
-      actual_out: String(formData.get("actual_out") || "") || null,
-      attendance_status: String(formData.get("attendance_status") || "Needs Review"),
-      actual_exception_status: String(formData.get("actual_exception_status") || "") || null,
-      evidence_ref: String(formData.get("evidence_ref") || "") || null,
-      approved_ot_hours: Number(formData.get("approved_ot_hours") || 0),
-      notes: String(formData.get("notes") || "") || null,
-    });
-  }
-
-  function saveLeave(formData: FormData) {
-    if (!employeeId) {
-      setMessage("Choose an employee before saving leave or absence.");
-      return;
-    }
-    const rawHours = String(formData.get("leave_hours") || "").trim();
-    void save("leave", {
-      employee_id: Number(employeeId),
-      shift_date: shiftDate,
-      leave_kind: String(formData.get("leave_kind") || "None"),
-      leave_days: rawHours ? null : Number(formData.get("leave_days") || 1),
-      leave_hours: rawHours ? Number(rawHours) : null,
-      reason: String(formData.get("reason") || "") || null,
-      notice_given_at: String(formData.get("notice_given_at") || "") || null,
-      notice_timing: String(formData.get("notice_timing") || "") || null,
-      evidence_ref: String(formData.get("evidence_ref") || "") || null,
-    });
-  }
+  function submitActiveForm() { formRef.current?.requestSubmit(); }
+  function saveScheduled(formData: FormData) { void save("scheduled", { shift_id: currentShift?.id || null, employee_id: Number(formData.get("employee_id") || 0) || null, shift_date: String(formData.get("shift_date") || shiftDate), start_time: String(formData.get("start_time") || "08:00"), end_time: String(formData.get("end_time") || "17:00"), position: String(formData.get("position") || "Other"), department: String(formData.get("department") || "") || null, break_minutes: Number(formData.get("break_minutes") || 0), notes: String(formData.get("notes") || "") || null }); }
+  function saveActual(formData: FormData) { if (!employeeId) { setMessage("Choose an employee before saving actual attendance."); return; } void save("actual", { employee_id: Number(employeeId), shift_date: shiftDate, actual_in: String(formData.get("actual_in") || "") || null, actual_out: String(formData.get("actual_out") || "") || null, attendance_status: String(formData.get("attendance_status") || "Needs Review"), actual_exception_status: String(formData.get("actual_exception_status") || "") || null, evidence_ref: String(formData.get("evidence_ref") || "") || null, approved_ot_hours: Number(formData.get("approved_ot_hours") || 0), notes: String(formData.get("notes") || "") || null }); }
+  function saveLeave(formData: FormData) { if (!employeeId) { setMessage("Choose an employee before saving leave or absence."); return; } const rawHours = String(formData.get("leave_hours") || "").trim(); void save("leave", { employee_id: Number(employeeId), shift_date: shiftDate, leave_kind: String(formData.get("leave_kind") || "None"), leave_days: rawHours ? null : Number(formData.get("leave_days") || 1), leave_hours: rawHours ? Number(rawHours) : null, reason: String(formData.get("reason") || "") || null, notice_given_at: String(formData.get("notice_given_at") || "") || null, notice_timing: String(formData.get("notice_timing") || "") || null, evidence_ref: String(formData.get("evidence_ref") || "") || null }); }
 
   const actualAbsenceType = String(bundle.actual?.absence_type || "").toLowerCase();
-  const actualExceptionDefault = actualAbsenceType.includes("unexcused")
-    ? "Unexcused"
-    : actualAbsenceType.includes("excused")
-      ? "Excused"
-      : "";
+  const actualExceptionDefault = actualAbsenceType.includes("unexcused") ? "Unexcused" : actualAbsenceType.includes("excused") ? "Excused" : "";
+  const title = selectedEmployee?.full_name || currentShift?.employee_name || (currentShift ? "Schedule day" : "Add shift");
+  const description = currentShift ? `${formatDate(shiftDate)} · Edit the planned day and actual attendance without changing saved payroll snapshots.` : "Choose a person and date, then define the planned day state.";
+
+  const footer = (
+    <>
+      <div className="app-surface-footer-left">
+        {canEdit && currentShift?.id ? <button className="button danger" disabled={busy} onClick={() => setClearOpen(true)} type="button">Delete / clear</button> : null}
+      </div>
+      <div className="app-surface-footer-right">
+        <button className="button ghost" disabled={busy} onClick={onClose} type="button">Cancel</button>
+        {canEdit && tab === "rest" ? <button className="button" disabled={busy || lockedSnapshot} onClick={saveRestDay} type="button">{busy ? "Saving…" : "Save Rest Day"}</button> : null}
+        {canEdit && tab !== "rest" ? <button className="button" disabled={busy || (lockedSnapshot && tab === "leave")} onClick={submitActiveForm} type="button">{busy ? "Saving…" : tab === "actual" ? "Save actual" : tab === "leave" ? (hasLeave ? "Update leave" : "Save leave") : (currentShift ? "Save changes" : "Add shift")}</button> : null}
+      </div>
+    </>
+  );
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true">
-      <div className="modal-panel schedule-modal">
-        <div className="panel-title">
-          <div>
-            <span className="eyebrow">Employee day</span>
-            <h2>{selectedEmployee?.full_name || currentShift?.employee_name || "Schedule day"} · {shiftDate}</h2>
-            {hasLeave ? <p className="muted">This day is marked as leave. Clear the entire day to choose Add shift, Rest day, or Leave again.</p> : null}
-            {lockedSnapshot ? <p className="muted">This date belongs to saved payroll run #{bundle.paid_run?.id}. You can edit it here; the saved payroll run will stay unchanged until you save a revised run.</p> : null}
-            {bundle.message ? <p className="muted">{bundle.message}</p> : null}
+    <>
+      <AppDrawer open={open} eyebrow="Employee day" title={title} description={description} footer={footer} onClose={onClose}>
+        <SurfaceContext>
+          <div><span>Employee</span><strong>{selectedEmployee?.full_name || currentShift?.employee_name || "Not selected"}</strong></div>
+          <div><span>Employee code</span><strong>{selectedEmployee?.employee_code || "—"}</strong></div>
+          <div><span>Date</span><strong>{formatDate(shiftDate)}</strong></div>
+        </SurfaceContext>
+
+        {lockedSnapshot ? <div className="app-surface-notice warning"><strong>Saved payroll snapshot</strong><span>Payroll run #{bundle.paid_run?.id} remains unchanged until a revised run is saved.</span></div> : null}
+        {bundle.legacy_read_only ? <div className="app-surface-notice"><strong>Legacy read-only record</strong><span>This historical row is retained for audit and cannot be changed.</span></div> : null}
+        {hasLeave ? <div className="app-surface-notice info"><strong>Leave is active for this day</strong><span>Clear the day before switching back to a shift or actual attendance.</span></div> : null}
+        {bundle.message ? <div className="app-surface-notice"><span>{bundle.message}</span></div> : null}
+
+        <SurfaceSection number="1" title="Planned day state" description="Choose the schedule state staff should see.">
+          <div className="app-segmented-control">
+            {!hasLeave ? <button className={tab === "scheduled" ? "active" : ""} onClick={() => setTab("scheduled")} type="button">Shift</button> : null}
+            {!hasLeave ? <button className={tab === "rest" ? "active" : ""} onClick={() => setTab("rest")} type="button">Rest Day</button> : null}
+            <button className={tab === "leave" ? "active" : ""} onClick={() => setTab("leave")} type="button">Leave</button>
           </div>
-          <button className="button small ghost" type="button" onClick={onClose}>Close</button>
-        </div>
 
-        <div className="tabs">
-          {!hasLeave ? <button className={tab === "scheduled" ? "tab active" : "tab"} type="button" onClick={() => setTab("scheduled")}>Scheduled</button> : null}
-          {!hasLeave ? <button className={tab === "actual" ? "tab active" : "tab"} type="button" onClick={() => setTab("actual")}>Actual</button> : null}
-          <button className={tab === "leave" ? "tab active" : "tab"} type="button" onClick={() => setTab("leave")}>Leave / Absence</button>
-        </div>
-
-        {!hasLeave && tab === "scheduled" ? (
-          <form action={saveScheduled} className="form-grid modal-form">
+          {!hasLeave && tab === "scheduled" ? <form action={saveScheduled} className="app-surface-form" ref={formRef}>
             <label>Date<input name="shift_date" type="date" value={shiftDate} disabled={readOnly} onChange={(event) => setShiftDate(event.target.value)} required /></label>
-            <label>Person<select name="employee_id" value={employeeId} disabled={readOnly} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Unassigned</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
+            <label>Person<select name="employee_id" value={employeeId} disabled={readOnly} onChange={(event) => setEmployeeId(event.target.value)} required><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
             <label>Start<input name="start_time" type="time" defaultValue={currentShift?.start_time || "08:00"} disabled={readOnly} required /></label>
             <label>End<input name="end_time" type="time" defaultValue={currentShift?.end_time || "17:00"} disabled={readOnly} required /></label>
             <label>Role<select name="position" defaultValue={currentShift?.position || selectedEmployee?.position || "Other"} disabled={readOnly}>{positions.map((p) => <option key={p} value={p}>{p}</option>)}</select></label>
-            <label>Dept<input name="department" defaultValue={currentShift?.employee_department || currentShift?.department || selectedEmployee?.department || ""} disabled={readOnly} /></label>
-            <label>Break<input name="break_minutes" type="number" min="0" defaultValue={currentShift?.break_minutes ?? 60} disabled={readOnly} /></label>
-            <label>Note<input name="notes" defaultValue={currentShift?.notes || ""} disabled={readOnly} /></label>
-            {canEdit ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save scheduled shift"}</button> : null}
-            {canEdit && currentShift?.id ? <button className="button ghost" type="button" disabled={busy} onClick={deleteShift}>Delete shift</button> : null}
-          </form>
-        ) : null}
+            <label>Department<input name="department" defaultValue={currentShift?.employee_department || currentShift?.department || selectedEmployee?.department || ""} disabled={readOnly} /></label>
+            <label>Break minutes<input name="break_minutes" type="number" min="0" defaultValue={currentShift?.break_minutes ?? 60} disabled={readOnly} /></label>
+            <label className="full">Schedule note<textarea name="notes" rows={3} defaultValue={currentShift?.notes || ""} disabled={readOnly} /></label>
+          </form> : null}
 
-        {!hasLeave && tab === "actual" ? (
-          <form action={saveActual} className="form-grid modal-form">
-            <label>Employee<select value={employeeId} disabled={readOnly} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
-            <label>Actual in<input name="actual_in" type="time" defaultValue={bundle.actual?.actual_in || ""} disabled={readOnly} /></label>
-            <label>Actual out<input name="actual_out" type="time" defaultValue={bundle.actual?.actual_out || ""} disabled={readOnly} /></label>
-            <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Needs Review"} disabled={readOnly}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
-            <label>Late / partial classification<select name="actual_exception_status" defaultValue={actualExceptionDefault} disabled={readOnly}>
-              <option value="">None / not applicable</option>
-              <option value="Excused">Excused</option>
-              <option value="Unexcused">Unexcused</option>
-            </select></label>
-            <label>Evidence / photo reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Required if excused late/partial" disabled={readOnly} /></label>
-            <label>Approved OT<input name="approved_ot_hours" type="number" min="0" step="0.25" defaultValue={bundle.actual?.approved_ot_hours ?? 0} disabled={readOnly} /></label>
-            <label>Admin note<input name="notes" defaultValue={bundle.actual?.notes || ""} disabled={readOnly} /></label>
-            {canEdit ? <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : "Save actual"}</button> : null}
-          </form>
-        ) : null}
+          {!hasLeave && tab === "rest" ? <div className="app-state-preview"><strong>Rest Day</strong><p>No scheduled shift will be shown for this employee and date. Actual attendance remains separate.</p><label>Employee<select value={employeeId} disabled={readOnly} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label><label>Date<input type="date" value={shiftDate} disabled={readOnly} onChange={(event) => setShiftDate(event.target.value)} /></label></div> : null}
 
-        {tab === "leave" ? (
-          <form action={saveLeave} className="form-grid modal-form">
+          {tab === "leave" ? <form action={saveLeave} className="app-surface-form" ref={formRef}>
             <label>Employee<select value={employeeId} disabled={readOnly || lockedSnapshot || hasLeave} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
-            <label>Type<select name="leave_kind" defaultValue={bundle.leave?.leave_type_name || bundle.actual?.absence_type || "None"} disabled={readOnly || lockedSnapshot}>{leaveKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
+            <label>Leave type<select name="leave_kind" defaultValue={bundle.leave?.leave_type_name || bundle.actual?.absence_type || "None"} disabled={readOnly || lockedSnapshot}>{leaveKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
             <label>Days<input name="leave_days" type="number" min="0.25" step="0.25" defaultValue={bundle.leave?.days ?? 1} disabled={readOnly || lockedSnapshot} /></label>
             <label>Hours, if partial<input name="leave_hours" type="number" min="0" step="0.25" defaultValue={bundle.leave?.paid_hours ?? ""} disabled={readOnly || lockedSnapshot} /></label>
             <label>Date informed<input name="notice_given_at" type="datetime-local" defaultValue={bundle.actual?.notice_given_at ? String(bundle.actual.notice_given_at).replace(" ", "T").slice(0, 16) : ""} disabled={readOnly || lockedSnapshot} /></label>
             <label>Notice timing<select name="notice_timing" defaultValue={bundle.actual?.notice_timing || ""} disabled={readOnly || lockedSnapshot}><option value="">Select notice timing</option>{noticeTimings.map((timing) => <option key={timing}>{timing}</option>)}</select></label>
-            <label>Evidence / reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Medical certificate, chat screenshot, approval note, etc." disabled={readOnly || lockedSnapshot} /></label>
-            <label>Reason / notes<input name="reason" defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || lockedSnapshot} /></label>
-            {canEdit && !lockedSnapshot ? (
-              <div className="action-row">
-                <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving..." : hasLeave ? "Update leave" : "Save leave / absence"}</button>
-                {hasLeave ? <button className="button ghost" type="button" disabled={busy} onClick={() => setClearOpen(true)}>Clear day</button> : null}
-              </div>
-            ) : null}
-            {clearOpen ? (
-              <section className="clear-day-confirm-card">
-                <div>
-                  <strong>Clear employee day</strong>
-                  <p className="muted">This removes the scheduled shift, actual attendance, leave/absence entry, and rest-day marker for this employee/date. Payroll runs already saved stay unchanged unless a revised run is saved.</p>
-                </div>
-                <ul>
-                  <li>Employee: {selectedEmployee?.full_name || currentShift?.employee_name || "Selected employee"}</li>
-                  <li>Date: {shiftDate}</li>
-                  <li>Will clear: shift, actual attendance, leave/absence, and rest-day marker if present.</li>
-                </ul>
-                <label>Reason<textarea rows={3} value={clearReason} onChange={(event) => setClearReason(event.target.value)} placeholder="Example: Wrong leave entry / correcting schedule setup" /></label>
-                <label>Type CLEAR DAY<input value={clearConfirm} onChange={(event) => setClearConfirm(event.target.value)} placeholder="CLEAR DAY" /></label>
-                <div className="action-row">
-                  <button className="button ghost" type="button" disabled={busy} onClick={() => { setClearOpen(false); setClearReason(""); setClearConfirm(""); }}>Cancel</button>
-                  <button className="button danger" type="button" disabled={busy || clearReason.trim().length < 10 || clearConfirm.trim() !== "CLEAR DAY"} onClick={clearDay}>{busy ? "Clearing..." : "Confirm clear day"}</button>
-                </div>
-              </section>
-            ) : null}
-          </form>
-        ) : null}
+            <label className="full">Evidence or reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} placeholder="Medical certificate, approval note, chat screenshot, etc." disabled={readOnly || lockedSnapshot} /></label>
+            <label className="full">Reason and notes<textarea name="reason" rows={3} defaultValue={bundle.leave?.reason || bundle.actual?.notes || ""} disabled={readOnly || lockedSnapshot} /></label>
+          </form> : null}
+        </SurfaceSection>
 
-        {message ? <p className="footer-note">{message}</p> : null}
-      </div>
-    </div>
+        {!hasLeave && currentShift ? <SurfaceSection number="2" title="Actual attendance" description="Operational corrections remain separate from the published schedule.">
+          <div className="app-segmented-control compact"><button className={tab === "actual" ? "active" : ""} onClick={() => setTab("actual")} type="button">Edit actual attendance</button></div>
+          {tab === "actual" ? <form action={saveActual} className="app-surface-form" ref={formRef}>
+            <label>Actual in<input name="actual_in" type="time" defaultValue={bundle.actual?.actual_in || ""} disabled={readOnly} /></label>
+            <label>Actual out<input name="actual_out" type="time" defaultValue={bundle.actual?.actual_out || ""} disabled={readOnly} /></label>
+            <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Needs Review"} disabled={readOnly}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+            <label>Exception classification<select name="actual_exception_status" defaultValue={actualExceptionDefault} disabled={readOnly}><option value="">None / not applicable</option><option value="Excused">Excused</option><option value="Unexcused">Unexcused</option></select></label>
+            <label>Approved OT<input name="approved_ot_hours" type="number" min="0" step="0.25" defaultValue={bundle.actual?.approved_ot_hours ?? 0} disabled={readOnly} /></label>
+            <label>Evidence / photo reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} disabled={readOnly} /></label>
+            <label className="full">Admin note<textarea name="notes" rows={3} defaultValue={bundle.actual?.notes || ""} disabled={readOnly} /></label>
+          </form> : <div className="app-state-preview"><strong>{bundle.actual?.actual_in || bundle.actual?.actual_out ? `${bundle.actual?.actual_in || "—"}–${bundle.actual?.actual_out || "—"}` : "No actual attendance recorded"}</strong><p>{bundle.actual?.attendance_status || "Actual attendance can be added or corrected here."}</p></div>}
+        </SurfaceSection> : null}
+
+        {message ? <div className="app-surface-notice" role="status"><span>{message}</span></div> : null}
+      </AppDrawer>
+
+      <AppModal open={clearOpen} eyebrow="Destructive action" title={currentShift?.id ? "Delete or clear employee day?" : "Clear employee day?"} description="Saved payroll runs remain unchanged unless a revised run is saved." onClose={() => setClearOpen(false)} footer={<><button className="button ghost" onClick={() => setClearOpen(false)} type="button">Cancel</button><div className="app-surface-footer-right">{currentShift?.id ? <button className="button danger" disabled={busy} onClick={deleteShift} type="button">Delete shift only</button> : null}<button className="button danger" disabled={busy || clearReason.trim().length < 10 || clearConfirm.trim() !== "CLEAR DAY"} onClick={clearDay} type="button">Clear entire day</button></div></>}>
+        <div className="app-surface-notice warning"><strong>This removes operational records for this employee and date.</strong><span>Shift, actual attendance, leave/absence, and rest-day markers may be cleared.</span></div>
+        <div className="app-surface-form single-column"><label>Reason<textarea rows={3} value={clearReason} onChange={(event) => setClearReason(event.target.value)} placeholder="Explain why this employee day must be cleared" /></label><label>Type CLEAR DAY<input value={clearConfirm} onChange={(event) => setClearConfirm(event.target.value)} placeholder="CLEAR DAY" /></label></div>
+      </AppModal>
+    </>
   );
 }
