@@ -95,11 +95,6 @@ export async function Shell({
           </div>
         </div>
 
-        <div className={styles.workspace}>
-          <div><strong>Hidden Oasis Resort</strong><span>Primary workspace</span></div>
-          <div className={styles.workspaceChevron} aria-hidden="true">⌄</div>
-        </div>
-
         <SidebarNav role={role} />
 
         <div className={styles.footer}>
