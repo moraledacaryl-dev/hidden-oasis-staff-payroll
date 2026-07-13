@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import {
   Banknote,
   CalendarDays,
@@ -29,6 +30,8 @@ import {
 import { navGroups } from "@/lib/navigation";
 import type { RoleKey } from "@/lib/types";
 import styles from "./SidebarNav.module.css";
+
+const SIDEBAR_SCROLL_KEY = "hidden-oasis-staff-sidebar-scroll";
 
 const icons: Record<string, LucideIcon> = {
   "/": LayoutDashboard,
@@ -66,11 +69,41 @@ function activeHrefFor(pathname: string, hrefs: string[]): string | null {
 
 export function SidebarNav({ role }: { role: RoleKey }) {
   const pathname = usePathname();
+  const navRef = useRef<HTMLElement>(null);
   const visibleItems = navGroups.flatMap((group) => group.items).filter((item) => item.roles.includes(role));
   const activeHref = activeHrefFor(pathname, visibleItems.map((item) => item.href));
 
+  useEffect(() => {
+    const sidebar = navRef.current?.closest("aside");
+    if (!(sidebar instanceof HTMLElement)) return;
+
+    const stored = Number.parseFloat(sessionStorage.getItem(SIDEBAR_SCROLL_KEY) || "0");
+    const restore = window.requestAnimationFrame(() => {
+      sidebar.scrollTop = Number.isFinite(stored) ? stored : 0;
+    });
+
+    const remember = () => {
+      sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop));
+    };
+
+    sidebar.addEventListener("scroll", remember, { passive: true });
+    return () => {
+      window.cancelAnimationFrame(restore);
+      remember();
+      sidebar.removeEventListener("scroll", remember);
+    };
+  }, [pathname]);
+
+  const rememberSidebarPosition = () => {
+    const sidebar = navRef.current?.closest("aside");
+    if (sidebar instanceof HTMLElement) {
+      sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop));
+    }
+    document.documentElement.removeAttribute("data-sidebar-mobile-open");
+  };
+
   return (
-    <nav className={styles.nav} aria-label="Main navigation">
+    <nav className={styles.nav} aria-label="Main navigation" ref={navRef}>
       {navGroups.map((group, index) => {
         const items = group.items.filter((item) => item.roles.includes(role));
         if (!items.length) return null;
@@ -88,7 +121,7 @@ export function SidebarNav({ role }: { role: RoleKey }) {
                     className={`${styles.link} ${active ? styles.active : ""}`}
                     href={item.href}
                     key={item.href}
-                    onClick={() => document.documentElement.removeAttribute("data-sidebar-mobile-open")}
+                    onClick={rememberSidebarPosition}
                     title={item.label}
                   >
                     <span className={styles.icon} aria-hidden="true"><Icon size={17} strokeWidth={1.9} /></span>
