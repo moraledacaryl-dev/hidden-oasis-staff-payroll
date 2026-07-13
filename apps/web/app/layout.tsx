@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SidebarScrollMemory } from "@/components/SidebarScrollMemory";
 import "./globals.css";
 import "./auth.css";
 import "./print-payslips.css";
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><SidebarScrollMemory />{children}</body>
     </html>
   );
 }
