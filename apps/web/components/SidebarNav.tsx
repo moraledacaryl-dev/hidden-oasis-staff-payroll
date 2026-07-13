@@ -74,30 +74,38 @@ export function SidebarNav({ role }: { role: RoleKey }) {
   const activeHref = activeHrefFor(pathname, visibleItems.map((item) => item.href));
 
   useEffect(() => {
-    const sidebar = navRef.current?.closest("aside");
-    if (!(sidebar instanceof HTMLElement)) return;
+    const nav = navRef.current;
+    if (!nav) return;
 
     const stored = Number.parseFloat(sessionStorage.getItem(SIDEBAR_SCROLL_KEY) || "0");
-    const restore = window.requestAnimationFrame(() => {
-      sidebar.scrollTop = Number.isFinite(stored) ? stored : 0;
+    const target = Number.isFinite(stored) ? stored : 0;
+
+    // Restore after layout and once more after route content settles. This prevents
+    // focus/layout changes from snapping the navigation back to its first item.
+    const firstFrame = window.requestAnimationFrame(() => {
+      nav.scrollTop = target;
     });
+    const settleTimer = window.setTimeout(() => {
+      nav.scrollTop = target;
+    }, 80);
 
     const remember = () => {
-      sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop));
+      sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(nav.scrollTop));
     };
 
-    sidebar.addEventListener("scroll", remember, { passive: true });
+    nav.addEventListener("scroll", remember, { passive: true });
     return () => {
-      window.cancelAnimationFrame(restore);
+      window.cancelAnimationFrame(firstFrame);
+      window.clearTimeout(settleTimer);
       remember();
-      sidebar.removeEventListener("scroll", remember);
+      nav.removeEventListener("scroll", remember);
     };
   }, [pathname]);
 
   const rememberSidebarPosition = () => {
-    const sidebar = navRef.current?.closest("aside");
-    if (sidebar instanceof HTMLElement) {
-      sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop));
+    const nav = navRef.current;
+    if (nav) {
+      sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(nav.scrollTop));
     }
     document.documentElement.removeAttribute("data-sidebar-mobile-open");
   };
