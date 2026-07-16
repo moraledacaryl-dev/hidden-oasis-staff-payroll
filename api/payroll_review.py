@@ -412,16 +412,6 @@ def _cash_advance_run_check(
                 'Void',
                 'Voided'
               )
-          AND (
-                COALESCE(ca.status,'') <> 'Pending'
-                OR ca.id IN (
-                    SELECT cash_advance_id
-                    FROM payroll_item_adjustments
-                    WHERE payroll_run_id=?
-                      AND cash_advance_id IS NOT NULL
-                      AND COALESCE(cash_advance_amount,0)>0
-                )
-              )
           AND lower(
                 COALESCE(
                     ca.repayment_method,
@@ -460,7 +450,7 @@ def _cash_advance_run_check(
             ),
             ca.id
         """,
-        (run_id, run_id, period_end, run_id),
+        (run_id, period_end, run_id),
     )
 
     rows: list[dict[str, Any]] = []
@@ -496,18 +486,19 @@ def _cash_advance_run_check(
             2,
         )
 
-        expected = round(
-            min(balance_before_run, scheduled)
-            if scheduled > 0
-            else 0.0,
-            2,
-        )
+        selected_explicitly = advance_id in explicit_by_advance
 
         if paid_run:
-            # A historical paid run is checked against its posted repayment.
+            # Historical paid runs are validated against posted repayments.
             applied = posted
-        elif advance_id in explicit_by_advance:
-            # Manual payroll adjustment selected this exact advance.
+            expected = round(
+                min(balance_before_run, scheduled)
+                if posted > 0 and scheduled > 0
+                else posted,
+                2,
+            )
+        elif selected_explicitly:
+            # Manual adjustment selected this exact cash advance.
             applied = round(
                 min(
                     explicit_by_advance[advance_id],
@@ -515,9 +506,10 @@ def _cash_advance_run_check(
                 ),
                 2,
             )
+            expected = applied
         else:
-            # Automatic deduction is allocated FIFO across the employee's
-            # still-open advances.
+            # Automatic deductions are allocated FIFO. An open advance that
+            # receives no allocation remains visible as NOT SELECTED.
             remaining = automatic_remaining.get(
                 employee_id,
                 0.0,
@@ -528,7 +520,7 @@ def _cash_advance_run_check(
                     balance_before_run,
                     scheduled,
                 )
-                if scheduled > 0
+                if remaining > 0 and scheduled > 0
                 else 0.0,
                 2,
             )
@@ -536,8 +528,12 @@ def _cash_advance_run_check(
                 max(0.0, remaining - applied),
                 2,
             )
+            expected = applied
 
-        if applied <= 0 and expected > 0:
+        if not paid_run and applied <= 0:
+            status = "NOT SELECTED"
+            issue = False
+        elif paid_run and posted <= 0:
             status = "NOT APPLIED"
             issue = True
         elif applied + 0.005 < expected:
@@ -547,8 +543,7 @@ def _cash_advance_run_check(
             status = "OVER"
             issue = True
         else:
-            # Applied means included in this payroll run. For unpaid runs,
-            # it does not claim that repayment has already been posted.
+            # For unpaid runs, APPLIED means included in this payroll only.
             status = "APPLIED"
             issue = False
 
