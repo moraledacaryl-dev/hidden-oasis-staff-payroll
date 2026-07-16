@@ -39,6 +39,44 @@ type PayrollItem = {
   warnings?: string | null;
 };
 
+type WarningSummary = {
+  label: string;
+  count: number;
+};
+
+function summarizeWarnings(warnings: string[]): WarningSummary[] {
+  const groups = new Map<string, WarningSummary>();
+
+  for (const warning of warnings) {
+    const lower = warning.toLowerCase();
+    let key = "other";
+    let label = "Other payroll review notes";
+
+    if (lower.includes("unapproved outside-schedule time")) {
+      key = "outside-schedule";
+      label = "Outside-schedule time not approved as OT";
+    } else if (lower.includes("inside-schedule hours beyond 8")) {
+      key = "inside-schedule-ot";
+      label = "Inside-schedule excess hours paid as OT";
+    } else if (lower.includes("missing time-in")) {
+      key = "missing-time-in";
+      label = "Missing time-in";
+    } else if (lower.includes("missing time-out")) {
+      key = "missing-time-out";
+      label = "Missing time-out";
+    } else if (lower.includes("no schedule found")) {
+      key = "missing-schedule";
+      label = "Attendance log has no matching schedule";
+    }
+
+    const existing = groups.get(key);
+    if (existing) existing.count += 1;
+    else groups.set(key, { label, count: 1 });
+  }
+
+  return Array.from(groups.values());
+}
+
 export function EmployeePayrollCard({
   runId,
   item,
@@ -54,6 +92,7 @@ export function EmployeePayrollCard({
 }) {
   const government = Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0) + Number(item.tax || 0);
   const warnings = String(item.warnings || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  const warningSummary = summarizeWarnings(warnings);
   const initials = String(item.employee_name || "E").split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase();
 
   return (
@@ -109,8 +148,20 @@ export function EmployeePayrollCard({
 
           {warnings.length ? (
             <div className="employee-payroll-warnings">
-              <strong>Review required</strong>
-              {warnings.map((warning, index) => <p key={`${item.id}-warning-${index}`}>{warning}</p>)}
+              <strong>Review required · {warnings.length} item{warnings.length === 1 ? "" : "s"}</strong>
+              <div style={{ display: "grid", gap: 4, marginTop: 8 }}>
+                {warningSummary.map((summary) => (
+                  <p key={summary.label} style={{ margin: 0 }}>
+                    <strong>{summary.count}</strong> {summary.label}
+                  </p>
+                ))}
+              </div>
+              <details style={{ marginTop: 10 }}>
+                <summary style={{ cursor: "pointer", fontWeight: 750 }}>View dated details</summary>
+                <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 8, paddingRight: 6 }}>
+                  {warnings.map((warning, index) => <p key={`${item.id}-warning-${index}`}>{warning}</p>)}
+                </div>
+              </details>
             </div>
           ) : null}
 
