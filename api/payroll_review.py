@@ -290,8 +290,23 @@ def _cash_advance_audit(conn, run_id: int, period_start: str, period_end: str) -
 
 
 
-def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: str) -> dict[str, Any]:
-    rows = fetchall(
+def _cash_advance_run_check(
+    conn,
+    run_id: int,
+    period_start: str,
+    period_end: str,
+) -> dict[str, Any]:
+    run = fetchone(
+        conn,
+        "SELECT status FROM payroll_runs WHERE id=?",
+        (run_id,),
+    ) or {}
+
+    run_status = str(run.get("status") or "")
+    posted_statuses = {"Paid", "Locked", "Released"}
+    use_posted_repayments = run_status in posted_statuses
+
+    advance_rows = fetchall(
         conn,
         """
         SELECT
@@ -300,47 +315,146 @@ def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: st
             e.full_name AS name,
             COALESCE(ca.advance_date, ca.request_date) AS advance_date,
             COALESCE(ca.amount, 0) AS original_amount,
-            COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0)
-                + COALESCE(r.amount, 0) AS balance_before_run,
-            COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) AS current_balance,
-            COALESCE(ca.deduction_per_payroll, ca.repayment_per_cutoff, ca.custom_next_deduction, 0) AS scheduled_deduction,
-            COALESCE(r.amount, 0) AS applied,
+            COALESCE(
+                ca.remaining_balance,
+                ca.outstanding_balance,
+                ca.amount,
+                0
+            ) AS current_balance,
+            COALESCE(
+                ca.deduction_per_payroll,
+                ca.repayment_per_cutoff,
+                ca.custom_next_deduction,
+                0
+            ) AS scheduled_deduction,
+            COALESCE(r.amount, 0) AS posted_repayment,
             r.id AS repayment_id,
-            ca.reason
+            ca.reason,
+            ca.status AS advance_status
         FROM cash_advances ca
-        LEFT JOIN employees e ON e.id = ca.employee_id
+        LEFT JOIN employees e
+          ON e.id = ca.employee_id
         LEFT JOIN cash_advance_repayments r
           ON r.cash_advance_id = ca.id
          AND r.payroll_run_id = ?
          AND COALESCE(r.active,1)=1
-        WHERE COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) > 0
-          AND COALESCE(ca.status, '') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
-          AND lower(COALESCE(ca.repayment_method, 'Payroll deduction')) LIKE '%payroll%'
-          AND date(COALESCE(ca.advance_date, ca.request_date)) <= date(?)
-        ORDER BY e.full_name, date(COALESCE(ca.advance_date, ca.request_date)), ca.id
+        WHERE (
+                COALESCE(
+                    ca.remaining_balance,
+                    ca.outstanding_balance,
+                    ca.amount,
+                    0
+                ) > 0
+                OR r.id IS NOT NULL
+              )
+          AND COALESCE(ca.status, '') NOT IN (
+                'Cancelled',
+                'Rejected',
+                'Void',
+                'Voided'
+              )
+          AND (
+                r.id IS NOT NULL
+                OR COALESCE(ca.status, '') <> 'Pending'
+              )
+          AND lower(
+                COALESCE(
+                    ca.repayment_method,
+                    'Payroll deduction'
+                )
+              ) LIKE '%payroll%'
+          AND date(
+                COALESCE(
+                    ca.advance_date,
+                    ca.request_date
+                )
+              ) <= date(?)
+        ORDER BY
+            e.full_name,
+            date(
+                COALESCE(
+                    ca.advance_date,
+                    ca.request_date
+                )
+            ),
+            ca.id
         """,
         (run_id, period_end),
     )
 
-    out = []
+    payroll_items = fetchall(
+        conn,
+        """
+        SELECT
+            employee_id,
+            COALESCE(cash_advance_deduction,0) AS planned_deduction
+        FROM payroll_items
+        WHERE payroll_run_id=?
+        """,
+        (run_id,),
+    )
+
+    planned_remaining = {
+        int(row.get("employee_id") or 0):
+            round(float(row.get("planned_deduction") or 0), 2)
+        for row in payroll_items
+    }
+
+    out: list[dict[str, Any]] = []
     expected_total = 0.0
     applied_total = 0.0
     issue_count = 0
 
-    for row in rows:
-        balance_before_run = float(row.get("balance_before_run") or 0)
-        current_balance = float(row.get("current_balance") or 0)
-        scheduled = float(row.get("scheduled_deduction") or 0)
-        applied = float(row.get("applied") or 0)
-
-        # A posted repayment is authoritative for paid historical runs. Rebuild
-        # the balance that existed before this run by adding that repayment back
-        # to the current ledger balance.
-        expected = (
-            applied
-            if applied > 0
-            else min(balance_before_run, scheduled) if scheduled > 0 else 0.0
+    for row in advance_rows:
+        employee_id = int(row.get("employee_id") or 0)
+        posted = round(
+            float(row.get("posted_repayment") or 0),
+            2,
         )
+        current_balance = round(
+            float(row.get("current_balance") or 0),
+            2,
+        )
+
+        # A paid repayment has already reduced the current balance.
+        balance_before_run = round(
+            current_balance + posted,
+            2,
+        )
+
+        scheduled = round(
+            float(row.get("scheduled_deduction") or 0),
+            2,
+        )
+
+        expected = round(
+            min(balance_before_run, scheduled)
+            if scheduled > 0
+            else 0,
+            2,
+        )
+
+        if use_posted_repayments:
+            applied = posted
+        else:
+            remaining_plan = planned_remaining.get(
+                employee_id,
+                0.0,
+            )
+            applied = round(
+                min(
+                    remaining_plan,
+                    balance_before_run,
+                    scheduled,
+                )
+                if scheduled > 0
+                else 0,
+                2,
+            )
+            planned_remaining[employee_id] = round(
+                max(0.0, remaining_plan - applied),
+                2,
+            )
 
         if applied <= 0 and expected > 0:
             status = "NOT APPLIED"
@@ -357,17 +471,32 @@ def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: st
         expected_total += expected
         applied_total += applied
 
+        after_balance = (
+            current_balance
+            if use_posted_repayments
+            else max(0.0, balance_before_run - applied)
+        )
+
         out.append({
-            "employee_id": row.get("employee_id"),
-            "name": row.get("name") or f"Employee {row.get('employee_id')}",
+            "employee_id": employee_id,
+            "name": (
+                row.get("name")
+                or f"Employee {employee_id}"
+            ),
             "cash_advance_id": row.get("cash_advance_id"),
             "repayment_id": row.get("repayment_id"),
             "advance_date": row.get("advance_date"),
-            "original_amount": round(float(row.get("original_amount") or 0), 2),
-            "balance_before_run": round(balance_before_run, 2),
-            "expected": round(expected, 2),
-            "applied": round(applied, 2),
-            "balance_after_run": round(current_balance, 2),
+            "original_amount": round(
+                float(row.get("original_amount") or 0),
+                2,
+            ),
+            "balance_before_run": balance_before_run,
+            "expected": expected,
+            "applied": applied,
+            "balance_after_run": round(
+                after_balance,
+                2,
+            ),
             "status": status,
             "reason": row.get("reason"),
         })
@@ -376,8 +505,17 @@ def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: st
         "expected_total": round(expected_total, 2),
         "applied_total": round(applied_total, 2),
         "issue_count": issue_count,
-        "status": "OK" if issue_count == 0 else "Needs Review",
+        "status": (
+            "OK"
+            if issue_count == 0
+            else "Needs Review"
+        ),
         "rows": out,
+        "source": (
+            "posted_repayments"
+            if use_posted_repayments
+            else "planned_payroll_deductions"
+        ),
     }
 
 
