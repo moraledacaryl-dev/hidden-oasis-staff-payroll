@@ -228,8 +228,15 @@ def _cash_advance_audit(conn, run_id: int, period_start: str, period_end: str) -
             ) AS expected_deduction
         FROM cash_advances ca
         LEFT JOIN employees e ON e.id = ca.employee_id
-        WHERE COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) > 0
-          AND COALESCE(ca.status, '') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
+        WHERE (
+                COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) > 0
+                OR r.id IS NOT NULL
+              )
+          AND COALESCE(ca.status, '') NOT IN ('Cancelled','Rejected','Void','Voided')
+          AND (
+                r.id IS NOT NULL
+                OR COALESCE(ca.status, '') NOT IN ('Pending')
+              )
           AND lower(COALESCE(ca.repayment_method, 'Payroll deduction')) LIKE '%payroll%'
           AND date(COALESCE(ca.advance_date, ca.request_date)) BETWEEN date(?) AND date(?)
         GROUP BY ca.employee_id, e.full_name
@@ -293,7 +300,9 @@ def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: st
             e.full_name AS name,
             COALESCE(ca.advance_date, ca.request_date) AS advance_date,
             COALESCE(ca.amount, 0) AS original_amount,
-            COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) AS balance,
+            COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0)
+                + COALESCE(r.amount, 0) AS balance_before_run,
+            COALESCE(ca.remaining_balance, ca.outstanding_balance, ca.amount, 0) AS current_balance,
             COALESCE(ca.deduction_per_payroll, ca.repayment_per_cutoff, ca.custom_next_deduction, 0) AS scheduled_deduction,
             COALESCE(r.amount, 0) AS applied,
             r.id AS repayment_id,
@@ -319,10 +328,19 @@ def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: st
     issue_count = 0
 
     for row in rows:
-        balance = float(row.get("balance") or 0)
+        balance_before_run = float(row.get("balance_before_run") or 0)
+        current_balance = float(row.get("current_balance") or 0)
         scheduled = float(row.get("scheduled_deduction") or 0)
-        expected = min(balance, scheduled) if scheduled > 0 else 0.0
         applied = float(row.get("applied") or 0)
+
+        # A posted repayment is authoritative for paid historical runs. Rebuild
+        # the balance that existed before this run by adding that repayment back
+        # to the current ledger balance.
+        expected = (
+            applied
+            if applied > 0
+            else min(balance_before_run, scheduled) if scheduled > 0 else 0.0
+        )
 
         if applied <= 0 and expected > 0:
             status = "NOT APPLIED"
@@ -346,10 +364,10 @@ def _cash_advance_run_check(conn, run_id: int, period_start: str, period_end: st
             "repayment_id": row.get("repayment_id"),
             "advance_date": row.get("advance_date"),
             "original_amount": round(float(row.get("original_amount") or 0), 2),
-            "balance_before_run": round(balance, 2),
+            "balance_before_run": round(balance_before_run, 2),
             "expected": round(expected, 2),
             "applied": round(applied, 2),
-            "balance_after_run": round(max(0.0, balance - applied), 2),
+            "balance_after_run": round(current_balance, 2),
             "status": status,
             "reason": row.get("reason"),
         })
