@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date
 from typing import Any
 import sqlite3
 
 from .db import fetchall, fetchone
 from .schedule_source import trusted_scheduled_workdays
+
+
+CLEARED_ATTENDANCE_STATUSES = {"approved", "reviewed", "on-time", "on time"}
 
 
 def _date_str(v: Any) -> str:
@@ -15,12 +19,16 @@ def _date_str(v: Any) -> str:
 
 
 def _attendance_review_count(conn: sqlite3.Connection, period_start: str, period_end: str) -> int:
-    """Count only attendance rows that are still genuinely reviewable.
+    """Count only canonical attendance rows that still need review.
 
-    The Cutoff UI intentionally auto-clears an orphan ``Needs Review`` row when
-    there is no scheduled shift and no actual attendance evidence. Payroll
-    preflight must use the same rule; otherwise a stale/orphan time-log row can
-    block payroll even though the visible Review Queue is empty.
+    Time-log imports can leave multiple records for the same employee and date.
+    A cleared record (Approved/Reviewed/On-time) supersedes any stale imported
+    ``Needs Review`` placeholder for that same employee/day. When no cleared
+    record exists, only the newest row is treated as canonical.
+
+    The Cutoff UI also auto-clears an orphan ``Needs Review`` row when there is
+    no scheduled shift and no actual attendance evidence. Payroll preflight must
+    apply both rules so its blocker count matches the visible Review Queue.
     """
     scheduled_keys = {
         (int(row.get("employee_id") or 0), str(row.get("work_date") or "")[:10])
@@ -30,23 +38,43 @@ def _attendance_review_count(conn: sqlite3.Connection, period_start: str, period
     rows = fetchall(
         conn,
         """
-        SELECT employee_id, work_date, actual_in, actual_out, is_absent, absence_type
+        SELECT id, employee_id, work_date, actual_in, actual_out, is_absent,
+               absence_type, attendance_status
         FROM time_logs
         WHERE date(work_date) BETWEEN date(?) AND date(?)
-          AND lower(trim(COALESCE(attendance_status, ''))) = 'needs review'
+        ORDER BY employee_id, date(work_date), id DESC
         """,
         (period_start, period_end),
     )
 
-    count = 0
+    rows_by_day: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         key = (int(row.get("employee_id") or 0), str(row.get("work_date") or "")[:10])
+        rows_by_day[key].append(row)
+
+    count = 0
+    for key, day_rows in rows_by_day.items():
+        statuses = {
+            str(row.get("attendance_status") or "").strip().lower()
+            for row in day_rows
+        }
+
+        # Any explicitly cleared row wins over stale duplicate import placeholders.
+        if statuses & CLEARED_ATTENDANCE_STATUSES:
+            continue
+
+        # Rows are ordered newest-first, so only the canonical latest record matters.
+        canonical = day_rows[0]
+        status = str(canonical.get("attendance_status") or "").strip().lower()
+        if status != "needs review":
+            continue
+
         has_schedule = key in scheduled_keys
         has_actual_evidence = bool(
-            row.get("actual_in")
-            or row.get("actual_out")
-            or int(row.get("is_absent") or 0) == 1
-            or str(row.get("absence_type") or "").strip()
+            canonical.get("actual_in")
+            or canonical.get("actual_out")
+            or int(canonical.get("is_absent") or 0) == 1
+            or str(canonical.get("absence_type") or "").strip()
         )
         if has_schedule or has_actual_evidence:
             count += 1
