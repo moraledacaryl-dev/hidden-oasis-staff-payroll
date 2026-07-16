@@ -410,8 +410,16 @@ def _cash_advance_run_check(
                 'Cancelled',
                 'Rejected',
                 'Void',
-                'Voided',
-                'Pending'
+                'Voided',)
+          AND (
+                COALESCE(ca.status,'') <> 'Pending'
+                OR ca.id IN (
+                    SELECT cash_advance_id
+                    FROM payroll_item_adjustments
+                    WHERE payroll_run_id=?
+                      AND cash_advance_id IS NOT NULL
+                      AND COALESCE(cash_advance_amount,0)>0
+                )
               )
           AND lower(
                 COALESCE(
@@ -451,7 +459,7 @@ def _cash_advance_run_check(
             ),
             ca.id
         """,
-        (run_id, period_end, run_id),
+        (run_id, run_id, period_end, run_id),
     )
 
     rows: list[dict[str, Any]] = []
