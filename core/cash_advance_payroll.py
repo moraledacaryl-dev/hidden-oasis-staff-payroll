@@ -23,16 +23,20 @@ def _insert_repayment(conn: sqlite3.Connection, values: dict[str, Any]) -> None:
 
 
 def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int, actor: str | None = None, reference: str | None = None) -> None:
-    """Record cash-advance repayments from a paid payroll run.
+    """Record cash-advance repayments from an authoritative paid payroll run.
 
-    Payroll items already store the computed cash_advance_deduction. This function
-    allocates each employee's deduction against that employee's outstanding cash
-    advances and writes rows to both current and legacy repayment columns when
-    the live database still has legacy NOT NULL fields.
+    A paid adjustment revision is difference-only. Its payroll items mirror the
+    revised full payroll so the system can calculate the net adjustment against
+    the original paid run, but those mirrored deductions must not post a second
+    cash-advance repayment. The original paid run remains the authoritative
+    repayment event for that cutoff.
     """
     ensure_schema(conn)
     run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
     if not run:
+        return
+
+    if str(run.get("revision_treatment") or "").strip().lower() == "adjust_paid":
         return
 
     items = fetchall(
