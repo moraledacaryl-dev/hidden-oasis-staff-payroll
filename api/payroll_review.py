@@ -398,7 +398,11 @@ def _cash_advance_run_check(
             COALESCE(r.amount,0) AS posted_repayment,
             r.id AS repayment_id,
             ca.reason,
-            COALESCE(ca.status,'') AS advance_status
+            COALESCE(ca.status,'') AS advance_status,
+            COALESCE(
+                ca.repayment_method,
+                'Payroll deduction'
+            ) AS repayment_method
         FROM cash_advances ca
         LEFT JOIN employees e
           ON e.id=ca.employee_id
@@ -412,12 +416,6 @@ def _cash_advance_run_check(
                 'Void',
                 'Voided'
               )
-          AND lower(
-                COALESCE(
-                    ca.repayment_method,
-                    'Payroll deduction'
-                )
-              ) LIKE '%payroll%'
           AND date(
                 COALESCE(
                     ca.advance_date,
@@ -465,6 +463,13 @@ def _cash_advance_run_check(
         employee_id = int(
             row.get("employee_id") or 0
         )
+        repayment_method = str(
+            row.get("repayment_method")
+            or "Payroll deduction"
+        ).strip()
+        manual_repayment = (
+            "manual" in repayment_method.lower()
+        )
 
         posted = round(
             float(row.get("posted_repayment") or 0),
@@ -488,7 +493,12 @@ def _cash_advance_run_check(
 
         selected_explicitly = advance_id in explicit_by_advance
 
-        if paid_run:
+        if manual_repayment:
+            # Manual repayment balances are displayed for reference only.
+            # They must never be allocated into payroll automatically.
+            applied = 0.0
+            expected = 0.0
+        elif paid_run:
             # Historical paid runs are validated against posted repayments.
             applied = posted
             expected = round(
@@ -530,7 +540,10 @@ def _cash_advance_run_check(
             )
             expected = applied
 
-        if not paid_run and applied <= 0:
+        if manual_repayment:
+            status = "MANUAL REPAYMENT"
+            issue = False
+        elif not paid_run and applied <= 0:
             status = "NOT SELECTED"
             issue = False
         elif paid_run and posted <= 0:
@@ -586,6 +599,7 @@ def _cash_advance_run_check(
             "advance_status": row.get(
                 "advance_status"
             ),
+            "repayment_method": repayment_method,
             "reason": row.get("reason"),
         })
 
