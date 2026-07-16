@@ -17,14 +17,34 @@ type SurfaceProps = {
 function useSurfaceLifecycle(open: boolean, onClose: () => void) {
   useEffect(() => {
     if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+
+    const html = document.documentElement;
+    const body = document.body;
+    const previousHtmlOverflow = html.style.overflow;
+    const previousHtmlOverflowX = html.style.overflowX;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyOverflowX = body.style.overflowX;
+    const previousBodyOverscroll = body.style.overscrollBehavior;
+
+    html.dataset.appSurfaceOpen = "true";
+    html.style.overflow = "hidden";
+    html.style.overflowX = "hidden";
+    body.style.overflow = "hidden";
+    body.style.overflowX = "hidden";
+    body.style.overscrollBehavior = "none";
+
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
     }
+
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      delete html.dataset.appSurfaceOpen;
+      html.style.overflow = previousHtmlOverflow;
+      html.style.overflowX = previousHtmlOverflowX;
+      body.style.overflow = previousBodyOverflow;
+      body.style.overflowX = previousBodyOverflowX;
+      body.style.overscrollBehavior = previousBodyOverscroll;
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open, onClose]);
