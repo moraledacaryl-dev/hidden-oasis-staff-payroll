@@ -9,6 +9,7 @@ import "./pass1-theme.css";
 import "./prototype-foundation.css";
 import "./pass1-surfaces.css";
 import "./schedule-drawer.css";
+import "./schedule-ux-fixes.css";
 import "./core-operations.css";
 import "./pass3-people.css";
 import "./payroll-workflow.css";
