@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-function findVerticalScroller(start: HTMLElement | null): HTMLElement | Window {
+function findVerticalScroller(start: HTMLElement | null): HTMLElement {
   let current = start?.parentElement || null;
   while (current) {
     const style = window.getComputedStyle(current);
@@ -12,7 +12,14 @@ function findVerticalScroller(start: HTMLElement | null): HTMLElement | Window {
     }
     current = current.parentElement;
   }
-  return window;
+
+  return (document.scrollingElement as HTMLElement | null) || document.documentElement;
+}
+
+function pixelDelta(event: WheelEvent): number {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * window.innerHeight;
+  return event.deltaY;
 }
 
 export function CutoffReviewWheelBridge() {
@@ -21,17 +28,15 @@ export function CutoffReviewWheelBridge() {
       const target = event.target instanceof Element ? event.target.closest(".cutoff-review-card .table-wrap") : null;
       if (!(target instanceof HTMLElement)) return;
 
-      const verticalIntent = Math.abs(event.deltaY) > Math.abs(event.deltaX);
+      const verticalIntent = Math.abs(event.deltaY) >= Math.abs(event.deltaX);
       if (!verticalIntent || event.shiftKey) return;
 
       const scroller = findVerticalScroller(target);
-      event.preventDefault();
+      const delta = pixelDelta(event);
+      if (!delta) return;
 
-      if (scroller === window) {
-        window.scrollBy({ top: event.deltaY, left: 0, behavior: "auto" });
-      } else {
-        scroller.scrollBy({ top: event.deltaY, left: 0, behavior: "auto" });
-      }
+      event.preventDefault();
+      scroller.scrollTop += delta;
     }
 
     document.addEventListener("wheel", onWheel, { passive: false, capture: true });
