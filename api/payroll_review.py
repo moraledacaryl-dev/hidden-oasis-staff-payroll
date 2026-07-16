@@ -410,7 +410,8 @@ def _cash_advance_run_check(
                 'Cancelled',
                 'Rejected',
                 'Void',
-                'Voided',)
+                'Voided'
+              )
           AND (
                 COALESCE(ca.status,'') <> 'Pending'
                 OR ca.id IN (
