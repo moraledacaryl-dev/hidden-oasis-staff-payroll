@@ -9,8 +9,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements-api.txt
-      - run: pip check
-      - run: PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall -q api core scripts tests
-      - name: Run unit tests
-        run: python -m unittest discover -v
+      - name: Run backend diagnostics
+        id: diagnostics
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/pass7-backend"
+          pip install -r requirements-api.txt > "$RUNNER_TEMP/pass7-backend/install.log" 2>&1
+          install_status=$?
+          pip check > "$RUNNER_TEMP/pass7-backend/pip-check.log" 2>&1
+          check_status=$?
+          PYTHONPYCACHEPREFIX=/tmp/pycache python -m compileall -q api core scripts tests > "$RUNNER_TEMP/pass7-backend/compile.log" 2>&1
+          compile_status=$?
+          python -m unittest discover -v > "$RUNNER_TEMP/pass7-backend/unittest.log" 2>&1
+          test_status=$?
+          printf 'install=%s\npip_check=%s\ncompile=%s\nunittest=%s\n' "$install_status" "$check_status" "$compile_status" "$test_status" | tee "$RUNNER_TEMP/pass7-backend/status.txt"
+          echo "failed=$(( install_status || check_status || compile_status || test_status ))" >> "$GITHUB_OUTPUT"
+      - name: Upload backend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pass7-backend-diagnostics
+          path: ${{ runner.temp }}/pass7-backend
+      - name: Fail when verification failed
+        if: steps.diagnostics.outputs.failed != '0'
+        run: exit 1
