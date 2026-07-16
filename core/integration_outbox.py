@@ -24,13 +24,14 @@ DESTINATION_ENV = {
     "inventory": ("STAFF_PAYROLL_INVENTORY_SYNC_URL", "STAFF_PAYROLL_INVENTORY_SYNC_TOKEN"),
 }
 
-ACCOUNTING_ENDPOINTS = {
-    "employee.sync": "/api/integrations/payroll/employees",
-    "payroll.run.approved": "/api/integrations/payroll/runs",
-    "payroll.run.paid": "/api/integrations/payroll/runs",
-    "payroll.13th_month.paid": "/api/integrations/payroll/13th-month",
-    "cash_advance.released": "/api/integrations/payroll/cash-advance-release",
-    "cash_advance.repaid": "/api/integrations/payroll/cash-advance-repayment",
+ACCOUNTING_EMPLOYEE_ENDPOINT = "/api/integrations/payroll/employees"
+ACCOUNTING_FINANCIAL_ENDPOINT = "/api/integration-review/service-intake"
+ACCOUNTING_FINANCIAL_EVENTS = {
+    "payroll.run.approved",
+    "payroll.run.paid",
+    "payroll.13th_month.paid",
+    "cash_advance.released",
+    "cash_advance.repaid",
 }
 
 DEFAULT_ENDPOINTS = {
@@ -243,16 +244,120 @@ def destination_config(destination: str) -> tuple[str, str]:
 
 def endpoint_for(destination: str, event_type: str) -> str:
     if destination == "accounting":
-        endpoint = ACCOUNTING_ENDPOINTS.get(event_type)
-        if not endpoint:
-            raise ValueError(f"Accounting does not accept {event_type}")
-        return endpoint
+        if event_type == "employee.sync":
+            return ACCOUNTING_EMPLOYEE_ENDPOINT
+        if event_type in ACCOUNTING_FINANCIAL_EVENTS:
+            return ACCOUNTING_FINANCIAL_ENDPOINT
+        raise ValueError(f"Accounting does not accept {event_type}")
     endpoint = DEFAULT_ENDPOINTS.get(destination)
     if not endpoint:
         raise ValueError(f"No endpoint configured for {destination}")
     if destination in {"pos", "inventory"} and event_type != "employee.sync":
         raise ValueError(f"{destination} only accepts employee.sync during integration rollout")
     return endpoint
+
+
+def _money(value: Any) -> float:
+    try:
+        return round(float(value or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _first_positive(*values: Any) -> float:
+    for value in values:
+        amount = _money(value)
+        if amount > 0:
+            return amount
+    return 0.0
+
+
+def canonical_accounting_payload(event_type: str, envelope: dict[str, Any]) -> dict[str, Any]:
+    """Translate Staff's durable event envelope to Accounting's review contract."""
+    if event_type not in ACCOUNTING_FINANCIAL_EVENTS:
+        return envelope
+
+    body = envelope.get("payload") if isinstance(envelope.get("payload"), dict) else envelope
+    totals = body.get("totals") if isinstance(body.get("totals"), dict) else {}
+    run = body.get("run") if isinstance(body.get("run"), dict) else {}
+    cash_advance = body.get("cash_advance") if isinstance(body.get("cash_advance"), dict) else {}
+    repayment = body.get("repayment") if isinstance(body.get("repayment"), dict) else {}
+
+    external_source = str(envelope.get("external_source") or "hidden_oasis_staff_payroll")
+    external_id = str(envelope.get("external_id") or f"{event_type}:{body.get('id') or now_iso()}")
+    source_type = str(envelope.get("source_record_type") or "PayrollEvent")
+    source_id = str(envelope.get("source_record_id") or body.get("id") or run.get("id") or external_id)
+    revision = int(envelope.get("source_revision") or body.get("source_revision") or 1)
+    correlation_id = str(envelope.get("correlation_id") or external_id)
+    proposed_account_id = body.get("accounting_account_id") or body.get("financial_account_id")
+
+    financial_effect = "journal_only"
+    amount = 0.0
+    links: dict[str, Any] = {}
+    proposed_journal: dict[str, Any] | None = None
+
+    if event_type == "payroll.run.approved":
+        amount = _first_positive(totals.get("net_pay"), totals.get("gross_pay"), run.get("net_pay"), run.get("gross_pay"))
+        financial_effect = "payable"
+        links = {
+            "supplier_name": "Employees",
+            "payable_type": "payroll",
+            "due_date": run.get("payment_date") or body.get("payment_date"),
+            "category": "Payroll",
+        }
+    elif event_type == "payroll.run.paid":
+        amount = _first_positive(totals.get("net_pay"), run.get("net_pay"), body.get("amount"))
+        financial_effect = "cash_out"
+        links = {
+            "category": "Payroll",
+            "subcategory": "Net Pay",
+            "payment_method": run.get("payment_method") or body.get("payment_method") or "bank_transfer",
+            "counterparty_name": "Employees",
+        }
+    elif event_type == "payroll.13th_month.paid":
+        amount = _first_positive(run.get("net_13th_pay"), totals.get("net_pay"), body.get("amount"))
+        financial_effect = "cash_out"
+        links = {
+            "category": "Payroll",
+            "subcategory": "13th Month Pay",
+            "payment_method": run.get("payment_method") or body.get("payment_method") or "bank_transfer",
+            "counterparty_name": "Employees",
+        }
+    elif event_type == "cash_advance.released":
+        amount = _first_positive(cash_advance.get("amount"), body.get("amount"))
+        financial_effect = "cash_out"
+        links = {
+            "category": "Employee Cash Advance",
+            "subcategory": "Release",
+            "payment_method": cash_advance.get("release_method") or body.get("payment_method") or "cash",
+            "counterparty_name": cash_advance.get("employee_name") or body.get("employee_name"),
+        }
+    elif event_type == "cash_advance.repaid":
+        amount = _first_positive(repayment.get("amount"), body.get("amount"))
+        financial_effect = "cash_in"
+        links = {
+            "category": "Employee Cash Advance",
+            "subcategory": "Repayment",
+            "payment_method": repayment.get("payment_method") or body.get("payment_method") or "payroll_deduction",
+            "counterparty_name": repayment.get("employee_name") or body.get("employee_name"),
+        }
+
+    return {
+        "source_app": "staff",
+        "source_event_id": external_id,
+        "source_entity_type": source_type,
+        "source_entity_id": source_id,
+        "source_revision": revision,
+        "financial_effect": financial_effect,
+        "amount": amount,
+        "currency": str(body.get("currency") or "PHP").upper(),
+        "proposed_account_id": proposed_account_id,
+        "proposed_journal": proposed_journal,
+        "proposed_links": links,
+        "payload": envelope,
+        "idempotency_key": f"{external_source}:{external_id}:{revision}",
+        "correlation_id": correlation_id,
+    }
 
 
 def _join_url(base: str, endpoint: str) -> str:
@@ -309,10 +414,12 @@ def process_claimed_event(conn: sqlite3.Connection, row: dict[str, Any], *, time
     event_id = int(row["id"])
     attempt = int(row.get("attempt_count") or 0) + 1
     max_attempts = int(row.get("max_attempts") or 8)
-    base_url, token = destination_config(str(row["destination"]))
+    destination = str(row["destination"])
+    event_type = str(row["event_type"])
+    base_url, token = destination_config(destination)
     now = now_iso()
     if not base_url:
-        error = f"{row['destination']} destination is not configured"
+        error = f"{destination} destination is not configured"
         conn.execute(
             "UPDATE integration_outbox SET status='Retry',attempt_count=?,last_attempt_at=?,last_error=?,locked_at=NULL,locked_by=NULL,next_attempt_at=?,updated_at=? WHERE id=?",
             (attempt, now, error, (datetime.now() + timedelta(hours=1)).replace(microsecond=0).isoformat(sep=" "), now, event_id),
@@ -320,10 +427,20 @@ def process_claimed_event(conn: sqlite3.Connection, row: dict[str, Any], *, time
         conn.commit()
         return {"id": event_id, "status": "Retry", "error": error}
     try:
-        url = _join_url(base_url, endpoint_for(str(row["destination"]), str(row["event_type"])))
-        status_code, response_body = _post(url, str(row["payload_json"]), token, timeout)
+        url = _join_url(base_url, endpoint_for(destination, event_type))
+        envelope = json.loads(str(row["payload_json"]))
+        outbound = canonical_accounting_payload(event_type, envelope) if destination == "accounting" else envelope
+        status_code, response_body = _post(
+            url,
+            json.dumps(outbound, ensure_ascii=False, sort_keys=True, default=str),
+            token,
+            timeout,
+        )
         parsed = json.loads(response_body or "{}") if response_body else {}
-        duplicate = status_code == 409 or (isinstance(parsed, dict) and parsed.get("status") in {"already_applied", "Already Applied"})
+        duplicate = status_code == 409 or (
+            isinstance(parsed, dict)
+            and parsed.get("status") in {"already_applied", "Already Applied"}
+        )
         if 200 <= status_code < 300 or duplicate:
             conn.execute(
                 "UPDATE integration_outbox SET status='Completed',attempt_count=?,last_attempt_at=?,last_error=NULL,response_json=?,completed_at=?,locked_at=NULL,locked_by=NULL,updated_at=? WHERE id=?",
