@@ -6,7 +6,6 @@ import "./auth.css";
 import "./print-payslips.css";
 import "./responsive-quality.css";
 import "./cutoff-review.css";
-import "./cutoff-scroll.css";
 import "./pass1-theme.css";
 import "./prototype-foundation.css";
 import "./pass1-surfaces.css";
