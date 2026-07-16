@@ -303,8 +303,11 @@ def _cash_advance_run_check(
     ) or {}
 
     run_status = str(run.get("status") or "")
-    posted_statuses = {"Paid", "Locked", "Released"}
-    use_posted_repayments = run_status in posted_statuses
+    use_posted_repayments = run_status in {
+        "Paid",
+        "Locked",
+        "Released",
+    }
 
     advance_rows = fetchall(
         conn,
@@ -313,7 +316,10 @@ def _cash_advance_run_check(
             ca.id AS cash_advance_id,
             ca.employee_id,
             e.full_name AS name,
-            COALESCE(ca.advance_date, ca.request_date) AS advance_date,
+            COALESCE(
+                ca.advance_date,
+                ca.request_date
+            ) AS advance_date,
             COALESCE(ca.amount, 0) AS original_amount,
             COALESCE(
                 ca.remaining_balance,
@@ -330,7 +336,7 @@ def _cash_advance_run_check(
             COALESCE(r.amount, 0) AS posted_repayment,
             r.id AS repayment_id,
             ca.reason,
-            ca.status AS advance_status
+            COALESCE(ca.status, '') AS advance_status
         FROM cash_advances ca
         LEFT JOIN employees e
           ON e.id = ca.employee_id
@@ -338,24 +344,11 @@ def _cash_advance_run_check(
           ON r.cash_advance_id = ca.id
          AND r.payroll_run_id = ?
          AND COALESCE(r.active,1)=1
-        WHERE (
-                COALESCE(
-                    ca.remaining_balance,
-                    ca.outstanding_balance,
-                    ca.amount,
-                    0
-                ) > 0
-                OR r.id IS NOT NULL
-              )
-          AND COALESCE(ca.status, '') NOT IN (
+        WHERE COALESCE(ca.status, '') NOT IN (
                 'Cancelled',
                 'Rejected',
                 'Void',
                 'Voided'
-              )
-          AND (
-                r.id IS NOT NULL
-                OR COALESCE(ca.status, '') <> 'Pending'
               )
           AND lower(
                 COALESCE(
@@ -387,7 +380,10 @@ def _cash_advance_run_check(
         """
         SELECT
             employee_id,
-            COALESCE(cash_advance_deduction,0) AS planned_deduction
+            COALESCE(
+                cash_advance_deduction,
+                0
+            ) AS planned_deduction
         FROM payroll_items
         WHERE payroll_run_id=?
         """,
@@ -395,8 +391,10 @@ def _cash_advance_run_check(
     )
 
     planned_remaining = {
-        int(row.get("employee_id") or 0):
-            round(float(row.get("planned_deduction") or 0), 2)
+        int(row.get("employee_id") or 0): round(
+            float(row.get("planned_deduction") or 0),
+            2,
+        )
         for row in payroll_items
     }
 
@@ -406,7 +404,13 @@ def _cash_advance_run_check(
     issue_count = 0
 
     for row in advance_rows:
-        employee_id = int(row.get("employee_id") or 0)
+        employee_id = int(
+            row.get("employee_id") or 0
+        )
+        advance_status = str(
+            row.get("advance_status") or ""
+        ).strip()
+
         posted = round(
             float(row.get("posted_repayment") or 0),
             2,
@@ -415,35 +419,39 @@ def _cash_advance_run_check(
             float(row.get("current_balance") or 0),
             2,
         )
-
-        # A paid repayment has already reduced the current balance.
-        balance_before_run = round(
-            current_balance + posted,
-            2,
-        )
-
         scheduled = round(
             float(row.get("scheduled_deduction") or 0),
             2,
         )
 
-        expected = round(
-            min(balance_before_run, scheduled)
-            if scheduled > 0
-            else 0,
+        # Posted repayments have already reduced the live balance.
+        balance_before_run = round(
+            current_balance + posted,
             2,
         )
 
-        if use_posted_repayments:
-            applied = posted
+        pending = advance_status == "Pending"
+        fully_paid_before_run = (
+            current_balance <= 0
+            and posted <= 0
+            and advance_status == "Fully Paid"
+        )
+
+        if pending:
+            expected = 0.0
+            applied = 0.0
+            display_status = "PENDING"
+            counts_as_issue = False
+
+        elif fully_paid_before_run:
+            expected = 0.0
+            applied = 0.0
+            display_status = "FULLY PAID BEFORE RUN"
+            counts_as_issue = False
+
         else:
-            remaining_plan = planned_remaining.get(
-                employee_id,
-                0.0,
-            )
-            applied = round(
+            expected = round(
                 min(
-                    remaining_plan,
                     balance_before_run,
                     scheduled,
                 )
@@ -451,31 +459,62 @@ def _cash_advance_run_check(
                 else 0,
                 2,
             )
-            planned_remaining[employee_id] = round(
-                max(0.0, remaining_plan - applied),
-                2,
-            )
 
-        if applied <= 0 and expected > 0:
-            status = "NOT APPLIED"
-        elif applied + 0.005 < expected:
-            status = "PARTIAL"
-        elif applied > expected + 0.005:
-            status = "OVER"
-        else:
-            status = "APPLIED"
+            if use_posted_repayments:
+                applied = posted
+            else:
+                remaining_plan = planned_remaining.get(
+                    employee_id,
+                    0.0,
+                )
+                applied = round(
+                    min(
+                        remaining_plan,
+                        balance_before_run,
+                        scheduled,
+                    )
+                    if scheduled > 0
+                    else 0,
+                    2,
+                )
+                planned_remaining[employee_id] = round(
+                    max(
+                        0.0,
+                        remaining_plan - applied,
+                    ),
+                    2,
+                )
 
-        if status != "APPLIED":
+            if applied <= 0 and expected > 0:
+                display_status = "NOT APPLIED"
+                counts_as_issue = True
+            elif applied + 0.005 < expected:
+                display_status = "PARTIAL"
+                counts_as_issue = True
+            elif applied > expected + 0.005:
+                display_status = "OVER"
+                counts_as_issue = True
+            else:
+                display_status = (
+                    "APPLIED"
+                    if use_posted_repayments
+                    else "PLANNED"
+                )
+                counts_as_issue = False
+
+        if counts_as_issue:
             issue_count += 1
 
         expected_total += expected
         applied_total += applied
 
-        after_balance = (
-            current_balance
-            if use_posted_repayments
-            else max(0.0, balance_before_run - applied)
-        )
+        if use_posted_repayments:
+            balance_after_run = current_balance
+        else:
+            balance_after_run = max(
+                0.0,
+                balance_before_run - applied,
+            )
 
         out.append({
             "employee_id": employee_id,
@@ -483,27 +522,46 @@ def _cash_advance_run_check(
                 row.get("name")
                 or f"Employee {employee_id}"
             ),
-            "cash_advance_id": row.get("cash_advance_id"),
-            "repayment_id": row.get("repayment_id"),
-            "advance_date": row.get("advance_date"),
+            "cash_advance_id": row.get(
+                "cash_advance_id"
+            ),
+            "repayment_id": row.get(
+                "repayment_id"
+            ),
+            "advance_date": row.get(
+                "advance_date"
+            ),
             "original_amount": round(
-                float(row.get("original_amount") or 0),
+                float(
+                    row.get("original_amount")
+                    or 0
+                ),
                 2,
             ),
-            "balance_before_run": balance_before_run,
-            "expected": expected,
-            "applied": applied,
+            "balance_before_run": round(
+                balance_before_run,
+                2,
+            ),
+            "expected": round(expected, 2),
+            "applied": round(applied, 2),
             "balance_after_run": round(
-                after_balance,
+                balance_after_run,
                 2,
             ),
-            "status": status,
+            "status": display_status,
+            "advance_status": advance_status,
             "reason": row.get("reason"),
         })
 
     return {
-        "expected_total": round(expected_total, 2),
-        "applied_total": round(applied_total, 2),
+        "expected_total": round(
+            expected_total,
+            2,
+        ),
+        "applied_total": round(
+            applied_total,
+            2,
+        ),
         "issue_count": issue_count,
         "status": (
             "OK"
