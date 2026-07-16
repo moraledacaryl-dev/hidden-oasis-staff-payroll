@@ -14,6 +14,45 @@ def _date_str(v: Any) -> str:
     return str(v)
 
 
+def _attendance_review_count(conn: sqlite3.Connection, period_start: str, period_end: str) -> int:
+    """Count only attendance rows that are still genuinely reviewable.
+
+    The Cutoff UI intentionally auto-clears an orphan ``Needs Review`` row when
+    there is no scheduled shift and no actual attendance evidence. Payroll
+    preflight must use the same rule; otherwise a stale/orphan time-log row can
+    block payroll even though the visible Review Queue is empty.
+    """
+    scheduled_keys = {
+        (int(row.get("employee_id") or 0), str(row.get("work_date") or "")[:10])
+        for row in trusted_scheduled_workdays(conn, period_start, period_end)
+        if row.get("employee_id") and row.get("work_date")
+    }
+    rows = fetchall(
+        conn,
+        """
+        SELECT employee_id, work_date, actual_in, actual_out, is_absent, absence_type
+        FROM time_logs
+        WHERE date(work_date) BETWEEN date(?) AND date(?)
+          AND lower(trim(COALESCE(attendance_status, ''))) = 'needs review'
+        """,
+        (period_start, period_end),
+    )
+
+    count = 0
+    for row in rows:
+        key = (int(row.get("employee_id") or 0), str(row.get("work_date") or "")[:10])
+        has_schedule = key in scheduled_keys
+        has_actual_evidence = bool(
+            row.get("actual_in")
+            or row.get("actual_out")
+            or int(row.get("is_absent") or 0) == 1
+            or str(row.get("absence_type") or "").strip()
+        )
+        if has_schedule or has_actual_evidence:
+            count += 1
+    return count
+
+
 def build_payroll_preflight_checks(conn: sqlite3.Connection, period_start: str, period_end: str) -> list[dict[str, Any]]:
     """Return payroll QA checks that should be reviewed before saving/approving payroll."""
     checks: list[dict[str, Any]] = []
@@ -27,7 +66,7 @@ def build_payroll_preflight_checks(conn: sqlite3.Connection, period_start: str, 
             "recommended_action": action,
         })
 
-    pending_logs = fetchone(conn, "SELECT COUNT(*) AS c FROM time_logs WHERE work_date BETWEEN ? AND ? AND attendance_status='Needs Review'", (period_start, period_end))["c"]
+    pending_logs = _attendance_review_count(conn, period_start, period_end)
     if pending_logs:
         add("Blocker", "Attendance", "Attendance review items exist inside cutoff.", pending_logs, "Approve the visible Review Queue items before creating/finalizing payroll.")
 
