@@ -6,7 +6,10 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from api.payroll_drafts import must_be_payroll_user, totals
-from core.cash_advance_payroll import apply_payroll_cash_advance_repayments
+from core.cash_advance_payroll import (
+    apply_payroll_cash_advance_repayments,
+    reverse_payroll_cash_advance_repayments,
+)
 from core.db import DB_PATH, fetchone, get_conn
 from core.payroll_engine import create_accounting_queue_for_payroll
 from core.quality import build_payroll_preflight_checks
@@ -47,8 +50,41 @@ def mark_payroll_run_paid(
 
         actor = str(user.get("display_name") or "Owner")
         reference = payload.reference.strip() if payload.reference else None
-        apply_payroll_cash_advance_repayments(conn, run_id, actor=actor, reference=reference)
         paid_at = conn.execute("SELECT datetime('now','localtime')").fetchone()[0]
+
+        revision_of_run_id = int(run.get("revision_of_run_id") or 0)
+        if revision_of_run_id:
+            original = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (revision_of_run_id,))
+            if not original:
+                raise HTTPException(status_code=409, detail="Original payroll run for this revision no longer exists.")
+            if original.get("status") not in {"Paid", "Locked", "Released"}:
+                raise HTTPException(status_code=409, detail="A paid revision can only supersede an already paid payroll run.")
+            if original.get("superseded_by_run_id") not in (None, run_id):
+                raise HTTPException(status_code=409, detail=f"Original payroll run is already superseded by run #{original['superseded_by_run_id']}.")
+
+            reverse_payroll_cash_advance_repayments(
+                conn,
+                revision_of_run_id,
+                actor=actor,
+                reason=f"Superseded by paid payroll revision #{run_id}",
+            )
+            conn.execute(
+                "UPDATE payroll_runs SET superseded_by_run_id=? WHERE id=?",
+                (run_id, revision_of_run_id),
+            )
+            conn.execute(
+                "INSERT INTO audit_logs(actor, action, table_name, record_id, details, created_at) VALUES(?,?,?,?,?,?)",
+                (
+                    actor,
+                    "Paid payroll superseded by revision",
+                    "payroll_runs",
+                    revision_of_run_id,
+                    f"superseded_by_run_id={run_id}; prior cash-advance repayments reversed",
+                    paid_at,
+                ),
+            )
+
+        apply_payroll_cash_advance_repayments(conn, run_id, actor=actor, reference=reference)
         conn.execute("UPDATE payroll_runs SET status='Paid', paid_at=? WHERE id=?", (paid_at, run_id))
         create_accounting_queue_for_payroll(conn, run_id)
         try:
