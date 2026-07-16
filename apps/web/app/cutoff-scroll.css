@@ -1,0 +1,36 @@
+/* The cutoff review can be taller than the viewport. Give the page its own
+   vertical scroll region so wide review tables never trap trackpad/wheel input. */
+.cutoff-page {
+  width: 100%;
+  min-height: 0;
+  height: calc(100dvh - 76px);
+  max-height: calc(100dvh - 76px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 4px 48px 0;
+  scrollbar-gutter: stable;
+}
+
+.cutoff-review-card,
+.cutoff-review-card .table-wrap {
+  min-height: 0;
+  max-height: none;
+  overflow-y: visible;
+  overscroll-behavior-y: auto;
+  touch-action: pan-x pan-y;
+}
+
+.cutoff-review-card .table-wrap {
+  overflow-x: auto;
+}
+
+@media (max-width: 920px) {
+  .cutoff-page {
+    height: calc(100dvh - 64px);
+    max-height: calc(100dvh - 64px);
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+}
