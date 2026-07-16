@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CutoffReviewWheelBridge } from "@/components/CutoffReviewWheelBridge";
 import { SidebarScrollMemory } from "@/components/SidebarScrollMemory";
 import { ViewportScrollRecovery } from "@/components/ViewportScrollRecovery";
 import "./globals.css";
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body><SidebarScrollMemory /><ViewportScrollRecovery />{children}</body>
+      <body><SidebarScrollMemory /><ViewportScrollRecovery /><CutoffReviewWheelBridge />{children}</body>
     </html>
   );
 }
