@@ -71,6 +71,15 @@
   justify-content: flex-end;
 }
 
+/* Keep the review queue native: horizontal overflow only, while vertical
+   trackpad and wheel gestures bubble to the page at full browser speed. */
+.cutoff-review-card .table-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
+  overscroll-behavior: auto;
+  touch-action: auto;
+}
+
 @media (max-width: 980px) {
   .review-queue-item:not(.blocker) {
     grid-template-columns: 1fr;
