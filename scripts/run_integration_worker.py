@@ -9,7 +9,8 @@ from datetime import datetime
 
 from api.main import configured_db_path
 from core.db import get_conn
-from core.integration_outbox import ensure_integration_schema, process_due_events
+from core.integration_outbox import ensure_integration_schema
+from core.operations_v2_adapter import process_due_events
 
 
 _STOP = False
