@@ -63,47 +63,119 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
         for advance in advances:
             if remaining <= 0:
                 break
-            already = fetchone(
+            existing = fetchone(
                 conn,
                 """
-                SELECT id FROM cash_advance_repayments
-                WHERE cash_advance_id=? AND payroll_run_id=? AND COALESCE(active,1)=1
+                SELECT *
+                FROM cash_advance_repayments
+                WHERE cash_advance_id=?
+                  AND payroll_run_id=?
+                ORDER BY id DESC
+                LIMIT 1
                 """,
                 (advance["id"], run_id),
             )
-            if already:
+
+            if existing and int(
+                existing.get("active")
+                if existing.get("active") is not None
+                else 1
+            ) == 1:
+                existing_amount = round(
+                    float(existing.get("amount") or 0),
+                    2,
+                )
+                remaining = round(
+                    max(0.0, remaining - existing_amount),
+                    2,
+                )
                 continue
-            current = recalculate_balance(conn, int(advance["id"]))
-            balance = round(float(current.get("balance") or 0), 2)
+
+            current = recalculate_balance(
+                conn,
+                int(advance["id"]),
+            )
+            balance = round(
+                float(current.get("balance") or 0),
+                2,
+            )
             if balance <= 0:
                 continue
+
             amount = round(min(remaining, balance), 2)
             stamp = now_iso()
             payment_date = run.get("payout_date") or now_iso()[:10]
             method = "Payroll deduction"
-            _insert_repayment(
+
+            values = {
+                "cash_advance_id": advance["id"],
+                "employee_id": item["employee_id"],
+                "repayment_date": payment_date,
+                "payment_date": payment_date,
+                "amount": amount,
+                "source": "Payroll",
+                "payment_method": method,
+                "method": method,
+                "payroll_run_id": run_id,
+                "payroll_item_id": item.get("id"),
+                "reference": reference or f"Payroll run {run_id}",
+                "notes": f"Auto-applied from payroll run {run_id}",
+                "active": 1,
+                "created_by": actor,
+                "created_at": stamp,
+                "updated_by": actor,
+                "updated_at": stamp,
+            }
+
+            if existing:
+                repayment_columns = _columns(
+                    conn,
+                    "cash_advance_repayments",
+                )
+
+                update_values = {
+                    key: value
+                    for key, value in values.items()
+                    if key in repayment_columns
+                    and key not in {
+                        "cash_advance_id",
+                        "payroll_run_id",
+                        "created_at",
+                        "created_by",
+                    }
+                }
+
+                for field in (
+                    "reversed_by",
+                    "reversed_at",
+                    "reversal_reason",
+                ):
+                    if field in repayment_columns:
+                        update_values[field] = None
+
+                assignments = ", ".join(
+                    f"{column}=?"
+                    for column in update_values
+                )
+
+                conn.execute(
+                    f"""
+                    UPDATE cash_advance_repayments
+                    SET {assignments}
+                    WHERE id=?
+                    """,
+                    [
+                        *update_values.values(),
+                        existing["id"],
+                    ],
+                )
+            else:
+                _insert_repayment(conn, values)
+
+            recalculate_balance(
                 conn,
-                {
-                    "cash_advance_id": advance["id"],
-                    "employee_id": item["employee_id"],
-                    "repayment_date": payment_date,
-                    "payment_date": payment_date,
-                    "amount": amount,
-                    "source": "Payroll",
-                    "payment_method": method,
-                    "method": method,
-                    "payroll_run_id": run_id,
-                    "payroll_item_id": item.get("id"),
-                    "reference": reference or f"Payroll run {run_id}",
-                    "notes": f"Auto-applied from payroll run {run_id}",
-                    "active": 1,
-                    "created_by": actor,
-                    "created_at": stamp,
-                    "updated_by": actor,
-                    "updated_at": stamp,
-                },
+                int(advance["id"]),
             )
-            recalculate_balance(conn, int(advance["id"]))
             remaining = round(remaining - amount, 2)
 
 
