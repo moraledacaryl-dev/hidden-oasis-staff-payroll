@@ -105,9 +105,29 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
     return () => controller.abort();
   }, [day, initialEmployeeId, initialTab, open, shift]);
 
-  const currentShift = bundle.shift || shift;
-  const selectedEmployee = useMemo(() => employees.find((item) => String(item.id) === employeeId), [employeeId, employees]);
-  const readOnly = !canEdit || Boolean(bundle.legacy_read_only);
+  // Preserve the user's intent. When "+ Add another shift" opens the
+  // drawer, `shift` is null. The employee-day lookup may still return an
+  // existing shift in `bundle.shift`, but that existing shift must not turn
+  // this create operation into an edit operation.
+  const creatingNewShift = !shift?.id;
+  const currentShift = creatingNewShift
+    ? null
+    : (bundle.shift || shift);
+
+  const selectedEmployee = useMemo(
+    () => employees.find(
+      (item) => String(item.id) === employeeId,
+    ),
+    [employeeId, employees],
+  );
+
+  const readOnly = (
+    !canEdit
+    || (
+      !creatingNewShift
+      && Boolean(bundle.legacy_read_only)
+    )
+  );
   const lockedSnapshot = Boolean(bundle.payroll_locked);
   const hasLeave = Boolean(bundle.leave);
 
