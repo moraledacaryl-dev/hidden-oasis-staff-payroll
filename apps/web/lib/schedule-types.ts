@@ -38,6 +38,7 @@ export type ScheduleEmployee = {
 
 export type ScheduleActual = {
   id: number;
+  scheduled_shift_id?: number | null;
   employee_id: number;
   work_date: string;
   actual_in?: string | null;

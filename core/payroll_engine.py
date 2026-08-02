@@ -281,8 +281,25 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             """,
             (emp["id"], period_start, period_end),
         )
-        scheds = trusted_schedule_rows(conn, period_start, period_end, int(emp["id"]))
-        sched_by_date = {s["work_date"]: s for s in scheds}
+        scheds = trusted_schedule_rows(
+            conn,
+            period_start,
+            period_end,
+            int(emp["id"]),
+        )
+        sched_by_id = {
+            int(schedule["scheduled_shift_id"]): schedule
+            for schedule in scheds
+            if schedule.get("scheduled_shift_id")
+        }
+        scheds_by_date: dict[str, list[dict[str, Any]]] = {}
+        for schedule in scheds:
+            scheds_by_date.setdefault(
+                str(schedule["work_date"]),
+                [],
+            ).append(schedule)
+
+        daily_regular_allocated: dict[str, float] = {}
         holiday_rows = fetchall(
             conn,
             "SELECT * FROM holidays WHERE active=1 AND holiday_date BETWEEN ? AND ?",
@@ -311,14 +328,42 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
                     result.unpaid_absence_days += 1
                 log_dates.add(work_date)
                 continue
-            sched = sched_by_date.get(log["work_date"])
+            work_date = str(log["work_date"])
+            scheduled_shift_id = int(
+                log.get("scheduled_shift_id") or 0
+            )
+
+            sched = (
+                sched_by_id.get(scheduled_shift_id)
+                if scheduled_shift_id
+                else None
+            )
+
+            if not sched and not scheduled_shift_id:
+                candidates = scheds_by_date.get(work_date, [])
+                if len(candidates) == 1:
+                    sched = candidates[0]
+                elif len(candidates) > 1:
+                    warnings.append(
+                        f"Attendance on {work_date} is not linked to a "
+                        "specific shift; multiple shifts exist, so payroll "
+                        "uses actual time without assigning it to both shifts."
+                    )
+
             if sched:
-                break_mins = int(sched.get("break_minutes") if sched.get("break_minutes") is not None else emp.get("unpaid_break_minutes") or 0)
+                break_mins = int(
+                    sched.get("break_minutes")
+                    if sched.get("break_minutes") is not None
+                    else emp.get("unpaid_break_minutes") or 0
+                )
                 s_start = sched["shift_start"]
                 s_end = sched["shift_end"]
                 is_rest_day = bool(sched.get("is_rest_day"))
             else:
-                warnings.append(f"No schedule found for {log['work_date']}; paid based on actual log only.")
+                warnings.append(
+                    f"No unambiguous schedule found for {work_date}; "
+                    "paid based on this actual log only."
+                )
                 break_mins = int(emp.get("unpaid_break_minutes") or 0)
                 s_start = log.get("actual_in") or "00:00"
                 s_end = log.get("actual_out") or "00:00"
@@ -335,8 +380,26 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             outside_schedule_paid = round(max(0.0, paid_actual - inside_schedule_paid), 4)
             approved_ot = float(log.get("approved_ot_hours") or 0)
 
-            auto_inside_schedule_ot = round(max(0.0, inside_schedule_paid - standard_paid_hours), 4)
-            regular_hours = round(min(standard_paid_hours, inside_schedule_paid), 4)
+            regular_already_allocated = daily_regular_allocated.get(
+                work_date,
+                0.0,
+            )
+            remaining_regular_for_day = max(
+                0.0,
+                standard_paid_hours - regular_already_allocated,
+            )
+            regular_hours = round(
+                min(remaining_regular_for_day, inside_schedule_paid),
+                4,
+            )
+            auto_inside_schedule_ot = round(
+                max(0.0, inside_schedule_paid - regular_hours),
+                4,
+            )
+            daily_regular_allocated[work_date] = round(
+                regular_already_allocated + regular_hours,
+                4,
+            )
             approved_outside_schedule_ot = round(min(approved_ot, outside_schedule_paid), 4)
             detected_extra = round(auto_inside_schedule_ot + outside_schedule_paid, 4)
             payable_ot = round(auto_inside_schedule_ot + approved_outside_schedule_ot, 4)
@@ -362,13 +425,24 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             result.regular_pay += base_regular_pay
             if base_multiplier > 1.0:
                 if "Regular Holiday" in day_label:
-                    # Regular holiday guarantee: the HOLIDAY PAY component itself is at least
-                    # 8 ordinary hours, even if the employee was late or worked less than 8.
-                    # Actual worked ordinary hours stay in regular_pay; OT stays in ot_pay.
-                    holiday_pay_for_day = round(max(standard_paid_hours * hourly_rate, base_regular_pay * (base_multiplier - 1.0)), 2)
-                    result.holiday_pay += holiday_pay_for_day
-                    regular_holiday_base_paid_dates.add(str(log["work_date"]))
-                    warnings.append(f"{log['work_date']} uses {day_label}; holiday pay is at least {standard_paid_hours:g} hours.")
+                    # The regular-holiday guarantee is a day-level amount.
+                    # Multiple shifts on the same date must not duplicate it.
+                    holiday_date = str(log["work_date"])
+                    if holiday_date not in regular_holiday_base_paid_dates:
+                        holiday_pay_for_day = round(
+                            max(
+                                standard_paid_hours * hourly_rate,
+                                base_regular_pay * (base_multiplier - 1.0),
+                            ),
+                            2,
+                        )
+                        result.holiday_pay += holiday_pay_for_day
+                        regular_holiday_base_paid_dates.add(holiday_date)
+                        warnings.append(
+                            f"{holiday_date} uses {day_label}; holiday pay "
+                            f"is guaranteed once for the day at a minimum of "
+                            f"{standard_paid_hours:g} hours."
+                        )
                 else:
                     # Special holiday/rest-day premiums remain based on actual paid regular hours.
                     result.holiday_pay += round(base_regular_pay * (base_multiplier - 1.0), 2)
@@ -442,14 +516,20 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             regular_holiday_base_paid_dates.add(hol_date)
             warnings.append(f"Regular holiday base pay on {hol_date} was paid even with no worked log.")
 
-        for work_date, sched in sched_by_date.items():
+        for work_date, day_schedules in scheds_by_date.items():
             if work_date in regular_holidays:
                 continue
-            if sched.get("is_rest_day"):
+            if day_schedules and all(
+                bool(schedule.get("is_rest_day"))
+                for schedule in day_schedules
+            ):
                 continue
             if work_date not in log_dates and work_date not in approved_leave_dates:
                 result.unpaid_absence_days += 1
-                warnings.append(f"Scheduled day {work_date} has no time log or approved leave; counted as unpaid absence.")
+                warnings.append(
+                    f"Scheduled day {work_date} has no time log or "
+                    "approved leave; counted as one unpaid absence day."
+                )
 
         result.regular_pay = round(result.regular_pay, 2)
         result.ot_pay = round(result.ot_pay, 2)

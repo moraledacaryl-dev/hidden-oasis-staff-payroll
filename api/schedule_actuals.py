@@ -39,6 +39,7 @@ def schedule_actuals_week(
             """
             SELECT
                 tl.id,
+                tl.scheduled_shift_id,
                 tl.employee_id,
                 tl.work_date,
                 tl.actual_in,
@@ -55,7 +56,11 @@ def schedule_actuals_week(
             LEFT JOIN employees e ON e.id = tl.employee_id
             WHERE date(tl.work_date) BETWEEN date(?) AND date(?)
               AND COALESCE(tl.attendance_status, '') != 'Rejected'
-            ORDER BY tl.work_date, e.full_name, tl.id DESC
+            ORDER BY
+                tl.work_date,
+                e.full_name,
+                COALESCE(tl.scheduled_shift_id, 0),
+                tl.id DESC
             """,
             (start, end),
         )

@@ -15,7 +15,7 @@ export type ScheduleDayBundle = {
   ok: boolean;
   employee?: ScheduleEmployee | null;
   shift?: ScheduleShift | null;
-  actual?: { id: number; actual_in?: string | null; actual_out?: string | null; attendance_status?: string | null; approved_ot_hours?: number | null; notes?: string | null; is_absent?: number | null; absence_type?: string | null; notice_given_at?: string | null; notice_timing?: string | null; evidence_ref?: string | null } | null;
+  actual?: { id: number; scheduled_shift_id?: number | null; actual_in?: string | null; actual_out?: string | null; attendance_status?: string | null; approved_ot_hours?: number | null; notes?: string | null; is_absent?: number | null; absence_type?: string | null; notice_given_at?: string | null; notice_timing?: string | null; evidence_ref?: string | null } | null;
   leave?: { id: number; leave_type_name?: string | null; reason?: string | null; paid?: number | null; status?: string | null; days?: number | null; paid_hours?: number | null } | null;
   payroll_locked?: boolean;
   paid_run?: { id: number; period_start: string; period_end: string } | null;
@@ -221,7 +221,29 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
   }
 
   function saveScheduled(formData: FormData) { void save("scheduled", { shift_id: currentShift?.id || null, employee_id: Number(formData.get("employee_id") || 0) || null, shift_date: String(formData.get("shift_date") || shiftDate), start_time: String(formData.get("start_time") || "08:00"), end_time: String(formData.get("end_time") || "17:00"), position: String(formData.get("position") || "Other"), department: String(formData.get("department") || "") || null, break_minutes: Number(formData.get("break_minutes") || 0), notes: String(formData.get("notes") || "") || null }); }
-  function saveActual(formData: FormData) { if (!employeeId) { setMessage("Choose an employee before saving actual attendance."); return; } void save("actual", { employee_id: Number(employeeId), shift_date: shiftDate, actual_in: String(formData.get("actual_in") || "") || null, actual_out: String(formData.get("actual_out") || "") || null, attendance_status: String(formData.get("attendance_status") || "Needs Review"), actual_exception_status: String(formData.get("actual_exception_status") || "") || null, evidence_ref: String(formData.get("evidence_ref") || "") || null, approved_ot_hours: Number(formData.get("approved_ot_hours") || 0), notes: String(formData.get("notes") || "") || null }); }
+  function saveActual(formData: FormData) {
+    if (!employeeId) {
+      setMessage("Choose an employee before saving actual attendance.");
+      return;
+    }
+    if (!currentShift?.id || currentShift.id < 1) {
+      setMessage("Save the scheduled shift first before recording its actual attendance.");
+      setTab("scheduled");
+      return;
+    }
+    void save("actual", {
+      shift_id: currentShift.id,
+      employee_id: Number(employeeId),
+      shift_date: shiftDate,
+      actual_in: String(formData.get("actual_in") || "") || null,
+      actual_out: String(formData.get("actual_out") || "") || null,
+      attendance_status: String(formData.get("attendance_status") || "Needs Review"),
+      actual_exception_status: String(formData.get("actual_exception_status") || "") || null,
+      evidence_ref: String(formData.get("evidence_ref") || "") || null,
+      approved_ot_hours: Number(formData.get("approved_ot_hours") || 0),
+      notes: String(formData.get("notes") || "") || null,
+    });
+  }
   function saveLeave(formData: FormData) { if (!employeeId) { setMessage("Choose an employee before saving leave or absence."); return; } const rawHours = String(formData.get("leave_hours") || "").trim(); void save("leave", { employee_id: Number(employeeId), shift_date: shiftDate, leave_kind: String(formData.get("leave_kind") || "None"), leave_days: rawHours ? null : Number(formData.get("leave_days") || 1), leave_hours: rawHours ? Number(rawHours) : null, reason: String(formData.get("reason") || "") || null, notice_given_at: String(formData.get("notice_given_at") || "") || null, notice_timing: String(formData.get("notice_timing") || "") || null, evidence_ref: String(formData.get("evidence_ref") || "") || null }); }
 
   const actualAbsenceType = String(bundle.actual?.absence_type || "").toLowerCase();

@@ -21,6 +21,7 @@ type ActualsResponse = { ok: boolean; week_start: string; week_end: string; item
 function addWeek(iso: string, weeks: number) { return addIsoDays(iso, weeks * 7); }
 function uniq(values: string[]) { return Array.from(new Set(values.filter(Boolean))).sort(); }
 function actualKey(employeeId: number | null | undefined, date: string) { return `${employeeId || "unassigned"}:${date}`; }
+function shiftActualKey(shiftId: number | null | undefined) { return String(shiftId || ""); }
 function shiftIdentity(shift: ScheduleShift) { return [shift.employee_id || "unassigned", shift.shift_date, shift.start_time, shift.end_time].join(":"); }
 function dedupeScheduleItems(items: ScheduleShift[]) { const byIdentity = new Map<string, ScheduleShift>(); for (const item of items) { const key = shiftIdentity(item); const existing = byIdentity.get(key); if (!existing) { byIdentity.set(key, item); continue; } if (existing.source === "imported" && item.source !== "imported") byIdentity.set(key, item); } return Array.from(byIdentity.values()); }
 function actualText(shift: ScheduleShift) { if (shift.is_absent) return shift.absence_type || "Absent"; if (shift.actual_in || shift.actual_out) return `${shift.actual_in || "—"}–${shift.actual_out || "—"}`; return "Not recorded"; }
@@ -52,10 +53,76 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
   if (failed?.status === "rejected") return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div className="page"><section className="card"><strong>Schedule unavailable</strong><p className="muted">{failed.reason instanceof Error ? failed.reason.message : "Try again shortly."}</p></section></div></Shell>;
 
   const [week, employees, actuals] = loaded.map((result) => result.status === "fulfilled" ? result.value : null) as [WeekResponse, ScheduleEmployee[], ScheduleActual[]];
-  const actualsByKey = actuals.reduce<Record<string, ScheduleActual>>((acc, actual) => { acc[actualKey(actual.employee_id, actual.work_date)] ||= actual; return acc; }, {});
+  const actualsByShiftId = actuals.reduce<Record<string, ScheduleActual>>((acc, actual) => {
+    if (actual.scheduled_shift_id) {
+      acc[shiftActualKey(actual.scheduled_shift_id)] = actual;
+    }
+    return acc;
+  }, {});
+
+  const legacyActualsByKey = actuals.reduce<Record<string, ScheduleActual[]>>((acc, actual) => {
+    if (!actual.scheduled_shift_id) {
+      const key = actualKey(actual.employee_id, actual.work_date);
+      (acc[key] ||= []).push(actual);
+    }
+    return acc;
+  }, {});
+
+  const dedupedWeekItems = dedupeScheduleItems(week.items);
+  const shiftCountsByEmployeeDate = dedupedWeekItems.reduce<Record<string, number>>((acc, item) => {
+    const key = actualKey(item.employee_id, item.shift_date);
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
   const days = Array.from({ length: 7 }, (_, i) => addIsoDays(week.week_start, i));
   const previousWeekStart = addWeek(week.week_start, -1);
-  const enrichedItems: ScheduleShift[] = dedupeScheduleItems(week.items).map((item) => { const actual = actualsByKey[actualKey(item.employee_id, item.shift_date)]; if (actual) return { ...item, actual_in: actual.actual_in || null, actual_out: actual.actual_out || null, actual_status: actual.attendance_status || null, actual_source: actual.source || null, actual_notes: actual.notes || null, is_absent: actual.is_absent || 0, absence_type: actual.absence_type || null, approved_ot_hours: actual.approved_ot_hours || 0 }; if (item.source === "imported" && item.employee_id) return { ...item, actual_in: item.start_time, actual_out: item.end_time, actual_status: "Approved", actual_source: "legacy_schedule", actual_notes: "Legacy schedule treated as actual for old data.", is_absent: 0, approved_ot_hours: 0 }; return item; });
+  const enrichedItems: ScheduleShift[] = dedupedWeekItems.map((item) => {
+    const employeeDateKey = actualKey(item.employee_id, item.shift_date);
+    const exactActual = item.id > 0
+      ? actualsByShiftId[shiftActualKey(item.id)]
+      : undefined;
+
+    const legacyCandidates = legacyActualsByKey[employeeDateKey] || [];
+    const safeLegacyActual = (
+      !exactActual
+      && shiftCountsByEmployeeDate[employeeDateKey] === 1
+      && legacyCandidates.length === 1
+    )
+      ? legacyCandidates[0]
+      : undefined;
+
+    const actual = exactActual || safeLegacyActual;
+
+    if (actual) {
+      return {
+        ...item,
+        actual_in: actual.actual_in || null,
+        actual_out: actual.actual_out || null,
+        actual_status: actual.attendance_status || null,
+        actual_source: actual.source || null,
+        actual_notes: actual.notes || null,
+        is_absent: actual.is_absent || 0,
+        absence_type: actual.absence_type || null,
+        approved_ot_hours: actual.approved_ot_hours || 0,
+      };
+    }
+
+    if (item.source === "imported" && item.employee_id) {
+      return {
+        ...item,
+        actual_in: item.start_time,
+        actual_out: item.end_time,
+        actual_status: "Approved",
+        actual_source: "legacy_schedule",
+        actual_notes: "Legacy schedule treated as actual for old data.",
+        is_absent: 0,
+        approved_ot_hours: 0,
+      };
+    }
+
+    return item;
+  });
   const departments = uniq([...employees.map((e) => e.department || ""), ...enrichedItems.map((s) => s.employee_department || s.department || "")]);
   const positions = uniq([...employees.map((e) => e.position || ""), ...enrichedItems.map((s) => s.position || "")]);
   const scheduledEmployeeIds = new Set(enrichedItems.map((item) => item.employee_id).filter((id): id is number => typeof id === "number"));

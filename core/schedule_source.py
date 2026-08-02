@@ -29,6 +29,7 @@ def first_existing(cols: set[str], names: list[str]) -> str | None:
 
 def _normalize_schedule_row(row: dict[str, Any], source: str) -> dict[str, Any]:
     return {
+        "scheduled_shift_id": row.get("scheduled_shift_id"),
         "employee_id": row.get("employee_id"),
         "work_date": str(row.get("work_date") or row.get("shift_date") or ""),
         "shift_start": str(row.get("shift_start") or row.get("start_time") or "00:00")[:5],
@@ -58,6 +59,7 @@ def scheduled_shift_rows(
         conn,
         f"""
         SELECT
+            ss.id AS scheduled_shift_id,
             ss.employee_id,
             ss.shift_date AS work_date,
             ss.start_time AS shift_start,

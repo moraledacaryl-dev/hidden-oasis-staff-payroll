@@ -61,6 +61,7 @@ class DaySchedulePayload(BaseModel):
 
 
 class DayActualPayload(BaseModel):
+    shift_id: int | None = None
     employee_id: int
     shift_date: date
     actual_in: str | None = None
@@ -179,6 +180,21 @@ def ensure_schema(conn) -> None:
         ensure_column(conn, "time_logs", "notice_given_at", "TEXT")
         ensure_column(conn, "time_logs", "notice_timing", "TEXT")
         ensure_column(conn, "time_logs", "evidence_ref", "TEXT")
+        ensure_column(conn, "time_logs", "scheduled_shift_id", "INTEGER")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_time_logs_scheduled_shift
+            ON time_logs(scheduled_shift_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_time_logs_scheduled_shift_active
+            ON time_logs(scheduled_shift_id)
+            WHERE scheduled_shift_id IS NOT NULL
+              AND COALESCE(attendance_status, '') != 'Rejected'
+            """
+        )
     ensure_schedule_change_log_schema(conn)
     conn.commit()
 
@@ -471,14 +487,74 @@ def fetch_shift(conn, shift_id: int | None, employee_id: int | None, shift_date:
     return None
 
 
-def fetch_time_log(conn, employee_id: int | None, shift_date: str) -> dict[str, Any] | None:
+def fetch_time_log(
+    conn,
+    employee_id: int | None,
+    shift_date: str,
+    shift_id: int | None = None,
+) -> dict[str, Any] | None:
     if not employee_id:
         return None
+
+    if shift_id and shift_id > 0:
+        linked = fetchone(
+            conn,
+            """
+            SELECT *
+            FROM time_logs
+            WHERE scheduled_shift_id=?
+              AND employee_id=?
+              AND date(work_date)=date(?)
+              AND COALESCE(attendance_status, '') != 'Rejected'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (shift_id, employee_id, shift_date),
+        )
+        if linked:
+            return linked
+
+        # A legacy, unlinked employee-day row is safe as fallback only when
+        # exactly one canonical shift exists for that employee and date.
+        shift_count = fetchone(
+            conn,
+            """
+            SELECT COUNT(*) AS total
+            FROM scheduled_shifts
+            WHERE employee_id=?
+              AND date(shift_date)=date(?)
+            """,
+            (employee_id, shift_date),
+        ) or {}
+
+        if int(shift_count.get("total") or 0) == 1:
+            return fetchone(
+                conn,
+                """
+                SELECT *
+                FROM time_logs
+                WHERE employee_id=?
+                  AND date(work_date)=date(?)
+                  AND scheduled_shift_id IS NULL
+                  AND COALESCE(attendance_status, '') != 'Rejected'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (employee_id, shift_date),
+            )
+
+        return None
+
+    # Day-level lookup remains available for leave/absence workflows.
     return fetchone(
         conn,
         """
-        SELECT * FROM time_logs
-        WHERE employee_id=? AND date(work_date)=date(?)
+        SELECT *
+        FROM time_logs
+        WHERE employee_id=?
+          AND date(work_date)=date(?)
+          AND scheduled_shift_id IS NULL
+          AND COALESCE(attendance_status, '') != 'Rejected'
         ORDER BY id DESC
         LIMIT 1
         """,
@@ -530,7 +606,12 @@ def day_bundle(conn, shift_date: str, employee_id: int | None = None, shift_id: 
         "ok": True,
         "employee": employee,
         "shift": clean_shift({**shift, "source": shift.get("source") or "planned", "movable": shift.get("movable", True)}) if shift else None,
-        "actual": fetch_time_log(conn, resolved_employee_id, shift_date),
+        "actual": fetch_time_log(
+            conn,
+            resolved_employee_id,
+            shift_date,
+            int(shift["id"]) if shift and int(shift.get("id") or 0) > 0 else None,
+        ),
         "leave": fetch_leave(conn, resolved_employee_id, shift_date),
         "payroll_locked": bool(locked_run),
         "paid_run": locked_run,
@@ -757,14 +838,64 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
         if fetch_leave(conn, payload.employee_id, shift_date):
             raise HTTPException(status_code=409, detail="This employee already has leave/absence for this date. Clear the leave day first before saving actual attendance.")
         timestamp = now_iso()
-        shift = fetch_shift(conn, None, payload.employee_id, shift_date)
+
+        shift = None
+        if payload.shift_id:
+            shift = fetch_shift(
+                conn,
+                int(payload.shift_id),
+                payload.employee_id,
+                shift_date,
+            )
+            if not shift:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Scheduled shift not found.",
+                )
+            if int(shift.get("employee_id") or 0) != payload.employee_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="The selected shift belongs to another employee.",
+                )
+            if str(shift.get("shift_date") or "")[:10] != shift_date:
+                raise HTTPException(
+                    status_code=409,
+                    detail="The selected shift belongs to another date.",
+                )
+        else:
+            shifts_for_day = fetchall(
+                conn,
+                """
+                SELECT *
+                FROM scheduled_shifts
+                WHERE employee_id=?
+                  AND date(shift_date)=date(?)
+                ORDER BY start_time, id
+                """,
+                (payload.employee_id, shift_date),
+            )
+            if len(shifts_for_day) > 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Choose the exact shift before saving actual attendance. "
+                        "This employee has multiple shifts on this date."
+                    ),
+                )
+            shift = shifts_for_day[0] if shifts_for_day else None
+
         if status_value in {"Pending", "ON-TIME", "Grace Period", "LATE", "Partial Absence"}:
             status_value = attendance_status_from_schedule(
                 str(shift.get("start_time") or "") if shift else None,
                 payload.actual_in,
                 fallback=status_value,
             )
-        existing = fetch_time_log(conn, payload.employee_id, shift_date)
+        existing = fetch_time_log(
+            conn,
+            payload.employee_id,
+            shift_date,
+            int(payload.shift_id) if payload.shift_id else None,
+        )
         before = dict(existing) if existing else None
         was_needs_review = existing and str(existing.get("attendance_status") or "") == "Needs Review"
         explicitly_approved = status_value == "Approved"
@@ -795,20 +926,9 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
             except ValueError:
                 return None
 
-        shift_row = fetchone(
-            conn,
-            """
-            SELECT shift_start
-            FROM schedules
-            WHERE employee_id=?
-              AND date(work_date)=date(?)
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (payload.employee_id, shift_date),
-        ) or {}
-
-        scheduled_start = time_to_minutes(shift_row.get("shift_start"))
+        scheduled_start = time_to_minutes(
+            shift.get("start_time") if shift else None
+        )
         actual_in_minutes = time_to_minutes(payload.actual_in)
         minutes_late = None
         if scheduled_start is not None and actual_in_minutes is not None:
@@ -832,7 +952,8 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
             conn.execute(
                 """
                 UPDATE time_logs
-                SET actual_in=?,
+                SET scheduled_shift_id=?,
+                    actual_in=?,
                     actual_out=?,
                     is_absent=0,
                     absence_type=?,
@@ -846,6 +967,7 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
                 WHERE id=?
                 """,
                 (
+                    int(payload.shift_id) if payload.shift_id else None,
                     payload.actual_in,
                     payload.actual_out,
                     actual_absence_type,
@@ -865,16 +987,56 @@ def save_day_actual(payload: DayActualPayload, authorization: str | None = Heade
         else:
             cur = conn.execute(
                 """
-                INSERT INTO time_logs(employee_id, work_date, actual_in, actual_out, absence_type, evidence_ref, source, verification_type, is_absent, detected_ot_hours, approved_ot_hours, ot_status, attendance_status, reviewed_by, reviewed_at, notes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'manual', 'Manual', 0, 0, ?, 'None', ?, ?, ?, ?, ?, ?)
+                INSERT INTO time_logs(
+                    scheduled_shift_id,
+                    employee_id,
+                    work_date,
+                    actual_in,
+                    actual_out,
+                    absence_type,
+                    evidence_ref,
+                    source,
+                    verification_type,
+                    is_absent,
+                    detected_ot_hours,
+                    approved_ot_hours,
+                    ot_status,
+                    attendance_status,
+                    reviewed_by,
+                    reviewed_at,
+                    notes,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', 'Manual', 0, 0, ?, 'None', ?, ?, ?, ?, ?, ?)
                 """,
-                (payload.employee_id, shift_date, payload.actual_in, payload.actual_out, actual_absence_type, evidence_ref, float(payload.approved_ot_hours or 0), status_value, user.get("display_name"), timestamp, payload.notes, timestamp, timestamp),
+                (
+                    int(payload.shift_id) if payload.shift_id else None,
+                    payload.employee_id,
+                    shift_date,
+                    payload.actual_in,
+                    payload.actual_out,
+                    actual_absence_type,
+                    evidence_ref,
+                    float(payload.approved_ot_hours or 0),
+                    status_value,
+                    user.get("display_name"),
+                    timestamp,
+                    payload.notes,
+                    timestamp,
+                    timestamp,
+                ),
             )
             log_id = int(cur.lastrowid)
         after = dict(fetchone(conn, "SELECT * FROM time_logs WHERE id=?", (log_id,)) or {})
         log_schedule_change(conn, change_type="update_actual" if before else "create_actual", entity_type="time_log", entity_id=log_id, employee_id=payload.employee_id, work_date=shift_date, before=before, after=after, changed_by=user.get("display_name"))
         conn.commit()
-        return day_bundle(conn, shift_date, payload.employee_id) | {"message": "Actual attendance saved."}
+        return day_bundle(
+            conn,
+            shift_date,
+            payload.employee_id,
+            int(payload.shift_id) if payload.shift_id else None,
+        ) | {"message": "Actual attendance saved."}
     finally:
         conn.close()
 
