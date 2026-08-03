@@ -54,11 +54,23 @@ function differenceAction(amount: number): string {
   return "No change";
 }
 
-export default async function PayrollRunReviewPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PayrollRunReviewPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{
+    workflow_error?: string;
+    workflow_success?: string;
+  }>;
+}) {
   const session = await currentSession();
   if (!session) redirect("/login");
   if (!["owner", "payroll"].includes(session.role_key)) return <Shell allowedRoles={["owner", "payroll"]}><div /></Shell>;
   const { id } = await params;
+  const query = searchParams ? await searchParams : {};
+  const workflowError = String(query.workflow_error || "").trim();
+  const workflowSuccess = String(query.workflow_success || "").trim();
   const runId = Number(id);
   const [review, delta] = await Promise.all([
     getPayrollRunReview(runId),
@@ -98,6 +110,19 @@ export default async function PayrollRunReviewPage({ params }: { params: Promise
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
       <div className="page"><PayrollReviewAccordion>
+        {workflowError ? (
+          <section className="card danger-card" role="alert">
+            <strong>Payroll action could not be completed</strong>
+            <p>{workflowError}</p>
+          </section>
+        ) : null}
+
+        {workflowSuccess ? (
+          <section className="card" role="status">
+            <strong>{workflowSuccess}</strong>
+          </section>
+        ) : null}
+
         <header className="page-header">
           <div className="grid">
             <span className="eyebrow">Payroll Review</span>
