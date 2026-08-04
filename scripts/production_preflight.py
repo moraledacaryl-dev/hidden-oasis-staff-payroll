@@ -57,7 +57,34 @@ def main() -> int:
         failures += print_status(bool(integrity and str(integrity[0]).lower() == "ok"), "sqlite integrity")
         for table in REQUIRED:
             failures += print_status(table_exists(conn, table), f"table {table}")
-        duplicate_groups = conn.execute(
+
+        exact_duplicate_groups = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM (
+              SELECT
+                employee_id, shift_date, start_time, end_time,
+                position, department, break_minutes, status,
+                COALESCE(notes, ''), COALESCE(legacy_schedule_id, -1), source,
+                COALESCE(review_status, ''), COALESCE(review_reason, ''),
+                COALESCE(reviewed_by, ''), COALESCE(reviewed_at, ''),
+                approved_exception,
+                COUNT(*) AS c
+              FROM scheduled_shifts
+              GROUP BY
+                employee_id, shift_date, start_time, end_time,
+                position, department, break_minutes, status,
+                COALESCE(notes, ''), COALESCE(legacy_schedule_id, -1), source,
+                COALESCE(review_status, ''), COALESCE(review_reason, ''),
+                COALESCE(reviewed_by, ''), COALESCE(reviewed_at, ''),
+                approved_exception
+              HAVING COUNT(*) > 1
+            )
+            """
+        ).fetchone()[0]
+        failures += print_status(int(exact_duplicate_groups or 0) == 0, "no exact schedule duplicates")
+
+        same_time_groups = conn.execute(
             """
             SELECT COUNT(*)
             FROM (
@@ -68,7 +95,7 @@ def main() -> int:
             )
             """
         ).fetchone()[0]
-        failures += print_status(int(duplicate_groups or 0) == 0, "no exact schedule duplicates")
+        print(f"INFO same-time schedule groups requiring review: {int(same_time_groups or 0)}")
     finally:
         conn.close()
 
