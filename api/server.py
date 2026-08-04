@@ -150,8 +150,15 @@ def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: 
     application.include_router(filtered)
 
 
+# These compatibility handlers also exist in newer canonical schedule routers.
+# Keep the canonical implementations registered earlier in ROUTERS and exclude
+# the superseded copies from api.schedules so every method/path has one owner.
 SCHEDULES_EXCLUDED_ROUTES = {
+    (f"{API_PREFIX}/schedules/day/actual", "POST"),
     (f"{API_PREFIX}/schedules/day/leave", "POST"),
+    (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
+    (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/delete", "POST"),
+    (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/move", "POST"),
     (f"{API_PREFIX}/schedules/week", "GET"),
 }
 
