@@ -54,11 +54,32 @@ def canonical_attendance_review_items(
         if row.get("employee_id") and row.get("work_date")
     }
 
+    time_log_columns = {
+        str(row.get("name") or "")
+        for row in fetchall(
+            conn,
+            "PRAGMA table_info(time_logs)",
+        )
+    }
+    has_shift_link = "scheduled_shift_id" in time_log_columns
+
+    shift_select = (
+        "tl.scheduled_shift_id"
+        if has_shift_link
+        else "NULL AS scheduled_shift_id"
+    )
+    shift_order = (
+        "COALESCE(tl.scheduled_shift_id, 0)"
+        if has_shift_link
+        else "CAST(0 AS INTEGER)"
+    )
+
     rows = fetchall(
         conn,
-        """
+        f"""
         SELECT
             tl.*,
+            {shift_select},
             e.employee_code,
             e.full_name,
             e.department,
@@ -69,7 +90,7 @@ def canonical_attendance_review_items(
         ORDER BY
             tl.employee_id,
             date(tl.work_date),
-            COALESCE(tl.scheduled_shift_id, 0),
+            {shift_order},
             tl.id DESC
         """,
         (period_start, period_end),
