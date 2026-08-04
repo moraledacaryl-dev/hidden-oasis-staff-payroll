@@ -22,7 +22,11 @@ from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.login_security import clear_login_failures, lock_remaining_seconds, record_login_failure
 from core.payroll_engine import compute_payroll
-from core.quality import build_payroll_preflight_checks, summarize_checks
+from core.quality import (
+    build_payroll_preflight_checks,
+    canonical_attendance_review_items,
+    summarize_checks,
+)
 
 APP_VERSION = "1.0.0"
 API_PREFIX = "/api/v1"
@@ -375,11 +379,26 @@ def build_app() -> FastAPI:
     def auth_can_preview_payroll(user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict[str, Any]:
         return {"ok": True, "action": "preview_payroll", "user": user}
 
-    @app.get(f"{API_PREFIX}/attendance/exceptions", dependencies=[Depends(require_api_key)])
-    def attendance_exceptions(start_date: date, end_date: date, user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_SUPERVISOR))) -> list[dict[str, Any]]:
+    @app.get(
+        f"{API_PREFIX}/attendance/exceptions",
+        dependencies=[Depends(require_api_key)],
+    )
+    def attendance_exceptions(
+        start_date: date,
+        end_date: date,
+        user: dict[str, Any] = Depends(
+            require_roles(ROLE_OWNER, ROLE_SUPERVISOR)
+        ),
+    ) -> list[dict[str, Any]]:
         start, end = parse_date_order(start_date, end_date)
+
         with db_conn(read_only=True) as conn:
-            rows = fetchall(conn, attendance_exception_sql() + " ORDER BY tl.work_date, e.full_name", (start, end))
+            rows = canonical_attendance_review_items(
+                conn,
+                start,
+                end,
+            )
+
         return clean_rows(rows)
 
     @app.post(f"{API_PREFIX}/attendance/time-logs/{{time_log_id}}/decision", dependencies=[Depends(require_api_key)])

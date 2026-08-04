@@ -3,7 +3,25 @@ import type { ApiMeta, Employee, PayrollPreview } from "./types";
 
 export { apiBaseUrl, backendHeaders };
 
-export type AttendanceException = { id: number; employee_id: number; employee_code: string; full_name: string; department?: string | null; position?: string | null; work_date: string; actual_in: string | null; actual_out: string | null; is_absent: number; absence_type?: string | null; attendance_status: string; detected_ot_hours: number; approved_ot_hours: number; ot_status: string; notes?: string | null };
+export type AttendanceException = {
+  id: number;
+  scheduled_shift_id?: number | null;
+  employee_id: number;
+  employee_code: string;
+  full_name: string;
+  department?: string | null;
+  position?: string | null;
+  work_date: string;
+  actual_in: string | null;
+  actual_out: string | null;
+  is_absent: number;
+  absence_type?: string | null;
+  attendance_status: string;
+  detected_ot_hours: number;
+  approved_ot_hours: number;
+  ot_status: string;
+  notes?: string | null;
+};
 export type AttendanceReview = { id: number; time_log_id: number; reviewer: string; decision: string; reason: string; approved_ot_hours: number; created_at: string; work_date: string; employee_code: string; full_name: string; department?: string | null; position?: string | null };
 export type ScheduleRow = { id: number; employee_id: number; employee_code?: string | null; full_name?: string | null; work_date: string; shift_start?: string | null; shift_end?: string | null; start_time?: string | null; end_time?: string | null; attendance_status?: string | null; leave_status?: string | null; status?: string | null; notes?: string | null };
 export type PayrollRun = { id: number; period_start: string; period_end: string; payout_date: string; run_label: string; status: string; prepared_by?: string | null; approved_by?: string | null; approved_at?: string | null; paid_at?: string | null; locked_at?: string | null; reopen_reason?: string | null; validation_summary?: string | null; revision_of_run_id?: number | null; revision_reason?: string | null; revision_treatment?: string | null; superseded_by_run_id?: number | null; created_at: string; totals?: { employees: number; gross_pay: number; net_pay: number; total_deductions: number } };

@@ -18,67 +18,161 @@ def _date_str(v: Any) -> str:
     return str(v)
 
 
-def _attendance_review_count(conn: sqlite3.Connection, period_start: str, period_end: str) -> int:
-    """Count only canonical attendance rows that still need review.
+def canonical_attendance_review_items(
+    conn: sqlite3.Connection,
+    period_start: str,
+    period_end: str,
+) -> list[dict[str, Any]]:
+    """Return the exact attendance rows that may block payroll approval.
 
-    Time-log imports can leave multiple records for the same employee and date.
-    A cleared record (Approved/Reviewed/On-time) supersedes any stale imported
-    ``Needs Review`` placeholder for that same employee/day. When no cleared
-    record exists, only the newest row is treated as canonical.
+    This is the single source of truth for both:
+    - the visible Cutoff Review Queue; and
+    - payroll preflight approval blockers.
 
-    The Cutoff UI also auto-clears an orphan ``Needs Review`` row when there is
-    no scheduled shift and no actual attendance evidence. Payroll preflight must
-    apply both rules so its blocker count matches the visible Review Queue.
+    Shift-linked logs are canonical per scheduled shift. Legacy/unlinked logs
+    remain canonical per employee/date and are never silently hidden merely
+    because they have no scheduled_shift_id.
     """
-    scheduled_keys = {
-        (int(row.get("employee_id") or 0), str(row.get("work_date") or "")[:10])
-        for row in trusted_scheduled_workdays(conn, period_start, period_end)
+    scheduled_rows = trusted_scheduled_workdays(
+        conn,
+        period_start,
+        period_end,
+    )
+
+    scheduled_shift_ids = {
+        int(row.get("scheduled_shift_id") or 0)
+        for row in scheduled_rows
+        if int(row.get("scheduled_shift_id") or 0) > 0
+    }
+
+    scheduled_day_keys = {
+        (
+            int(row.get("employee_id") or 0),
+            str(row.get("work_date") or "")[:10],
+        )
+        for row in scheduled_rows
         if row.get("employee_id") and row.get("work_date")
     }
+
     rows = fetchall(
         conn,
         """
-        SELECT id, employee_id, work_date, actual_in, actual_out, is_absent,
-               absence_type, attendance_status
-        FROM time_logs
-        WHERE date(work_date) BETWEEN date(?) AND date(?)
-        ORDER BY employee_id, date(work_date), id DESC
+        SELECT
+            tl.*,
+            e.employee_code,
+            e.full_name,
+            e.department,
+            e.position
+        FROM time_logs tl
+        JOIN employees e ON e.id=tl.employee_id
+        WHERE date(tl.work_date) BETWEEN date(?) AND date(?)
+        ORDER BY
+            tl.employee_id,
+            date(tl.work_date),
+            COALESCE(tl.scheduled_shift_id, 0),
+            tl.id DESC
         """,
         (period_start, period_end),
     )
 
-    rows_by_day: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        key = (int(row.get("employee_id") or 0), str(row.get("work_date") or "")[:10])
-        rows_by_day[key].append(row)
+    grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
 
-    count = 0
-    for key, day_rows in rows_by_day.items():
+    for row in rows:
+        shift_id = int(row.get("scheduled_shift_id") or 0)
+        employee_id = int(row.get("employee_id") or 0)
+        work_date = str(row.get("work_date") or "")[:10]
+
+        if shift_id > 0:
+            key: tuple[Any, ...] = ("shift", shift_id)
+        else:
+            key = ("legacy-day", employee_id, work_date)
+
+        grouped[key].append(row)
+
+    review_statuses = {
+        "needs review",
+        "needs correction",
+        "rejected",
+        "pending",
+        "pending review",
+        "for review",
+    }
+
+    items: list[dict[str, Any]] = []
+
+    for rows_for_key in grouped.values():
         statuses = {
-            str(row.get("attendance_status") or "").strip().lower()
-            for row in day_rows
+            str(row.get("attendance_status") or "")
+            .strip()
+            .lower()
+            for row in rows_for_key
         }
 
-        # Any explicitly cleared row wins over stale duplicate import placeholders.
+        # A cleared newer/duplicate record supersedes stale imported
+        # Needs Review placeholders for the same canonical shift/day.
         if statuses & CLEARED_ATTENDANCE_STATUSES:
             continue
 
-        # Rows are ordered newest-first, so only the canonical latest record matters.
-        canonical = day_rows[0]
-        status = str(canonical.get("attendance_status") or "").strip().lower()
-        if status != "needs review":
+        canonical = rows_for_key[0]
+        status = str(
+            canonical.get("attendance_status") or ""
+        ).strip().lower()
+
+        if status not in review_statuses:
             continue
 
-        has_schedule = key in scheduled_keys
+        employee_id = int(canonical.get("employee_id") or 0)
+        work_date = str(canonical.get("work_date") or "")[:10]
+        shift_id = int(canonical.get("scheduled_shift_id") or 0)
+
+        has_schedule = (
+            shift_id in scheduled_shift_ids
+            if shift_id > 0
+            else (employee_id, work_date) in scheduled_day_keys
+        )
+
         has_actual_evidence = bool(
             canonical.get("actual_in")
             or canonical.get("actual_out")
             or int(canonical.get("is_absent") or 0) == 1
             or str(canonical.get("absence_type") or "").strip()
+            or str(canonical.get("notes") or "").strip()
         )
-        if has_schedule or has_actual_evidence:
-            count += 1
-    return count
+
+        # Only discard a truly empty orphan placeholder. Imported punches,
+        # absences, notes, or scheduled rows must remain visible.
+        if not has_schedule and not has_actual_evidence:
+            continue
+
+        item = dict(canonical)
+        item["has_schedule"] = has_schedule
+        item["has_actual_evidence"] = has_actual_evidence
+        items.append(item)
+
+    items.sort(
+        key=lambda row: (
+            str(row.get("work_date") or ""),
+            str(row.get("full_name") or ""),
+            int(row.get("scheduled_shift_id") or 0),
+            int(row.get("id") or 0),
+        )
+    )
+
+    return items
+
+
+def _attendance_review_count(
+    conn: sqlite3.Connection,
+    period_start: str,
+    period_end: str,
+) -> int:
+    return len(
+        canonical_attendance_review_items(
+            conn,
+            period_start,
+            period_end,
+        )
+    )
 
 
 def build_payroll_preflight_checks(conn: sqlite3.Connection, period_start: str, period_end: str) -> list[dict[str, Any]]:
