@@ -156,7 +156,6 @@ def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: 
 SCHEDULES_EXCLUDED_ROUTES = {
     (f"{API_PREFIX}/schedules/day/actual", "POST"),
     (f"{API_PREFIX}/schedules/day/leave", "POST"),
-    (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
     (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/delete", "POST"),
     (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/move", "POST"),
     (f"{API_PREFIX}/schedules/week", "GET"),
@@ -198,9 +197,20 @@ ROUTERS = (
     payroll_recalculate_router,
 )
 
+# Remove superseded handlers already registered by api.main before canonical
+# routers are included. api.schedules owns the editable day schedule endpoint.
 app.router.routes = [
-    route for route in app.router.routes
-    if not (getattr(route, "path", "") == f"{API_PREFIX}/payroll/preview" and "POST" in getattr(route, "methods", set()) and getattr(route, "endpoint", None).__name__ != "payroll_preview_fractional")
+    route
+    for route in app.router.routes
+    if not (
+        getattr(route, "path", "") == f"{API_PREFIX}/payroll/preview"
+        and "POST" in getattr(route, "methods", set())
+        and getattr(getattr(route, "endpoint", None), "__name__", "") != "payroll_preview_fractional"
+    )
+    and not (
+        getattr(route, "path", "") == f"{API_PREFIX}/schedules/day/scheduled"
+        and "POST" in getattr(route, "methods", set())
+    )
 ]
 
 for router in ROUTERS:
