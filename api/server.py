@@ -150,12 +150,9 @@ def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: 
     application.include_router(filtered)
 
 
-# These compatibility handlers also exist in newer canonical schedule routers.
-# Keep the canonical implementations registered earlier in ROUTERS and exclude
-# the superseded copies from api.schedules so every method/path has one owner.
+# These handlers have dedicated canonical owners elsewhere. Exclude only those
+# superseded copies from api.schedules so every method/path has one owner.
 SCHEDULES_EXCLUDED_ROUTES = {
-    (f"{API_PREFIX}/schedules/day/actual", "POST"),
-    (f"{API_PREFIX}/schedules/day/leave", "POST"),
     (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/delete", "POST"),
     (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/move", "POST"),
     (f"{API_PREFIX}/schedules/week", "GET"),
@@ -197,8 +194,15 @@ ROUTERS = (
     payroll_recalculate_router,
 )
 
-# Remove superseded handlers already registered by api.main before canonical
-# routers are included. api.schedules owns the editable day schedule endpoint.
+# Remove superseded handlers registered by api.main before canonical routers
+# are included. api.schedules owns the editable scheduled, actual, and leave
+# day endpoints.
+LEGACY_MAIN_OVERRIDES = {
+    (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
+    (f"{API_PREFIX}/schedules/day/actual", "POST"),
+    (f"{API_PREFIX}/schedules/day/leave", "POST"),
+}
+
 app.router.routes = [
     route
     for route in app.router.routes
@@ -207,9 +211,10 @@ app.router.routes = [
         and "POST" in getattr(route, "methods", set())
         and getattr(getattr(route, "endpoint", None), "__name__", "") != "payroll_preview_fractional"
     )
-    and not (
-        getattr(route, "path", "") == f"{API_PREFIX}/schedules/day/scheduled"
-        and "POST" in getattr(route, "methods", set())
+    and not any(
+        getattr(route, "path", "") == path
+        and method in getattr(route, "methods", set())
+        for path, method in LEGACY_MAIN_OVERRIDES
     )
 ]
 
