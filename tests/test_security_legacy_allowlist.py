@@ -33,7 +33,6 @@ EXPECTED_LEGACY_IMPORTS = {
     "api/attendance_compliance.py": {"current_user_from_token", "require_api_key"},
     "api/hr_records.py": {"current_user_from_token", "require_api_key"},
     "api/payroll_service.py": {"current_user_from_token", "require_api_key"},
-    "api/performance_reviews.py": {"current_user_from_token", "require_api_key"},
     "api/schedules.py": {"current_user_from_token", "require_api_key"},
     "api/staff_self_service.py": {"current_user_from_token", "require_api_key"},
     "api/users.py": {"current_user_from_token", "require_api_key", "role_to_key"},
@@ -77,6 +76,7 @@ class SecurityLegacyAllowlistTests(unittest.TestCase):
             "api/attendance_template_import.py",
             "api/cash_advance_service.py",
             "api/employees.py",
+            "api/performance_reviews.py",
         }
         for module in migrated_modules:
             self.assertNotIn(module, actual)
