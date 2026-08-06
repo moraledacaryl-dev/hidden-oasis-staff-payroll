@@ -31,7 +31,6 @@ SECURITY_NAMES = {
 # never be added without an explicit architectural review.
 EXPECTED_LEGACY_IMPORTS = {
     "api/attendance_compliance.py": {"current_user_from_token", "require_api_key"},
-    "api/employees.py": {"require_api_key", "require_roles"},
     "api/hr_records.py": {"current_user_from_token", "require_api_key"},
     "api/payroll_service.py": {"current_user_from_token", "require_api_key"},
     "api/performance_reviews.py": {"current_user_from_token", "require_api_key"},
@@ -77,6 +76,7 @@ class SecurityLegacyAllowlistTests(unittest.TestCase):
             "api/integrations.py",
             "api/attendance_template_import.py",
             "api/cash_advance_service.py",
+            "api/employees.py",
         }
         for module in migrated_modules:
             self.assertNotIn(module, actual)
