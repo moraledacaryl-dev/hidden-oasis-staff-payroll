@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Iterable
+from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI
 
@@ -19,7 +19,7 @@ from api.main import (
     ROLE_OWNER,
     ROLE_PAYROLL,
     PayrollPreviewRequest,
-    app,
+    build_app as build_core_app,
     configured_db_path,
     db_conn,
     parse_date_order,
@@ -64,7 +64,6 @@ from core.quality import build_payroll_preflight_checks, summarize_checks
 from core.runtime_guard import validate_runtime_environment
 
 
-@app.on_event("startup")
 def initialize_runtime() -> None:
     validate_runtime_environment()
     conn = get_conn(configured_db_path())
@@ -80,20 +79,37 @@ def initialize_runtime() -> None:
         conn.close()
 
 
-@app.post(f"{API_PREFIX}/payroll/preview", dependencies=[Depends(require_api_key)])
-def payroll_preview_fractional(payload: PayrollPreviewRequest, user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict[str, Any]:
+def payroll_preview_fractional(
+    payload: PayrollPreviewRequest,
+    user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL)),
+) -> dict[str, Any]:
     start, end = parse_date_order(payload.period_start, payload.period_end)
     with db_conn(read_only=True) as conn:
         checks = build_payroll_preflight_checks(conn, start, end)
-        results = [payroll_result_to_api(item) for item in compute_payroll_with_fractional_leave(conn, start, end)]
+        results = [
+            payroll_result_to_api(item)
+            for item in compute_payroll_with_fractional_leave(conn, start, end)
+        ]
     totals = {
         "employees": len(results),
         "gross_pay": round(sum(float(row.get("gross_pay") or 0) for row in results), 2),
         "net_pay": round(sum(float(row.get("net_pay") or 0) for row in results), 2),
-        "total_deductions": round(sum(float(row.get("total_deductions") or 0) for row in results), 2),
-        "cash_advance_deduction": round(sum(float(row.get("cash_advance_deduction") or 0) for row in results), 2),
+        "total_deductions": round(
+            sum(float(row.get("total_deductions") or 0) for row in results), 2
+        ),
+        "cash_advance_deduction": round(
+            sum(float(row.get("cash_advance_deduction") or 0) for row in results), 2
+        ),
     }
-    return {"period_start": start, "period_end": end, "summary": summarize_checks(checks), "checks": checks, "totals": totals, "items": results, "mode": "preview_only_no_save"}
+    return {
+        "period_start": start,
+        "period_end": end,
+        "summary": summarize_checks(checks),
+        "checks": checks,
+        "totals": totals,
+        "items": results,
+        "mode": "preview_only_no_save",
+    }
 
 
 def _route_key(route: Any) -> tuple[str, str] | None:
@@ -102,6 +118,16 @@ def _route_key(route: Any) -> tuple[str, str] | None:
     if not path or not methods:
         return None
     return str(path), ",".join(sorted(str(method).upper() for method in methods))
+
+
+def _walk_routes(routes: list[Any]) -> list[Any]:
+    result: list[Any] = []
+    for route in routes:
+        result.append(route)
+        nested = getattr(route, "routes", None)
+        if nested:
+            result.extend(_walk_routes(list(nested)))
+    return result
 
 
 def _route_method_keys(route: Any) -> list[tuple[str, str]]:
@@ -117,27 +143,15 @@ def _route_endpoint_name(route: Any) -> str:
     return getattr(endpoint, "__name__", repr(endpoint))
 
 
-def _walk_routes(routes: Iterable[Any]) -> Iterable[Any]:
-    """Yield leaf routes recursively, including routes inside included routers."""
-    for route in routes:
-        nested = getattr(route, "routes", None)
-        if nested:
-            yield from _walk_routes(nested)
-        else:
-            yield route
-
-
 def assert_unique_route_registry(application: FastAPI) -> None:
     """Fail fast when two active routes claim the same path and HTTP method."""
     by_method: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for route in _walk_routes(application.router.routes):
+    for route in _walk_routes(list(application.router.routes)):
         for key in _route_method_keys(route):
             by_method[key].append(_route_endpoint_name(route))
 
     duplicates = {
-        key: endpoints
-        for key, endpoints in by_method.items()
-        if len(endpoints) > 1
+        key: endpoints for key, endpoints in by_method.items() if len(endpoints) > 1
     }
     if not duplicates:
         return
@@ -149,19 +163,19 @@ def assert_unique_route_registry(application: FastAPI) -> None:
     raise RuntimeError(f"Duplicate API route registrations detected: {details}")
 
 
-def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: set[tuple[str, str]]) -> None:
+def _include_router_filtered(
+    application: FastAPI,
+    source: APIRouter,
+    excluded: set[tuple[str, str]],
+) -> None:
     """Include a router without mutating the imported router object."""
     filtered = APIRouter()
     filtered.routes.extend(
-        route
-        for route in source.routes
-        if (_route_key(route) not in excluded)
+        route for route in source.routes if _route_key(route) not in excluded
     )
     application.include_router(filtered)
 
 
-# These handlers have dedicated canonical owners elsewhere. Exclude only those
-# superseded copies from api.schedules so every method/path has one owner.
 SCHEDULES_EXCLUDED_ROUTES = {
     (f"{API_PREFIX}/schedules/day/leave", "POST"),
     (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/delete", "POST"),
@@ -205,33 +219,49 @@ ROUTERS = (
     payroll_recalculate_router,
 )
 
-# Remove superseded handlers registered by api.main before canonical routers
-# are included. api.schedules owns scheduled and actual day edits, while
-# api.schedule_leave_fractional owns leave and absence day edits.
 LEGACY_MAIN_OVERRIDES = {
     (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
     (f"{API_PREFIX}/schedules/day/actual", "POST"),
     (f"{API_PREFIX}/schedules/day/leave", "POST"),
 }
 
-app.router.routes = [
-    route
-    for route in app.router.routes
-    if not (
-        getattr(route, "path", "") == f"{API_PREFIX}/payroll/preview"
-        and "POST" in getattr(route, "methods", set())
-        and getattr(getattr(route, "endpoint", None), "__name__", "") != "payroll_preview_fractional"
-    )
-    and not any(
-        getattr(route, "path", "") == path
-        and method in getattr(route, "methods", set())
-        for path, method in LEGACY_MAIN_OVERRIDES
-    )
-]
 
-for router in ROUTERS:
-    app.include_router(router)
+def _remove_superseded_routes(application: FastAPI) -> None:
+    application.router.routes = [
+        route
+        for route in application.router.routes
+        if not (
+            getattr(route, "path", "") == f"{API_PREFIX}/payroll/preview"
+            and "POST" in getattr(route, "methods", set())
+        )
+        and not any(
+            getattr(route, "path", "") == path
+            and method in getattr(route, "methods", set())
+            for path, method in LEGACY_MAIN_OVERRIDES
+        )
+    ]
 
-_include_router_filtered(app, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
-app.include_router(staff_self_service_router)
-assert_unique_route_registry(app)
+
+def create_app() -> FastAPI:
+    """Build a fully configured, isolated Staff Payroll API application."""
+    application = build_core_app()
+    application.add_event_handler("startup", initialize_runtime)
+
+    _remove_superseded_routes(application)
+    application.add_api_route(
+        f"{API_PREFIX}/payroll/preview",
+        payroll_preview_fractional,
+        methods=["POST"],
+        dependencies=[Depends(require_api_key)],
+    )
+
+    for router in ROUTERS:
+        application.include_router(router)
+
+    _include_router_filtered(application, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
+    application.include_router(staff_self_service_router)
+    assert_unique_route_registry(application)
+    return application
+
+
+app = create_app()
