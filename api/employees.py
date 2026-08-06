@@ -6,7 +6,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.main import configured_db_path, require_api_key, require_roles, table_columns
+from api.main import configured_db_path, table_columns
+from api.security import require_api_key, require_roles
 from core.audit import log_audit
 from core.db import fetchone, get_conn
 from core.integration_outbox import enqueue_employee_sync
