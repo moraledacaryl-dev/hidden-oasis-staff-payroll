@@ -32,7 +32,6 @@ SECURITY_NAMES = {
 ALLOWED_LEGACY_CONSUMERS = {
     "api/attendance_compliance.py",
     "api/attendance_template_import.py",
-    "api/cash_advance_corrections.py",
     "api/cash_advance_service.py",
     "api/employees.py",
     "api/hr_records.py",
@@ -83,6 +82,7 @@ class SecurityLegacyAllowlistTests(unittest.TestCase):
         self.assertNotIn("api/schedule_publication.py", actual)
         self.assertNotIn("api/staff_published_portal.py", actual)
         self.assertNotIn("api/production_health.py", actual)
+        self.assertNotIn("api/cash_advance_corrections.py", actual)
 
 
 if __name__ == "__main__":
