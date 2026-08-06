@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import unittest
 from collections import defaultdict
+from typing import Any, Iterable
 
 import api.server as server
+
+
+def walk_routes(routes: Iterable[Any]) -> Iterable[Any]:
+    for route in routes:
+        nested = getattr(route, "routes", None)
+        if nested:
+            yield from walk_routes(nested)
+        else:
+            yield route
 
 
 class ApiRouteRegistryTests(unittest.TestCase):
     def test_no_duplicate_http_method_routes(self) -> None:
         seen: dict[tuple[str, str], list[str]] = defaultdict(list)
-        for route in server.app.router.routes:
+        for route in walk_routes(server.app.router.routes):
             path = getattr(route, "path", None)
             methods = getattr(route, "methods", None)
             endpoint = getattr(route, "endpoint", None)
