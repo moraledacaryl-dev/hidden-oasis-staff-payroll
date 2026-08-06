@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from api.main import current_user_from_token, require_api_key
+from api.security import current_user_from_token, require_api_key
 from api.schedule_standards import ensure_schedule_review_columns, now_iso, table_exists
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
