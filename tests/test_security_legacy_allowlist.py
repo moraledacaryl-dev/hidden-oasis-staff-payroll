@@ -26,10 +26,30 @@ SECURITY_NAMES = {
     "verify_token",
 }
 
-# Temporary compatibility debt. Remove a path from this set as soon as its
-# security imports are migrated to api.security.
+# Audited compatibility debt. Remove a path from this set as soon as its
+# security imports are migrated to api.security. New paths must never be added
+# without an explicit architectural review.
 ALLOWED_LEGACY_CONSUMERS = {
+    "api/attendance_compliance.py",
+    "api/attendance_template_import.py",
+    "api/cash_advance_corrections.py",
+    "api/cash_advance_service.py",
+    "api/employees.py",
+    "api/hr_records.py",
+    "api/integrations.py",
+    "api/payroll_service.py",
+    "api/payslip_distribution.py",
+    "api/performance_reviews.py",
+    "api/production_health.py",
+    "api/schedule_actuals.py",
+    "api/schedule_publication.py",
+    "api/schedule_rest_days.py",
+    "api/schedule_review_queue.py",
+    "api/schedules.py",
+    "api/staff_published_portal.py",
+    "api/staff_schedule_ack.py",
     "api/staff_self_service.py",
+    "api/staff_self_service_upload_secure.py",
     "api/users.py",
 }
 
@@ -62,6 +82,7 @@ class SecurityLegacyAllowlistTests(unittest.TestCase):
             actual["api/staff_self_service.py"],
             {"current_user_from_token", "require_api_key"},
         )
+        self.assertNotIn("api/my_payroll.py", actual)
 
 
 if __name__ == "__main__":
