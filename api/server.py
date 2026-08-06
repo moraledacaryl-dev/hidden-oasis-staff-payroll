@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, FastAPI
 
@@ -77,6 +78,13 @@ def initialize_runtime() -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+@asynccontextmanager
+async def application_lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Initialize runtime state before the application accepts traffic."""
+    initialize_runtime()
+    yield
 
 
 def payroll_preview_fractional(
@@ -245,7 +253,7 @@ def _remove_superseded_routes(application: FastAPI) -> None:
 def create_app() -> FastAPI:
     """Build a fully configured, isolated Staff Payroll API application."""
     application = build_core_app()
-    application.add_event_handler("startup", initialize_runtime)
+    application.router.lifespan_context = application_lifespan
 
     _remove_superseded_routes(application)
     application.add_api_route(
