@@ -42,7 +42,6 @@ ALLOWED_LEGACY_CONSUMERS = {
     "api/performance_reviews.py",
     "api/production_health.py",
     "api/schedule_publication.py",
-    "api/schedule_rest_days.py",
     "api/schedules.py",
     "api/staff_published_portal.py",
     "api/staff_self_service.py",
@@ -83,6 +82,7 @@ class SecurityLegacyAllowlistTests(unittest.TestCase):
         self.assertNotIn("api/schedule_actuals.py", actual)
         self.assertNotIn("api/staff_schedule_ack.py", actual)
         self.assertNotIn("api/schedule_review_queue.py", actual)
+        self.assertNotIn("api/schedule_rest_days.py", actual)
 
 
 if __name__ == "__main__":
