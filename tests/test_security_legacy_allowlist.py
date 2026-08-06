@@ -30,7 +30,6 @@ SECURITY_NAMES = {
 # security imports are migrated to api.security. New paths or symbols must
 # never be added without an explicit architectural review.
 EXPECTED_LEGACY_IMPORTS = {
-    "api/schedules.py": {"current_user_from_token", "require_api_key"},
 }
 
 
@@ -77,6 +76,7 @@ class SecurityLegacyAllowlistTests(unittest.TestCase):
             "api/attendance_compliance.py",
             "api/hr_records.py",
             "api/staff_self_service.py",
+            "api/schedules.py",
         }
         for module in migrated_modules:
             self.assertNotIn(module, actual)

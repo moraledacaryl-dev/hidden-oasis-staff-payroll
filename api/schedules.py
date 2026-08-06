@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from api.main import current_user_from_token, require_api_key
+from api.security import current_user_from_token, require_api_key
 from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
 from api.schedule_standards import set_schedule_review_state
 from api.schedule_validation import (
