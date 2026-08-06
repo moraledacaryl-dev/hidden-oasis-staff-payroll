@@ -72,8 +72,6 @@ def env_csv(name: str, default: str = "") -> list[str]:
 
 
 
-@contextmanager
-
 def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
