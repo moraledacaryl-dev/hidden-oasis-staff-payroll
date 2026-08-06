@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from api.main import current_user_from_token, require_api_key
+from api.security import current_user_from_token, require_api_key
 from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
