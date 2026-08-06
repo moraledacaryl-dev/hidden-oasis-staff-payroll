@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from api.main import current_user_from_token, require_api_key, role_to_key
+from api.security import current_user_from_token, require_api_key, role_to_key
 from core.audit import log_audit
 from core.auth import (
     generate_totp_secret,
