@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from api.main import current_user_from_token, require_api_key
+from api.security import current_user_from_token, require_api_key
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -295,7 +295,6 @@ def attendance_compliance(
             work_date = str(shift.get("shift_date"))[:10]
             actual = year_actual_by_key.get((employee_id, work_date))
 
-            # No saved/corrected log for a scheduled shift counts as an annual infraction.
             if not actual:
                 year_counts[employee_id] = year_counts.get(employee_id, 0) + 1
                 continue
@@ -317,9 +316,6 @@ def attendance_compliance(
                 actual.get("actual_in"),
             )
 
-            # Count one annual attendance infraction per affected day.
-            # A >30-minute late is classified as a partial absence for reporting,
-            # but should not double-count as both late + partial for yearly eligibility.
             if minutes is not None and minutes > 5:
                 year_counts[employee_id] = year_counts.get(employee_id, 0) + 1
 
