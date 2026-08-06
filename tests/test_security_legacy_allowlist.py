@@ -26,18 +26,18 @@ SECURITY_NAMES = {
     "verify_token",
 }
 
-# Audited compatibility debt. Remove a path from this set as soon as its
-# security imports are migrated to api.security. New paths must never be added
-# without an explicit architectural review.
-ALLOWED_LEGACY_CONSUMERS = {
-    "api/attendance_compliance.py",
-    "api/employees.py",
-    "api/hr_records.py",
-    "api/payroll_service.py",
-    "api/performance_reviews.py",
-    "api/schedules.py",
-    "api/staff_self_service.py",
-    "api/users.py",
+# Audited compatibility debt. Remove a path from this mapping as soon as its
+# security imports are migrated to api.security. New paths or symbols must
+# never be added without an explicit architectural review.
+EXPECTED_LEGACY_IMPORTS = {
+    "api/attendance_compliance.py": {"current_user_from_token", "require_api_key"},
+    "api/employees.py": {"require_api_key", "require_roles"},
+    "api/hr_records.py": {"current_user_from_token", "require_api_key"},
+    "api/payroll_service.py": {"current_user_from_token", "require_api_key"},
+    "api/performance_reviews.py": {"current_user_from_token", "require_api_key"},
+    "api/schedules.py": {"current_user_from_token", "require_api_key"},
+    "api/staff_self_service.py": {"current_user_from_token", "require_api_key"},
+    "api/users.py": {"current_user_from_token", "require_api_key", "role_to_key"},
 }
 
 
@@ -60,29 +60,26 @@ class SecurityLegacyAllowlistTests(unittest.TestCase):
             if names:
                 actual[path.relative_to(ROOT).as_posix()] = names
 
-        self.assertEqual(set(actual), ALLOWED_LEGACY_CONSUMERS)
-        self.assertEqual(
-            actual["api/users.py"],
-            {"current_user_from_token", "require_api_key", "role_to_key"},
-        )
-        self.assertEqual(
-            actual["api/staff_self_service.py"],
-            {"current_user_from_token", "require_api_key"},
-        )
-        self.assertNotIn("api/my_payroll.py", actual)
-        self.assertNotIn("api/schedule_actuals.py", actual)
-        self.assertNotIn("api/staff_schedule_ack.py", actual)
-        self.assertNotIn("api/schedule_review_queue.py", actual)
-        self.assertNotIn("api/schedule_rest_days.py", actual)
-        self.assertNotIn("api/schedule_publication.py", actual)
-        self.assertNotIn("api/staff_published_portal.py", actual)
-        self.assertNotIn("api/production_health.py", actual)
-        self.assertNotIn("api/cash_advance_corrections.py", actual)
-        self.assertNotIn("api/payslip_distribution.py", actual)
-        self.assertNotIn("api/staff_self_service_upload_secure.py", actual)
-        self.assertNotIn("api/integrations.py", actual)
-        self.assertNotIn("api/attendance_template_import.py", actual)
-        self.assertNotIn("api/cash_advance_service.py", actual)
+        self.assertEqual(actual, EXPECTED_LEGACY_IMPORTS)
+
+        migrated_modules = {
+            "api/my_payroll.py",
+            "api/schedule_actuals.py",
+            "api/staff_schedule_ack.py",
+            "api/schedule_review_queue.py",
+            "api/schedule_rest_days.py",
+            "api/schedule_publication.py",
+            "api/staff_published_portal.py",
+            "api/production_health.py",
+            "api/cash_advance_corrections.py",
+            "api/payslip_distribution.py",
+            "api/staff_self_service_upload_secure.py",
+            "api/integrations.py",
+            "api/attendance_template_import.py",
+            "api/cash_advance_service.py",
+        }
+        for module in migrated_modules:
+            self.assertNotIn(module, actual)
 
 
 if __name__ == "__main__":
