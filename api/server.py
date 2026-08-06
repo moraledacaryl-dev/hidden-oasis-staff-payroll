@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Iterable
 
 from fastapi import APIRouter, Depends, FastAPI
 
@@ -117,10 +117,20 @@ def _route_endpoint_name(route: Any) -> str:
     return getattr(endpoint, "__name__", repr(endpoint))
 
 
+def _walk_routes(routes: Iterable[Any]) -> Iterable[Any]:
+    """Yield leaf routes recursively, including routes inside included routers."""
+    for route in routes:
+        nested = getattr(route, "routes", None)
+        if nested:
+            yield from _walk_routes(nested)
+        else:
+            yield route
+
+
 def assert_unique_route_registry(application: FastAPI) -> None:
     """Fail fast when two active routes claim the same path and HTTP method."""
     by_method: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for route in application.router.routes:
+    for route in _walk_routes(application.router.routes):
         for key in _route_method_keys(route):
             by_method[key].append(_route_endpoint_name(route))
 
@@ -153,6 +163,7 @@ def _include_router_filtered(application: FastAPI, source: APIRouter, excluded: 
 # These handlers have dedicated canonical owners elsewhere. Exclude only those
 # superseded copies from api.schedules so every method/path has one owner.
 SCHEDULES_EXCLUDED_ROUTES = {
+    (f"{API_PREFIX}/schedules/day/leave", "POST"),
     (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/delete", "POST"),
     (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/move", "POST"),
     (f"{API_PREFIX}/schedules/week", "GET"),
@@ -195,8 +206,8 @@ ROUTERS = (
 )
 
 # Remove superseded handlers registered by api.main before canonical routers
-# are included. api.schedules owns the editable scheduled, actual, and leave
-# day endpoints.
+# are included. api.schedules owns scheduled and actual day edits, while
+# api.schedule_leave_fractional owns leave and absence day edits.
 LEGACY_MAIN_OVERRIDES = {
     (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
     (f"{API_PREFIX}/schedules/day/actual", "POST"),
