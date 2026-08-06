@@ -9,8 +9,8 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse
 
-from api.main import current_user_from_token, require_api_key
 from api.payroll_drafts import must_be_payroll_user
+from api.security import current_user_from_token, require_api_key
 from core.audit import log_audit
 from core.backups import BackupVerificationError, backup_path, create_backup_package, list_backups, verify_backup
 from core.db import DB_PATH, fetchone, get_conn
