@@ -5,8 +5,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from api.main import current_user_from_token
 from api.schedule_publication import ensure_schema as ensure_publication_schema
+from api.security import current_user_from_token
 from api.staff_self_service import employee_for_user, require_staff_user
 from core.db import DB_PATH, fetchone, get_conn
 
