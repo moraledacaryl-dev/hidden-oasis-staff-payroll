@@ -17,6 +17,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
+from api.security import (
+    IMPERSONATION_TTL_SECONDS,
+    ROLE_OWNER,
+    ROLE_PAYROLL,
+    ROLE_STAFF,
+    ROLE_SUPERVISOR,
+    SESSION_TTL_SECONDS,
+    configured_db_path,
+    current_user_from_token,
+    db_conn,
+    public_user,
+    require_api_key,
+    require_roles,
+    role_to_key,
+    session_users_from_payload,
+    sign_payload,
+    verify_token,
+)
+
 from core.auth import authenticate_user
 from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
@@ -30,12 +49,6 @@ from core.quality import (
 
 APP_VERSION = "1.0.0"
 API_PREFIX = "/api/v1"
-SESSION_TTL_SECONDS = 12 * 60 * 60
-IMPERSONATION_TTL_SECONDS = 30 * 60
-ROLE_OWNER = "owner"
-ROLE_PAYROLL = "payroll"
-ROLE_SUPERVISOR = "supervisor"
-ROLE_STAFF = "staff"
 
 class PayrollPreviewRequest(BaseModel):
     period_start: date = Field(..., description="Cutoff start date, YYYY-MM-DD")
@@ -57,31 +70,9 @@ class ApiMessage(BaseModel):
 def env_csv(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
 
-def configured_db_path() -> Path:
-    return Path(os.getenv("STAFF_PAYROLL_DB_PATH", str(DB_PATH))).expanduser()
 
-def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
-    expected = os.getenv("STAFF_PAYROLL_API_KEY")
-    if expected and x_api_key != expected:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key.")
 
 @contextmanager
-def db_conn(read_only: bool = False) -> Iterator[Any]:
-    db_path = configured_db_path()
-    if read_only:
-        if not db_path.exists():
-            raise HTTPException(status_code=500, detail=f"Database not found: {db_path}")
-        uri = f"file:{db_path.resolve()}?mode=ro"
-        import sqlite3
-        conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-    else:
-        conn = get_conn(db_path)
-    try:
-        yield conn
-    finally:
-        conn.close()
 
 def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
@@ -102,76 +93,13 @@ def table_exists(conn: Any, table: str) -> bool:
     row = fetchone(conn, "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name=?", (table,))
     return bool(row and int(row.get("c") or 0) > 0)
 
-def role_to_key(role: str | None) -> str:
-    text = (role or "").strip().lower().replace(" ", "_").replace("-", "_")
-    if text in {"owner", "admin", "administrator"}: return ROLE_OWNER
-    if text in {"payroll", "payroll_admin", "hr", "hr_payroll"}: return ROLE_PAYROLL
-    if text in {"supervisor", "manager", "general_manager", "department_head"}: return ROLE_SUPERVISOR
-    if text in {"staff", "employee"}: return ROLE_STAFF
-    return ROLE_STAFF
 
-def public_user(user: dict[str, Any]) -> dict[str, Any]:
-    role_key = role_to_key(user.get("role"))
-    return clean_row(
-        {
-            "id": user.get("id"),
-            "display_name": user.get("display_name") or "",
-            "role": "General Manager" if role_key == ROLE_SUPERVISOR else user.get("role") or "Staff",
-            "role_key": role_key,
-            "active": int(user.get("active") or 0),
-            "must_change_password": int(user.get("must_change_password") or 0),
-            "mfa_enabled": 0,
-            "mfa_setup_required": 0,
-            "employee_id": user.get("employee_id"),
-            "session_version": int(user.get("session_version") or 1),
-            "last_login_at": user.get("last_login_at"),
-        }
-    )
 
-def token_secret() -> str:
-    return os.getenv("STAFF_PAYROLL_SESSION_SECRET") or os.getenv("STAFF_PAYROLL_API_KEY") or "dev-only-change-staff-payroll-session-secret"
 
-def b64url_encode(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
 
-def b64url_decode(data: str) -> bytes:
-    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
 
-def sign_payload(payload: dict[str, Any]) -> str:
-    body = b64url_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
-    sig = hmac.new(token_secret().encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
-    return f"{body}.{b64url_encode(sig)}"
 
-def verify_token(token: str) -> dict[str, Any]:
-    try:
-        body, signature = token.split(".", 1)
-        expected = hmac.new(token_secret().encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
-        if not hmac.compare_digest(b64url_decode(signature), expected): raise ValueError("bad signature")
-        payload = json.loads(b64url_decode(body).decode("utf-8"))
-        if int(payload.get("exp") or 0) < int(time.time()): raise ValueError("expired")
-        return payload
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session token.")
 
-def session_users_from_payload(conn: Any, payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    user = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (payload.get("sub"),))
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists or is inactive.")
-    if int(payload.get("sv") or 1) != int(user.get("session_version") or 1):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session has been revoked.")
-
-    impersonator_id = payload.get("imp_by")
-    if impersonator_id is None:
-        return user, None
-    impersonator = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (impersonator_id,))
-    if (
-        not impersonator
-        or int(impersonator.get("id") or 0) == int(user.get("id") or 0)
-        or role_to_key(impersonator.get("role")) != ROLE_OWNER
-        or int(payload.get("imp_sv") or 0) != int(impersonator.get("session_version") or 1)
-    ):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Owner view session is no longer valid.")
-    return user, impersonator
 
 def log_impersonated_action(
     context: dict[str, Any],
@@ -199,35 +127,8 @@ def log_impersonated_action(
         )
         conn.commit()
 
-def current_user_from_token(authorization: str | None = Header(default=None, alias="Authorization")) -> dict[str, Any]:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token.")
-    payload = verify_token(authorization.removeprefix("Bearer ").strip())
-    with db_conn(read_only=True) as conn:
-        user, impersonator = session_users_from_payload(conn, payload)
-    result = public_user(user)
-    if impersonator:
-        result.update(
-            {
-                "is_impersonating": 1,
-                "impersonator_id": int(impersonator["id"]),
-                "impersonator_name": impersonator.get("display_name") or "Owner",
-                "must_change_password": 0,
-                "mfa_setup_required": 0,
-            }
-        )
-    return result
 
-def require_authenticated_user(user: dict[str, Any] = Depends(current_user_from_token)) -> dict[str, Any]:
-    return user
 
-def require_roles(*allowed_roles: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    allowed = {role_to_key(role) for role in allowed_roles}
-    def _require_role(user: dict[str, Any] = Depends(require_authenticated_user)) -> dict[str, Any]:
-        if user.get("role_key") not in allowed:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"This action requires one of these roles: {', '.join(sorted(allowed))}.")
-        return user
-    return _require_role
 
 def normalize_employee(row: dict[str, Any], department_name: str | None = None, include_private: bool = True) -> dict[str, Any]:
     return clean_row({"id": row.get("id"), "employee_code": row.get("employee_code") or row.get("code") or "", "full_name": row.get("full_name") or row.get("name") or "", "department_id": row.get("department_id"), "department_name": department_name or row.get("department_name") or row.get("department") or None, "position": row.get("position") or row.get("role") or None, "employment_type": row.get("employment_type") or None, "status": row.get("status") or "Active", "default_shift_start": row.get("default_shift_start"), "default_shift_end": row.get("default_shift_end"), "standard_shift_hours": row.get("standard_shift_hours"), "unpaid_break_minutes": row.get("unpaid_break_minutes"), "benefits_sss": int(row.get("benefits_sss") or 0) if include_private else 0, "benefits_philhealth": int(row.get("benefits_philhealth") or 0) if include_private else 0, "benefits_pagibig": int(row.get("benefits_pagibig") or 0) if include_private else 0, "benefits_tax": int(row.get("benefits_tax") or 0) if include_private else 0, "created_at": row.get("created_at") or ""})

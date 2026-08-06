@@ -80,6 +80,43 @@ class SecurityBoundaryTests(unittest.TestCase):
         }
         self.assertEqual(security.public_user(record), legacy.public_user(record))
 
+    def test_legacy_main_delegates_security_to_canonical_module(self) -> None:
+        delegated_names = {
+            "configured_db_path",
+            "current_user_from_token",
+            "db_conn",
+            "public_user",
+            "require_api_key",
+            "require_roles",
+            "role_to_key",
+            "session_users_from_payload",
+            "sign_payload",
+            "verify_token",
+        }
+
+        for name in delegated_names:
+            self.assertIs(
+                getattr(legacy, name),
+                getattr(security, name),
+                f"api.main.{name} must delegate to api.security.{name}",
+            )
+
+        path = Path(legacy.__file__).resolve()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        locally_defined = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+
+        duplicate_names = delegated_names & locally_defined
+        self.assertEqual(
+            duplicate_names,
+            set(),
+            f"api.main still defines duplicate security functions: "
+            f"{sorted(duplicate_names)}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
