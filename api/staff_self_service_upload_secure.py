@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 
-from api.main import current_user_from_token, require_api_key
+from api.security import current_user_from_token, require_api_key
 from api.staff_self_service import audit, employee_for_user, ensure_schema, now_iso
 from api.upload_validation import MAX_UPLOAD_BYTES, validate_upload_bytes
 from core.db import DB_PATH, fetchone, get_conn
