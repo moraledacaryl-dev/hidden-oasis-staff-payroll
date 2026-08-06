@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 
 from api.cash_advance_service import ensure_schema as ensure_cash_schema, recalculate_balance
 from api.hr_records import ensure_schema as ensure_hr_schema
-from api.main import current_user_from_token
 from api.schedule_publication import ensure_schema as ensure_publication_schema
+from api.security import current_user_from_token
 from api.staff_schedule_ack import router as staff_schedule_ack_router
 from api.staff_self_service import employee_for_user, my_self_service, require_staff_user
 from core.audit import log_audit
