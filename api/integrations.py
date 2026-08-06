@@ -6,7 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.main import configured_db_path, require_api_key, require_roles
+from api.main import configured_db_path
+from api.security import require_api_key, require_roles
 from core.db import fetchall, fetchone, get_conn, now_iso
 from core.integration_outbox import DESTINATION_ENV, ensure_integration_schema, process_due_events
 
