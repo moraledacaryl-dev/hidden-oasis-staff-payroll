@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from api.main import (
+from api.security import (
     IMPERSONATION_TTL_SECONDS,
     current_user_from_token,
     public_user,
