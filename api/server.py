@@ -17,16 +17,12 @@ from api.impersonation import router as impersonation_router
 from api.integrations import router as integrations_router
 from api.main import (
     API_PREFIX,
-    ROLE_OWNER,
-    ROLE_PAYROLL,
     PayrollPreviewRequest,
     build_app as build_core_app,
     configured_db_path,
     db_conn,
     parse_date_order,
     payroll_result_to_api,
-    require_api_key,
-    require_roles,
 )
 from api.my_payroll import router as my_payroll_router
 from api.payroll_adjustments import router as payroll_adjustments_router
@@ -53,6 +49,7 @@ from api.schedule_publication import router as schedule_publication_router
 from api.schedule_rest_days import router as schedule_rest_days_router
 from api.schedules import ensure_schema as ensure_schedule_schema
 from api.schedules import router as schedules_router
+from api.security import ROLE_OWNER, ROLE_PAYROLL, require_api_key, require_roles
 from api.sil_leave import router as sil_leave_router
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
