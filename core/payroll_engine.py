@@ -867,7 +867,7 @@ def create_accounting_queue_for_payroll(conn: sqlite3.Connection, run_id: int) -
         ("Salaries Payable", cash_account, totals["net"], desc + " - net pay release"),
     ]
     for debit, credit, amount, line_desc in lines:
-        amount = round(float(amount or 0), 2)
+        amount = money(amount)
         if amount <= 0:
             continue
         conn.execute(
