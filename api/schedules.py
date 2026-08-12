@@ -8,7 +8,10 @@ from pydantic import BaseModel
 
 from api.security import current_user_from_token, require_api_key
 from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
-from api.schedule_standards import set_schedule_review_state
+from api.schedule_standards import (
+    ensure_schedule_review_columns,
+    set_schedule_review_state,
+)
 from api.schedule_validation import (
     validate_break_minutes,
     validate_ot_hours,
@@ -157,6 +160,7 @@ def ensure_schema(conn) -> None:
     )
     ensure_column(conn, "scheduled_shifts", "legacy_schedule_id", "INTEGER")
     ensure_column(conn, "scheduled_shifts", "source", "TEXT NOT NULL DEFAULT 'planned'")
+    ensure_schedule_review_columns(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS legacy_schedule_ignores (
