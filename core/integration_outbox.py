@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from core.db import fetchall, fetchone, now_iso
+from core.money import money_or_zero
 
 STATUS_PENDING = "Pending"
 STATUS_PROCESSING = "Processing"
@@ -258,10 +259,7 @@ def endpoint_for(destination: str, event_type: str) -> str:
 
 
 def _money(value: Any) -> float:
-    try:
-        return round(float(value or 0), 2)
-    except (TypeError, ValueError):
-        return 0.0
+    return money_or_zero(value)
 
 
 def _first_positive(*values: Any) -> float:

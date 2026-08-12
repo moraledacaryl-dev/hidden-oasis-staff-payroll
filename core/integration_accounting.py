@@ -10,6 +10,7 @@ from io import BytesIO
 from typing import Any
 
 from core.db import fetchall, fetchone, now_iso, get_setting
+from core.money import money
 
 EXTERNAL_SOURCE = "hidden_oasis_staff_payroll"
 SCHEMA_VERSION = "2026-06-v1"
@@ -47,7 +48,7 @@ OPERATIONS_ENDPOINT = "/integrations/staff/events"
 
 
 def _money(value: Any) -> float:
-    return round(float(value or 0), 2)
+    return money(value)
 
 
 def _json(obj: Any) -> str:

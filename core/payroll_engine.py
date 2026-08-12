@@ -8,6 +8,7 @@ import sqlite3
 from .db import fetchall, fetchone, get_setting, now_iso
 from .corrections import eligible_corrections, mark_eligible_corrections_applied
 from .quality import build_payroll_preflight_checks, summarize_checks
+from .money import money
 from .schedule_source import trusted_schedule_rows
 
 TIME_FMT = "%H:%M"
@@ -531,10 +532,10 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
                     "approved leave; counted as one unpaid absence day."
                 )
 
-        result.regular_pay = round(result.regular_pay, 2)
-        result.ot_pay = round(result.ot_pay, 2)
-        result.night_diff_pay = round(result.night_diff_pay, 2)
-        result.holiday_pay = round(result.holiday_pay, 2)
+        result.regular_pay = money(result.regular_pay)
+        result.ot_pay = money(result.ot_pay)
+        result.night_diff_pay = money(result.night_diff_pay)
+        result.holiday_pay = money(result.holiday_pay)
 
     # Output-based workers: manual weekly approved outputs within period.
     outputs = fetchall(
