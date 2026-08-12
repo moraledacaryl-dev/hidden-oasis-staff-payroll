@@ -580,15 +580,14 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             f"Correction #{correction['id']} from payroll run {correction['payroll_run_id']} is included in this run."
         )
 
-    result.gross_pay = round(
+    result.gross_pay = money(
         result.regular_pay
         + result.ot_pay
         + result.night_diff_pay
         + result.holiday_pay
         + result.paid_leave_pay
         + result.freelance_pay
-        + result.other_earnings,
-        2,
+        + result.other_earnings
     )
 
     prev = get_month_previous_contribs(conn, int(emp["id"]), period_start)
@@ -600,9 +599,9 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
     if has_current_gross and int(emp.get("benefits_sss") or 0):
         month_gross_basis = prev["gross"] + result.gross_pay
         sss_month_ee, sss_month_er, sss_month_ec = get_sss_share(conn, month_gross_basis)
-        result.sss_ee = round(max(0.0, sss_month_ee - prev["sss"]), 2)
-        result.sss_er = round(max(0.0, sss_month_er - prev["sss_er"]), 2)
-        result.sss_ec = round(max(0.0, sss_month_ec - prev["sss_ec"]), 2)
+        result.sss_ee = money(max(0.0, sss_month_ee - prev["sss"]))
+        result.sss_er = money(max(0.0, sss_month_er - prev["sss_er"]))
+        result.sss_ec = money(max(0.0, sss_month_ec - prev["sss_ec"]))
 
     # PhilHealth: declared monthly basis, split/catch up across cutoffs.
     if has_current_gross and int(emp.get("benefits_philhealth") or 0):
@@ -613,11 +612,11 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         ph_month_ee = (ph_base * ph_rate) / 2.0
         ph_month_er = ph_month_ee
         if parse_date(period_start).day <= 15:
-            result.philhealth_ee = round(ph_month_ee / 2.0, 2)
-            result.philhealth_er = round(ph_month_er / 2.0, 2)
+            result.philhealth_ee = money(ph_month_ee / 2.0)
+            result.philhealth_er = money(ph_month_er / 2.0)
         else:
-            result.philhealth_ee = round(max(0.0, ph_month_ee - prev["philhealth"]), 2)
-            result.philhealth_er = round(max(0.0, ph_month_er - prev["philhealth_er"]), 2)
+            result.philhealth_ee = money(max(0.0, ph_month_ee - prev["philhealth"]))
+            result.philhealth_er = money(max(0.0, ph_month_er - prev["philhealth_er"]))
 
     # Pag-IBIG: declared monthly basis with configurable ceiling, split/catch up.
     if has_current_gross and int(emp.get("benefits_pagibig") or 0):
@@ -628,11 +627,11 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         pi_month_ee = pi_base * pi_rate
         pi_month_er = pi_base * pi_er_rate
         if parse_date(period_start).day <= 15:
-            result.pagibig_ee = round(pi_month_ee / 2.0, 2)
-            result.pagibig_er = round(pi_month_er / 2.0, 2)
+            result.pagibig_ee = money(pi_month_ee / 2.0)
+            result.pagibig_er = money(pi_month_er / 2.0)
         else:
-            result.pagibig_ee = round(max(0.0, pi_month_ee - prev["pagibig"]), 2)
-            result.pagibig_er = round(max(0.0, pi_month_er - prev["pagibig_er"]), 2)
+            result.pagibig_ee = money(max(0.0, pi_month_ee - prev["pagibig"]))
+            result.pagibig_er = money(max(0.0, pi_month_er - prev["pagibig_er"]))
 
     if has_current_gross and int(emp.get("benefits_tax") or 0):
         taxable_comp = result.gross_pay - result.sss_ee - result.philhealth_ee - result.pagibig_ee
@@ -659,18 +658,22 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             continue
         amount = min(float(ca["outstanding_balance"]), scheduled, ca_capacity - ca_deduction)
         ca_deduction += amount
-    result.cash_advance_deduction = round(ca_deduction, 2)
+    result.cash_advance_deduction = money(ca_deduction)
 
-    result.total_deductions = round(statutory_and_manual + result.cash_advance_deduction, 2)
-    result.net_pay = round(result.gross_pay - result.total_deductions, 2)
+    result.total_deductions = money(
+        statutory_and_manual + result.cash_advance_deduction
+    )
+    result.net_pay = money(
+        result.gross_pay - result.total_deductions
+    )
     result.regular_hours = round(result.regular_hours, 4)
     result.approved_ot_hours = round(result.approved_ot_hours, 4)
     result.night_diff_hours = round(result.night_diff_hours, 4)
     result.late_minutes = round(result.late_minutes, 2)
     result.undertime_minutes = round(result.undertime_minutes, 2)
-    result.paid_leave_pay = round(result.paid_leave_pay, 2)
-    result.other_earnings = round(result.other_earnings, 2)
-    result.other_deductions = round(result.other_deductions, 2)
+    result.paid_leave_pay = money(result.paid_leave_pay)
+    result.other_earnings = money(result.other_earnings)
+    result.other_deductions = money(result.other_deductions)
     return result
 
 
