@@ -194,7 +194,7 @@ def compute_semi_monthly_withholding_tax(taxable_compensation: float) -> float:
     ]
     for floor, base_tax, rate in brackets:
         if taxable > floor:
-            return round(base_tax + ((taxable - floor) * rate), 2)
+            return money(base_tax + ((taxable - floor) * rate))
     return 0.0
 
 
@@ -430,12 +430,11 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
                     # Multiple shifts on the same date must not duplicate it.
                     holiday_date = str(log["work_date"])
                     if holiday_date not in regular_holiday_base_paid_dates:
-                        holiday_pay_for_day = round(
+                        holiday_pay_for_day = money(
                             max(
                                 standard_paid_hours * hourly_rate,
                                 base_regular_pay * (base_multiplier - 1.0),
-                            ),
-                            2,
+                            )
                         )
                         result.holiday_pay += holiday_pay_for_day
                         regular_holiday_base_paid_dates.add(holiday_date)
@@ -446,7 +445,9 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
                         )
                 else:
                     # Special holiday/rest-day premiums remain based on actual paid regular hours.
-                    result.holiday_pay += round(base_regular_pay * (base_multiplier - 1.0), 2)
+                    result.holiday_pay += money(
+                        base_regular_pay * (base_multiplier - 1.0)
+                    )
                     warnings.append(f"{log['work_date']} uses {day_label} multiplier {base_multiplier:.2f}x.")
 
             result.approved_ot_hours += payable_ot
@@ -549,7 +550,12 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         """,
         (emp["id"], period_end, period_start),
     )
-    result.freelance_pay = round(sum(float(o["approved_qty"] or 0) * float(o["rate"] or 0) for o in outputs), 2)
+    result.freelance_pay = money(
+        sum(
+            float(o["approved_qty"] or 0) * float(o["rate"] or 0)
+            for o in outputs
+        )
+    )
 
     # Manual approved adjustments for the payroll period.
     adjustments = fetchall(
