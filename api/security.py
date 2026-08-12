@@ -87,7 +87,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "role_key": role_key,
         "active": int(user.get("active") or 0),
         "must_change_password": int(user.get("must_change_password") or 0),
-        "mfa_enabled": 0,
+        "mfa_enabled": int(user.get("mfa_enabled") or 0),
         "mfa_setup_required": 0,
         "employee_id": user.get("employee_id"),
         "session_version": int(user.get("session_version") or 1),

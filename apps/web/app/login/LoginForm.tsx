@@ -11,6 +11,8 @@ export function LoginForm() {
   const searchParams = useSearchParams();
   const [displayName, setDisplayName] = useState("");
   const [secret, setSecret] = useState("");
+  const [otp, setOtp] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const next = useMemo(() => searchParams.get("next"), [searchParams]);
@@ -22,11 +24,21 @@ export function LoginForm() {
     const response = await fetch("/api/session/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ display_name: displayName, password: secret }),
+      body: JSON.stringify({
+        display_name: displayName,
+        password: secret,
+        otp: otp.trim() || undefined,
+      }),
     });
     if (!response.ok) {
       const failed = await response.json().catch(() => ({}));
-      setError(failed.message || "Sign in failed.");
+      if (response.status === 428) {
+        setMfaRequired(true);
+        setOtp("");
+        setError("Enter the 6-digit code from your authenticator app.");
+      } else {
+        setError(failed.message || "Sign in failed.");
+      }
       setBusy(false);
       return;
     }
@@ -44,8 +56,34 @@ export function LoginForm() {
       <div className="grid"><span className="eyebrow">Staff Payroll</span><h1>Sign in</h1></div>
       <div className="field"><label htmlFor="displayName">Display name</label><input id="displayName" value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="username" required /></div>
       <div className="field"><label htmlFor="secret">Password</label><input id="secret" type="password" value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="current-password" required /></div>
+      {mfaRequired ? (
+        <div className="field">
+          <label htmlFor="otp">Authenticator code</label>
+          <input
+            id="otp"
+            value={otp}
+            onChange={(event) =>
+              setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))
+            }
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            placeholder="123456"
+            autoFocus
+            required
+          />
+        </div>
+      ) : null}
       {error ? <p className="badge danger" role="alert">{error}</p> : null}
-      <button className="primary-button" type="submit" disabled={busy}><LogIn aria-hidden="true" size={17} />{busy ? "Signing in..." : "Sign in"}</button>
+      <button className="primary-button" type="submit" disabled={busy}>
+        <LogIn aria-hidden="true" size={17} />
+        {busy
+          ? "Signing in..."
+          : mfaRequired
+            ? "Verify and sign in"
+            : "Sign in"}
+      </button>
     </form>
   );
 }

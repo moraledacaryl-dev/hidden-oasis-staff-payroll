@@ -36,7 +36,7 @@ from api.security import (
     verify_token,
 )
 
-from core.auth import authenticate_user
+from core.auth import authenticate_user, verify_totp
 from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.login_security import clear_login_failures, lock_remaining_seconds, record_login_failure
@@ -57,6 +57,7 @@ class PayrollPreviewRequest(BaseModel):
 class LoginRequest(BaseModel):
     display_name: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
+    otp: str | None = Field(default=None, min_length=6, max_length=6)
 
 class AttendanceDecisionRequest(BaseModel):
     decision: str = Field(..., description="Approved, Rejected, or Needs Correction")
@@ -241,7 +242,38 @@ def build_app() -> FastAPI:
                 )
                 conn.commit()
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
+            if int(user.get("mfa_enabled") or 0):
+                if not payload.otp:
+                    raise HTTPException(
+                        status_code=428,
+                        detail="Authenticator code required.",
+                    )
+
+                if not verify_totp(user.get("mfa_secret"), payload.otp):
+                    record_login_failure(conn, payload.display_name, ip_address)
+                    log_audit(
+                        conn,
+                        actor=payload.display_name.strip() or None,
+                        action="MFA verification failed",
+                        table_name="app_users",
+                        record_id=user.get("id"),
+                        details={"ip_address": ip_address},
+                    )
+                    conn.commit()
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Authenticator code is invalid.",
+                    )
+
             clear_login_failures(conn, payload.display_name, ip_address)
+
+            logged_in_at = now_iso()
+            conn.execute(
+                "UPDATE app_users SET last_login_at=? WHERE id=?",
+                (logged_in_at, user["id"]),
+            )
+            user["last_login_at"] = logged_in_at
+
             public = public_user(user)
             token = sign_payload(
                 {
