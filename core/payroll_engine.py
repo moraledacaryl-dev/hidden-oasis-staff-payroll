@@ -887,7 +887,7 @@ def create_accounting_queue_for_13th_month(conn: sqlite3.Connection, run_id: int
     emp = fetchone(conn, "SELECT * FROM employees WHERE id=?", (run["employee_id"],)) if run else None
     if not run or not emp:
         return
-    amount = round(float(run.get("net_13th_pay") or 0), 2)
+    amount = money(run.get("net_13th_pay"))
     if amount <= 0:
         return
     entry_date = run.get("release_date") or now_iso()[:10]
@@ -994,7 +994,13 @@ def compute_13th_month_basis(conn: sqlite3.Connection, employee_id: int, year: i
         """,
         (employee_id, str(year)),
     )
-    return round(sum(float(r.get("regular_pay") or 0) + float(r.get("paid_leave_pay") or 0) for r in rows), 2)
+    return money(
+        sum(
+            float(r.get("regular_pay") or 0)
+            + float(r.get("paid_leave_pay") or 0)
+            for r in rows
+        )
+    )
 
 
 def save_13th_month_run(
@@ -1010,8 +1016,12 @@ def save_13th_month_run(
     prepared_by: str,
     notes: str = "",
 ) -> int:
-    base_13th = round(float(basis_amount or 0) / 12.0, 2)
-    net = round(base_13th + float(adjustment_amount or 0) - float(deductions or 0), 2)
+    base_13th = money(float(basis_amount or 0) / 12.0)
+    net = money(
+        base_13th
+        + float(adjustment_amount or 0)
+        - float(deductions or 0)
+    )
     now = now_iso()
     conn.execute(
         """
@@ -1036,10 +1046,10 @@ def save_13th_month_run(
             employee_id,
             year,
             period_label,
-            round(float(basis_amount or 0), 2),
+            money(basis_amount),
             base_13th,
-            round(float(adjustment_amount or 0), 2),
-            round(float(deductions or 0), 2),
+            money(adjustment_amount),
+            money(deductions),
             net,
             status,
             release_date,
@@ -1055,10 +1065,10 @@ def save_13th_month_run(
     ).fetchone()[0]
     conn.execute("DELETE FROM payroll_13th_month_lines WHERE run_id=?", (run_id,))
     lines = [
-        ("basis", "13th month basis", round(float(basis_amount or 0), 2), "Regular/basic pay + paid leave pay", 10),
+        ("basis", "13th month basis", money(basis_amount), "Regular/basic pay + paid leave pay", 10),
         ("earning", "Base 13th month pay", base_13th, "Basis / 12", 20),
-        ("adjustment", "Manual adjustment", round(float(adjustment_amount or 0), 2), notes, 30),
-        ("deduction", "Deductions", round(float(deductions or 0), 2), notes, 40),
+        ("adjustment", "Manual adjustment", money(adjustment_amount), notes, 30),
+        ("deduction", "Deductions", money(deductions), notes, 40),
     ]
     for kind, label, amount, line_notes, order in lines:
         if abs(float(amount or 0)) < 0.005 and kind not in ("basis", "earning"):
