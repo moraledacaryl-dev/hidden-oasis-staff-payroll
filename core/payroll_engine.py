@@ -794,15 +794,22 @@ def apply_cash_advance_repayments(conn: sqlite3.Connection, run_id: int) -> None
         for ca in advances:
             if remaining <= 0:
                 break
-            amount = min(remaining, float(ca["outstanding_balance"] or 0))
-            new_balance = round(float(ca["outstanding_balance"] or 0) - amount, 2)
+            amount = money(
+                min(
+                    remaining,
+                    float(ca["outstanding_balance"] or 0),
+                )
+            )
+            new_balance = money(
+                float(ca["outstanding_balance"] or 0) - amount
+            )
             new_status = "Fully Paid" if new_balance <= 0.005 else "Partially Paid"
             conn.execute(
                 "INSERT INTO cash_advance_repayments(cash_advance_id, payroll_run_id, payment_date, amount, method, notes, created_at) VALUES(?,?,?,?,?,?,?)",
                 (ca["id"], run_id, run["payout_date"], amount, "Payroll Deduction", f"Auto-applied from payroll run {run_id}", now_iso()),
             )
             conn.execute("UPDATE cash_advances SET outstanding_balance=?, status=? WHERE id=?", (max(0.0, new_balance), new_status, ca["id"]))
-            remaining -= amount
+            remaining = money(remaining - amount)
 
 
 def reverse_cash_advance_repayments(conn: sqlite3.Connection, run_id: int) -> None:
@@ -810,7 +817,10 @@ def reverse_cash_advance_repayments(conn: sqlite3.Connection, run_id: int) -> No
     for r in rows:
         ca = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (r["cash_advance_id"],))
         if ca:
-            restored = round(float(ca["outstanding_balance"] or 0) + float(r["amount"] or 0), 2)
+            restored = money(
+                float(ca["outstanding_balance"] or 0)
+                + float(r["amount"] or 0)
+            )
             status = "Released" if restored >= float(ca["amount"] or 0) - 0.005 else "Partially Paid"
             conn.execute("UPDATE cash_advances SET outstanding_balance=?, status=? WHERE id=?", (restored, status, ca["id"]))
     conn.execute("DELETE FROM cash_advance_repayments WHERE payroll_run_id=?", (run_id,))
