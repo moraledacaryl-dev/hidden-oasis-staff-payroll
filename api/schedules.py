@@ -759,7 +759,7 @@ def create_shift(payload: ShiftPayload, authorization: str | None = Header(defau
             INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time, position, department, break_minutes, notes, source, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?)
             """,
-            (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, saved_notes, timestamp, timestamp),
+            (employee_id, payload.shift_date.isoformat(), payload.start_time, payload.end_time, payload.position, payload.department, payload.break_minutes, payload.notes, timestamp, timestamp),
         )
         shift_id = int(cur.lastrowid)
         review = set_schedule_review_state(conn, shift_id, user.get("display_name"))
