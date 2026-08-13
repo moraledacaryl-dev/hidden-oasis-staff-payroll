@@ -53,7 +53,14 @@ class BackupPackageTests(unittest.TestCase):
                 conn.close()
 
             backup_dir = root / "backups"
-            with patch.dict(os.environ, {"STAFF_PAYROLL_BACKUP_DIR": str(backup_dir), "STAFF_UPLOAD_DIR": str(upload_dir)}):
+            with patch.dict(
+                os.environ,
+                {
+                    "STAFF_PAYROLL_BACKUP_DIR": str(backup_dir),
+                    "STAFF_UPLOAD_DIR": str(upload_dir),
+                    "STAFF_PAYROLL_BACKUP_KEY": "",
+                },
+            ):
                 result = create_backup_package(db_path)
 
             package_path = Path(result["path"])
@@ -88,7 +95,14 @@ class BackupPackageTests(unittest.TestCase):
             finally:
                 conn.close()
             backup_dir = root / "backups"
-            with patch.dict(os.environ, {"STAFF_PAYROLL_BACKUP_DIR": str(backup_dir), "STAFF_UPLOAD_DIR": str(upload_dir)}):
+            with patch.dict(
+                os.environ,
+                {
+                    "STAFF_PAYROLL_BACKUP_DIR": str(backup_dir),
+                    "STAFF_UPLOAD_DIR": str(upload_dir),
+                    "STAFF_PAYROLL_BACKUP_KEY": "",
+                },
+            ):
                 result = create_backup_package(db_path)
                 verified = verify_backup(Path(result["path"]))
             self.assertTrue(verified["ok"])
