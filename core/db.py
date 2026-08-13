@@ -82,7 +82,6 @@ def _migration_2_account_security(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "app_users", "mfa_secret", "TEXT")
     ensure_column(conn, "app_users", "mfa_enabled", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "app_users", "mfa_confirmed_at", "TEXT")
-    ensure_column(conn, "app_users", "mfa_recovery_codes", "TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS login_attempts (
@@ -118,12 +117,17 @@ def _migration_5_employee_schedule_defaults(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "employees", "default_shift_end", "TEXT")
 
 
+def _migration_6_mfa_recovery_codes(conn: sqlite3.Connection) -> None:
+    ensure_column(conn, "app_users", "mfa_recovery_codes", "TEXT")
+
+
 MIGRATIONS: tuple[tuple[int, str, Callable[[sqlite3.Connection], None]], ...] = (
     (1, "existing incremental columns", _migration_1_existing_columns),
     (2, "account security and login throttling", _migration_2_account_security),
     (3, "general manager role label", _migration_3_general_manager_label),
     (4, "staff-requestable leave types", _migration_4_staff_requestable_leave_types),
     (5, "employee schedule defaults", _migration_5_employee_schedule_defaults),
+    (6, "MFA recovery codes", _migration_6_mfa_recovery_codes),
 )
 
 
