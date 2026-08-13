@@ -311,7 +311,7 @@ class DatabaseOperationsTests(unittest.TestCase):
                 }
                 self.assertEqual(journal_mode, "wal")
                 self.assertGreaterEqual(busy_timeout, 1000)
-                self.assertEqual(versions, [1, 2, 3, 4, 5])
+                self.assertEqual(versions, [1, 2, 3, 4, 5, 6])
                 self.assertTrue(
                     {"session_version", "mfa_secret", "mfa_enabled"}.issubset(user_columns)
                 )
