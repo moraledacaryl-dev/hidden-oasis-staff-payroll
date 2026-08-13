@@ -37,6 +37,7 @@ from api.security import (
 )
 
 from core.auth import authenticate_user, verify_totp
+from core.mfa_security import decrypt_mfa_secret
 from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.login_security import clear_login_failures, lock_remaining_seconds, record_login_failure
@@ -249,7 +250,10 @@ def build_app() -> FastAPI:
                         detail="Authenticator code required.",
                     )
 
-                if not verify_totp(user.get("mfa_secret"), payload.otp):
+                if not verify_totp(
+                    decrypt_mfa_secret(user.get("mfa_secret")),
+                    payload.otp,
+                ):
                     record_login_failure(conn, payload.display_name, ip_address)
                     log_audit(
                         conn,

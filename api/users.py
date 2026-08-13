@@ -7,6 +7,13 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from api.security import current_user_from_token, require_api_key, role_to_key
+from core.mfa_security import (
+    decrypt_mfa_secret,
+    encrypt_mfa_secret,
+    generate_recovery_codes,
+    hash_recovery_codes,
+)
+
 from core.audit import log_audit
 from core.auth import (
     generate_totp_secret,
@@ -402,8 +409,18 @@ def setup_mfa(
     conn = get_conn(DB_PATH)
     try:
         conn.execute(
-            "UPDATE app_users SET mfa_secret=?, mfa_enabled=0, mfa_confirmed_at=NULL WHERE id=?",
-            (secret, user["id"]),
+            """
+            UPDATE app_users
+            SET mfa_secret=?,
+                mfa_enabled=0,
+                mfa_confirmed_at=NULL,
+                mfa_recovery_codes=NULL
+            WHERE id=?
+            """,
+            (
+                encrypt_mfa_secret(secret),
+                user["id"],
+            ),
         )
         conn.commit()
         return {
@@ -424,16 +441,42 @@ def confirm_mfa(
     user = require_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        row = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (user["id"],))
-        if not row or not verify_totp(row.get("mfa_secret"), payload.code):
-            raise HTTPException(status_code=400, detail="Authenticator code is invalid.")
+        row = fetchone(
+            conn,
+            "SELECT * FROM app_users WHERE id=? AND active=1",
+            (user["id"],),
+        )
+
+        secret = (
+            decrypt_mfa_secret(row.get("mfa_secret"))
+            if row
+            else None
+        )
+
+        if not row or not verify_totp(secret, payload.code):
+            raise HTTPException(
+                status_code=400,
+                detail="Authenticator code is invalid.",
+            )
+
+        recovery_codes = generate_recovery_codes()
+
         conn.execute(
             """
             UPDATE app_users
-            SET mfa_enabled=1, mfa_confirmed_at=?, session_version=COALESCE(session_version,1)+1
+            SET mfa_enabled=1,
+                mfa_confirmed_at=?,
+                mfa_recovery_codes=?,
+                session_version=COALESCE(session_version,1)+1
             WHERE id=?
             """,
-            (now_iso(), user["id"]),
+            (
+                now_iso(),
+                __import__("json").dumps(
+                    hash_recovery_codes(recovery_codes)
+                ),
+                user["id"],
+            ),
         )
         log_audit(
             conn,
@@ -443,7 +486,11 @@ def confirm_mfa(
             record_id=int(user["id"]),
         )
         conn.commit()
-        return {"ok": True, "message": "Authenticator enabled. Sign in again."}
+        return {
+            "ok": True,
+            "message": "Authenticator enabled. Save the recovery codes and sign in again.",
+            "recovery_codes": recovery_codes,
+        }
     finally:
         conn.close()
 
@@ -460,12 +507,20 @@ def disable_mfa(
         row = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (user["id"],))
         if not row or not verify_password(payload.password, row.get("password_hash")):
             raise HTTPException(status_code=400, detail="Password is incorrect.")
-        if not verify_totp(row.get("mfa_secret"), payload.code):
-            raise HTTPException(status_code=400, detail="Authenticator code is invalid.")
+        secret = decrypt_mfa_secret(row.get("mfa_secret"))
+
+        if not verify_totp(secret, payload.code):
+            raise HTTPException(
+                status_code=400,
+                detail="Authenticator code is invalid.",
+            )
         conn.execute(
             """
             UPDATE app_users
-            SET mfa_secret=NULL, mfa_enabled=0, mfa_confirmed_at=NULL,
+            SET mfa_secret=NULL,
+                mfa_enabled=0,
+                mfa_confirmed_at=NULL,
+                mfa_recovery_codes=NULL,
                 session_version=COALESCE(session_version,1)+1
             WHERE id=?
             """,

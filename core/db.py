@@ -82,6 +82,7 @@ def _migration_2_account_security(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "app_users", "mfa_secret", "TEXT")
     ensure_column(conn, "app_users", "mfa_enabled", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "app_users", "mfa_confirmed_at", "TEXT")
+    ensure_column(conn, "app_users", "mfa_recovery_codes", "TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS login_attempts (
