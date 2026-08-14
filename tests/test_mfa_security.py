@@ -10,6 +10,7 @@ from core.mfa_security import (
     generate_recovery_codes,
     hash_recovery_code,
     hash_recovery_codes,
+    consume_recovery_code,
 )
 
 
@@ -64,6 +65,40 @@ class MfaSecurityTests(unittest.TestCase):
 
         for code in codes:
             self.assertNotIn(code, hashes)
+
+
+    def test_recovery_code_is_consumed_once(self) -> None:
+        codes = generate_recovery_codes()
+        stored = hash_recovery_codes(codes)
+
+        ok, remaining = consume_recovery_code(
+            stored,
+            codes[0],
+        )
+
+        self.assertTrue(ok)
+        self.assertEqual(len(remaining), len(stored) - 1)
+
+        reused, after_reuse = consume_recovery_code(
+            remaining,
+            codes[0],
+        )
+
+        self.assertFalse(reused)
+        self.assertEqual(after_reuse, remaining)
+
+    def test_invalid_recovery_code_does_not_modify_set(self) -> None:
+        codes = generate_recovery_codes()
+        stored = hash_recovery_codes(codes)
+
+        ok, remaining = consume_recovery_code(
+            stored,
+            "INVALID-CODE",
+        )
+
+        self.assertFalse(ok)
+        self.assertEqual(remaining, stored)
+
 
 
 if __name__ == "__main__":

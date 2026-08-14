@@ -37,7 +37,10 @@ from api.security import (
 )
 
 from core.auth import authenticate_user, verify_totp
-from core.mfa_security import decrypt_mfa_secret
+from core.mfa_security import (
+    consume_recovery_code,
+    decrypt_mfa_secret,
+)
 from core.audit import log_audit
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.login_security import clear_login_failures, lock_remaining_seconds, record_login_failure
@@ -59,6 +62,7 @@ class LoginRequest(BaseModel):
     display_name: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
     otp: str | None = Field(default=None, min_length=6, max_length=6)
+    recovery_code: str | None = Field(default=None, min_length=8, max_length=64)
 
 class AttendanceDecisionRequest(BaseModel):
     decision: str = Field(..., description="Approved, Rejected, or Needs Correction")
@@ -244,17 +248,62 @@ def build_app() -> FastAPI:
                 conn.commit()
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
             if int(user.get("mfa_enabled") or 0):
-                if not payload.otp:
+                if payload.otp and payload.recovery_code:
                     raise HTTPException(
-                        status_code=428,
-                        detail="Authenticator code required.",
+                        status_code=400,
+                        detail="Provide either an authenticator code or a recovery code, not both.",
                     )
 
-                if not verify_totp(
-                    decrypt_mfa_secret(user.get("mfa_secret")),
-                    payload.otp,
-                ):
-                    record_login_failure(conn, payload.display_name, ip_address)
+                recovery_used = False
+
+                if payload.otp:
+                    second_factor_ok = verify_totp(
+                        decrypt_mfa_secret(user.get("mfa_secret")),
+                        payload.otp,
+                    )
+                elif payload.recovery_code:
+                    try:
+                        stored_codes = json.loads(
+                            user.get("mfa_recovery_codes") or "[]"
+                        )
+                    except (TypeError, json.JSONDecodeError):
+                        stored_codes = []
+
+                    if not isinstance(stored_codes, list):
+                        stored_codes = []
+
+                    second_factor_ok, remaining_codes = (
+                        consume_recovery_code(
+                            [str(item) for item in stored_codes],
+                            payload.recovery_code,
+                        )
+                    )
+
+                    if second_factor_ok:
+                        conn.execute(
+                            """
+                            UPDATE app_users
+                            SET mfa_recovery_codes=?
+                            WHERE id=?
+                            """,
+                            (
+                                json.dumps(remaining_codes),
+                                user["id"],
+                            ),
+                        )
+                        recovery_used = True
+                else:
+                    raise HTTPException(
+                        status_code=428,
+                        detail="Authenticator code or recovery code required.",
+                    )
+
+                if not second_factor_ok:
+                    record_login_failure(
+                        conn,
+                        payload.display_name,
+                        ip_address,
+                    )
                     log_audit(
                         conn,
                         actor=payload.display_name.strip() or None,
@@ -266,7 +315,17 @@ def build_app() -> FastAPI:
                     conn.commit()
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Authenticator code is invalid.",
+                        detail="Authenticator or recovery code is invalid.",
+                    )
+
+                if recovery_used:
+                    log_audit(
+                        conn,
+                        actor=user.get("display_name"),
+                        action="MFA recovery code used",
+                        table_name="app_users",
+                        record_id=user.get("id"),
+                        details={"ip_address": ip_address},
                     )
 
             clear_login_failures(conn, payload.display_name, ip_address)

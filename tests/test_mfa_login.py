@@ -11,7 +11,13 @@ from fastapi import HTTPException
 
 from api.main import LoginRequest, build_app
 from core.auth import TOTP_STEP_SECONDS, _totp_code, hash_password
+
 from core.db import get_conn, init_db, now_iso
+from core.mfa_security import (
+    generate_recovery_codes,
+    hash_recovery_code,
+    hash_recovery_codes,
+)
 
 
 class MfaLoginEnforcementTests(unittest.TestCase):
@@ -103,7 +109,7 @@ class MfaLoginEnforcementTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 428)
         self.assertEqual(
             raised.exception.detail,
-            "Authenticator code required.",
+            "Authenticator code or recovery code required.",
         )
 
     def test_mfa_enabled_login_rejects_invalid_otp(self) -> None:
@@ -116,7 +122,7 @@ class MfaLoginEnforcementTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 401)
         self.assertEqual(
             raised.exception.detail,
-            "Authenticator code is invalid.",
+            "Authenticator or recovery code is invalid.",
         )
 
     def test_mfa_enabled_login_accepts_valid_otp_and_reports_mfa_state(self) -> None:
@@ -138,6 +144,114 @@ class MfaLoginEnforcementTests(unittest.TestCase):
             self.assertTrue(row[0])
         finally:
             conn.close()
+
+
+    def test_valid_recovery_code_logs_in_and_is_consumed(self) -> None:
+        codes = generate_recovery_codes()
+
+        conn = get_conn(self.db_path)
+        try:
+            conn.execute(
+                """
+                UPDATE app_users
+                SET mfa_recovery_codes=?
+                WHERE display_name='MFA Payroll'
+                """,
+                (
+                    __import__("json").dumps(
+                        hash_recovery_codes(codes)
+                    ),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        result = self.login_endpoint(
+            LoginRequest(
+                display_name="MFA Payroll",
+                password=self.password,
+                recovery_code=codes[0],
+            ),
+            self.request,
+        )
+
+        self.assertTrue(result["access_token"])
+
+        conn = get_conn(self.db_path)
+        try:
+            row = conn.execute(
+                """
+                SELECT mfa_recovery_codes
+                FROM app_users
+                WHERE display_name='MFA Payroll'
+                """
+            ).fetchone()
+        finally:
+            conn.close()
+
+        remaining = __import__("json").loads(row[0])
+
+        self.assertEqual(
+            len(remaining),
+            len(codes) - 1,
+        )
+
+        self.assertNotIn(
+            hash_recovery_code(codes[0]),
+            remaining,
+        )
+
+    def test_consumed_recovery_code_cannot_be_reused(self) -> None:
+        codes = generate_recovery_codes()
+
+        conn = get_conn(self.db_path)
+        try:
+            conn.execute(
+                """
+                UPDATE app_users
+                SET mfa_recovery_codes=?
+                WHERE display_name='MFA Payroll'
+                """,
+                (
+                    __import__("json").dumps(
+                        hash_recovery_codes(codes)
+                    ),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        first = self.login_endpoint(
+            LoginRequest(
+                display_name="MFA Payroll",
+                password=self.password,
+                recovery_code=codes[0],
+            ),
+            self.request,
+        )
+
+        self.assertTrue(first["access_token"])
+
+        with self.assertRaises(HTTPException) as raised:
+            self.login_endpoint(
+                LoginRequest(
+                    display_name="MFA Payroll",
+                    password=self.password,
+                    recovery_code=codes[0],
+                ),
+                self.request,
+            )
+
+        self.assertEqual(
+            raised.exception.status_code,
+            401,
+        )
+        self.assertEqual(
+            raised.exception.detail,
+            "Authenticator or recovery code is invalid.",
+        )
 
 
 if __name__ == "__main__":

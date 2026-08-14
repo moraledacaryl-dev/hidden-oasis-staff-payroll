@@ -72,3 +72,23 @@ def hash_recovery_code(code: str) -> str:
 
 def hash_recovery_codes(codes: Iterable[str]) -> list[str]:
     return [hash_recovery_code(code) for code in codes]
+
+
+def consume_recovery_code(
+    stored_hashes: list[str],
+    code: str | None,
+) -> tuple[bool, list[str]]:
+    if not code:
+        return False, stored_hashes
+
+    candidate = hash_recovery_code(code)
+    remaining: list[str] = []
+    matched = False
+
+    for stored in stored_hashes:
+        if not matched and secrets.compare_digest(stored, candidate):
+            matched = True
+            continue
+        remaining.append(stored)
+
+    return matched, remaining
