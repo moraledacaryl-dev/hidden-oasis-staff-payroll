@@ -59,6 +59,10 @@ class DisableMfaRequest(MfaCodeRequest):
     password: str = Field(..., min_length=1)
 
 
+class RegenerateRecoveryCodesRequest(MfaCodeRequest):
+    password: str = Field(..., min_length=1)
+
+
 def require_user(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
     require_api_key(x_api_key)
     return current_user_from_token(authorization)
@@ -489,6 +493,85 @@ def confirm_mfa(
         return {
             "ok": True,
             "message": "Authenticator enabled. Save the recovery codes and sign in again.",
+            "recovery_codes": recovery_codes,
+        }
+    finally:
+        conn.close()
+
+
+@router.post("/auth/mfa/recovery-codes/regenerate")
+def regenerate_mfa_recovery_codes(
+    payload: RegenerateRecoveryCodesRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = require_user(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+
+    try:
+        row = fetchone(
+            conn,
+            "SELECT * FROM app_users WHERE id=? AND active=1",
+            (user["id"],),
+        )
+
+        if not row or not int(row.get("mfa_enabled") or 0):
+            raise HTTPException(
+                status_code=400,
+                detail="Authenticator is not enabled.",
+            )
+
+        if not verify_password(
+            payload.password,
+            row.get("password_hash"),
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Password is incorrect.",
+            )
+
+        secret = decrypt_mfa_secret(
+            row.get("mfa_secret")
+        )
+
+        if not verify_totp(secret, payload.code):
+            raise HTTPException(
+                status_code=400,
+                detail="Authenticator code is invalid.",
+            )
+
+        recovery_codes = generate_recovery_codes()
+
+        conn.execute(
+            """
+            UPDATE app_users
+            SET mfa_recovery_codes=?
+            WHERE id=?
+            """,
+            (
+                __import__("json").dumps(
+                    hash_recovery_codes(recovery_codes)
+                ),
+                user["id"],
+            ),
+        )
+
+        log_audit(
+            conn,
+            actor=user.get("display_name"),
+            action="MFA recovery codes regenerated",
+            table_name="app_users",
+            record_id=int(user["id"]),
+        )
+
+        conn.commit()
+
+        return {
+            "ok": True,
+            "message": (
+                "New recovery codes generated. "
+                "All previous recovery codes are now invalid."
+            ),
             "recovery_codes": recovery_codes,
         }
     finally:
