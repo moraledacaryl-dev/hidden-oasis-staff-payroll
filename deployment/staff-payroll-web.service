@@ -1,0 +1,32 @@
+[Unit]
+Description=Hidden Oasis Staff Payroll Web
+After=network.target staff-payroll-api.service
+Wants=staff-payroll-api.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/repos/hidden-oasis-staff-payroll/apps/web
+EnvironmentFile=/etc/hiddenoasis/staff-payroll.env
+ExecStart=/usr/bin/node /root/repos/hidden-oasis-staff-payroll/apps/web/node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3001
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

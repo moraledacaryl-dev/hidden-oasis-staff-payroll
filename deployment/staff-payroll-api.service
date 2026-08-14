@@ -1,0 +1,32 @@
+[Unit]
+Description=Hidden Oasis Staff Payroll API
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/repos/hidden-oasis-staff-payroll
+EnvironmentFile=/etc/hiddenoasis/staff-payroll.env
+ExecStart=/root/repos/hidden-oasis-staff-payroll/.venv-api/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/root/repos/hidden-oasis-staff-payroll/data
+
+[Install]
+WantedBy=multi-user.target
