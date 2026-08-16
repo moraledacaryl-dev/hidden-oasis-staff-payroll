@@ -133,6 +133,27 @@ def ensure_integration_schema(conn: sqlite3.Connection) -> None:
         for column, definition in additions.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE integration_outbox ADD COLUMN {column} {definition}")
+    # Normalize legacy delivery-state names that can remain in databases
+    # which were upgraded after the destination-aware outbox schema already
+    # existed. claim_events() intentionally processes only Pending/Retry.
+    conn.execute(
+        """
+        UPDATE integration_outbox
+        SET status = CASE status
+            WHEN 'Ready' THEN 'Pending'
+            WHEN 'Sent' THEN 'Completed'
+            WHEN 'Error' THEN 'Retry'
+            ELSE status
+        END,
+        completed_at = CASE
+            WHEN status='Sent'
+            THEN COALESCE(completed_at, updated_at)
+            ELSE completed_at
+        END
+        WHERE status IN ('Ready', 'Sent', 'Error')
+        """
+    )
+
     conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_outbox_delivery ON integration_outbox(status,next_attempt_at,destination,id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_outbox_source ON integration_outbox(source_type,source_id,event_type)")
     conn.commit()

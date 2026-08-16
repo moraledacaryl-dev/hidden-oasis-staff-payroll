@@ -42,5 +42,39 @@ class ServiceUnitContractTests(unittest.TestCase):
             self.assertIn("CapabilityBoundingSet=", source)
 
 
+    def test_worker_uses_canonical_checkout(self) -> None:
+        source = Path(
+            "deployment/hiddenoasis-staff-integration-worker.service"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "WorkingDirectory=/root/repos/hidden-oasis-staff-payroll",
+            source,
+        )
+        self.assertIn(
+            "/root/repos/hidden-oasis-staff-payroll/.venv-api/bin/python",
+            source,
+        )
+        self.assertIn(
+            "After=network-online.target staff-payroll-api.service",
+            source,
+        )
+        self.assertNotIn(
+            "/opt/hidden-oasis-staff-payroll",
+            source,
+        )
+
+    def test_worker_retains_hardening(self) -> None:
+        source = Path(
+            "deployment/hiddenoasis-staff-integration-worker.service"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("NoNewPrivileges=yes", source)
+        self.assertIn("PrivateTmp=yes", source)
+        self.assertIn("ProtectSystem=full", source)
+        self.assertIn("ProtectHome=read-only", source)
+        self.assertIn("CapabilityBoundingSet=", source)
+
+
 if __name__ == "__main__":
     unittest.main()
