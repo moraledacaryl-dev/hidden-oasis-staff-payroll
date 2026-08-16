@@ -63,15 +63,33 @@ class RegenerateRecoveryCodesRequest(MfaCodeRequest):
     password: str = Field(..., min_length=1)
 
 
+class OwnerResetMfaRequest(BaseModel):
+    owner_password: str = Field(..., min_length=1)
+
+
 def require_user(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
     require_api_key(x_api_key)
     return current_user_from_token(authorization)
 
 
-def require_owner(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
+def require_owner(
+    authorization: str | None,
+    x_api_key: str | None,
+) -> dict[str, Any]:
     user = require_user(authorization, x_api_key)
+
     if user.get("role_key") != "owner":
-        raise HTTPException(status_code=403, detail="Owner access required.")
+        raise HTTPException(
+            status_code=403,
+            detail="Owner access required.",
+        )
+
+    if int(user.get("mfa_setup_required") or 0):
+        raise HTTPException(
+            status_code=428,
+            detail="MFA setup is required for this account.",
+        )
+
     return user
 
 
@@ -399,6 +417,96 @@ def set_user_role(
         conn.commit()
         updated = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,)) or {}
         return {"ok": True, "user": public_app_user(updated)}
+    finally:
+        conn.close()
+
+
+@router.post("/users/{user_id}/mfa/reset")
+def owner_reset_user_mfa(
+    user_id: int,
+    payload: OwnerResetMfaRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    owner = require_owner(
+        authorization,
+        x_api_key,
+    )
+
+    conn = get_conn(DB_PATH)
+
+    try:
+        owner_row = fetchone(
+            conn,
+            "SELECT * FROM app_users WHERE id=? AND active=1",
+            (owner["id"],),
+        )
+
+        if not owner_row or not verify_password(
+            payload.owner_password,
+            owner_row.get("password_hash"),
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Owner password is incorrect.",
+            )
+
+        target = fetchone(
+            conn,
+            "SELECT * FROM app_users WHERE id=?",
+            (user_id,),
+        )
+
+        if not target:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found.",
+            )
+
+        conn.execute(
+            """
+            UPDATE app_users
+            SET mfa_secret=NULL,
+                mfa_enabled=0,
+                mfa_confirmed_at=NULL,
+                mfa_recovery_codes=NULL,
+                session_version=COALESCE(session_version,1)+1
+            WHERE id=?
+            """,
+            (user_id,),
+        )
+
+        log_audit(
+            conn,
+            actor=owner.get("display_name"),
+            action="User MFA reset by owner",
+            table_name="app_users",
+            record_id=user_id,
+            details={
+                "target_display_name":
+                    target.get("display_name"),
+                "target_role":
+                    target.get("role"),
+            },
+        )
+
+        conn.commit()
+
+        updated = fetchone(
+            conn,
+            "SELECT * FROM app_users WHERE id=?",
+            (user_id,),
+        ) or {}
+
+        return {
+            "ok": True,
+            "message": (
+                "MFA reset. Existing sessions and "
+                "recovery codes were revoked."
+            ),
+            "user": public_app_user(updated),
+        }
+
     finally:
         conn.close()
 

@@ -74,6 +74,15 @@ def role_to_key(role: str | None) -> str:
     return ROLE_STAFF
 
 
+def privileged_mfa_required(user: dict[str, Any]) -> bool:
+    role_key = role_to_key(user.get("role"))
+
+    return (
+        role_key in {ROLE_OWNER, ROLE_PAYROLL}
+        and not int(user.get("mfa_enabled") or 0)
+    )
+
+
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
     role_key = role_to_key(user.get("role"))
     return {
@@ -88,7 +97,9 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "active": int(user.get("active") or 0),
         "must_change_password": int(user.get("must_change_password") or 0),
         "mfa_enabled": int(user.get("mfa_enabled") or 0),
-        "mfa_setup_required": 0,
+        "mfa_setup_required": int(
+            privileged_mfa_required(user)
+        ),
         "employee_id": user.get("employee_id"),
         "session_version": int(user.get("session_version") or 1),
         "last_login_at": user.get("last_login_at"),
@@ -215,6 +226,15 @@ def current_user_from_token(
 def require_authenticated_user(
     user: dict[str, Any] = Depends(current_user_from_token),
 ) -> dict[str, Any]:
+    if (
+        not user.get("is_impersonating")
+        and int(user.get("mfa_setup_required") or 0)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail="MFA setup is required for this account.",
+        )
+
     return user
 
 
@@ -251,6 +271,7 @@ __all__ = [
     "configured_db_path",
     "current_user_from_token",
     "db_conn",
+    "privileged_mfa_required",
     "public_user",
     "require_api_key",
     "require_authenticated_user",
