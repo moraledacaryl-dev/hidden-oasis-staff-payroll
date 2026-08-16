@@ -450,8 +450,10 @@ export function MfaSettingsForm({
                 width: "fit-content",
               }}
             >
-              {/* Generated entirely from the
-                  local otpauth URI. */}
+              {/* This QR code is a local data URL generated in-browser from the
+                  otpauth URI; Next image optimization is neither useful nor
+                  compatible with this transient source. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={qrDataUrl}
                 width={240}
