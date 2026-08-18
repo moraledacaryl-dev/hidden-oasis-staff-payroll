@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -29,7 +30,7 @@ class CashAdvanceOwnerCorrectionContractTests(unittest.TestCase):
         self.assertIn("cash_advance_id: advanceId", self.component)
         self.assertIn("corrected_amount: basis", self.component)
         self.assertIn("correction_reason: reason.trim()", self.component)
-        self.assertNotIn('id: advanceId', self.component)
+        self.assertIsNone(re.search(r"(?<!cash_advance_)\bid\s*:\s*advanceId\b", self.component))
         self.assertNotIn("repayment_method", self.component)
 
     def test_correction_requires_reason_and_explicit_confirmation(self) -> None:
