@@ -13,23 +13,19 @@ type Advance = {
 
 type LifecycleAction = "approve" | "reject" | "cancel";
 
-export function CashAdvanceFormV2({ employees, item = null, canEditExisting = false, isOwner = false }: { employees: Employee[]; item?: Advance | null; canEditExisting?: boolean; isOwner?: boolean }) {
+export function CashAdvanceFormV2({ employees, item = null, canEditExisting = false }: { employees: Employee[]; item?: Advance | null; canEditExisting?: boolean; isOwner?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(!item);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [method, setMethod] = useState(item?.repayment_method || "Payroll deduction");
   const [actionReason, setActionReason] = useState("");
-  const encodedAmount = Number(item?.amount || 0);
   const currentBasis = Number(item?.ledger_opening_balance ?? item?.amount ?? 0);
   const [amount, setAmount] = useState(item ? currentBasis : 0);
 
   if (item && !canEditExisting) return null;
 
   const totalRepaid = Number(item?.total_repaid || 0);
-  const changed = Boolean(item) && Math.abs(amount - currentBasis) >= 0.005;
-  const newBalance = Math.max(0, amount - totalRepaid);
-  const credit = Math.max(0, totalRepaid - amount);
   const canonicalStatus = ["Approved", "Released"].includes(String(item?.status || "")) ? "Active" : String(item?.status || "Pending");
   const canApprove = Boolean(item?.id) && ["Pending", "Rejected"].includes(canonicalStatus);
   const canReject = Boolean(item?.id) && canonicalStatus === "Pending";
@@ -38,28 +34,6 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
   async function submit(formData: FormData) {
     setBusy(true);
     setMessage("");
-
-    if (item && changed) {
-      const reason = String(formData.get("correction_reason") || "").trim();
-      if (!isOwner || !reason) {
-        setBusy(false);
-        setMessage(!isOwner ? "Only the owner can correct the balance basis." : "Enter a correction reason.");
-        return;
-      }
-      const correction = await fetch("/api/cash-advances", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "correct_amount", cash_advance_id: item.id, corrected_amount: amount, correction_reason: reason, reference: String(formData.get("correction_reference") || "") || null }),
-      });
-      const result = await correction.json().catch(() => ({}));
-      if (!correction.ok || !result.ok) {
-        setBusy(false);
-        setMessage(result.detail || "Balance correction was not saved.");
-        return;
-      }
-    }
-
-    const saveAmount = item ? (changed ? amount : encodedAmount) : amount;
     const response = await fetch("/api/cash-advances", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -67,7 +41,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
         id: item?.id || null,
         employee_id: Number(formData.get("employee_id") || 0),
         advance_date: String(formData.get("advance_date") || ""),
-        amount: saveAmount,
+        amount: item ? currentBasis : amount,
         reason: String(formData.get("reason") || "") || null,
         approved_by: String(formData.get("approved_by") || "") || null,
         repayment_method: String(formData.get("repayment_method") || "Payroll deduction"),
@@ -120,9 +94,9 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
           <div>
             <span className="cash-edit-eyebrow">{item ? "Edit cash advance" : "New cash advance"}</span>
             <h3>{item ? "Update advance details" : "Add advance"}</h3>
-            {item ? <p>Change repayment settings and internal details. Lifecycle state changes use the explicit actions below.</p> : null}
+            {item ? <p>Change repayment settings and internal details. Balance corrections and lifecycle changes use separate controlled actions.</p> : null}
           </div>
-          {item ? <button className="cash-edit-close" type="button" aria-label="Close" onClick={() => { setAmount(currentBasis); setOpen(false); }}>×</button> : null}
+          {item ? <button className="cash-edit-close" type="button" aria-label="Close" onClick={() => setOpen(false)}>×</button> : null}
         </div>
 
         <div className="cash-edit-grid">
@@ -139,7 +113,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
           <label className="cash-edit-field cash-edit-field-emphasis">
             <span>{item ? "Balance basis" : "Original amount"}</span>
             <input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value || 0))} disabled={Boolean(item)} required />
-            {item ? <small>Locked after creation. Use Owner correction for principal/balance-basis changes.</small> : null}
+            {item ? <small>Read-only here. Owners must use the separate Correct balance basis action.</small> : null}
           </label>
 
           <label className="cash-edit-field">
@@ -171,26 +145,10 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
           </section>
         ) : null}
 
-        {item && changed ? (
-          <section className="cash-correction-card">
-            <div className="cash-correction-heading"><div><span>Owner correction</span><h4>Review balance change</h4></div><strong>{newBalance.toLocaleString("en-PH", { style: "currency", currency: "PHP" })} remaining</strong></div>
-            <div className="cash-correction-stats">
-              <div><span>Previous basis</span><strong>{currentBasis.toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</strong></div>
-              <div><span>Corrected basis</span><strong>{amount.toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</strong></div>
-              <div><span>Repayments applied</span><strong>{totalRepaid.toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</strong></div>
-            </div>
-            {credit > 0 ? <p className="cash-credit-alert">This creates an employee credit of {credit.toLocaleString("en-PH", { style: "currency", currency: "PHP" })}.</p> : null}
-            <div className="cash-correction-fields">
-              <label className="cash-edit-field"><span>Correction reason</span><input name="correction_reason" required placeholder="Why the balance basis was incorrect" /></label>
-              <label className="cash-edit-field"><span>Reference</span><input name="correction_reference" placeholder="Optional voucher or accounting reference" /></label>
-            </div>
-          </section>
-        ) : null}
-
         <div className="cash-edit-actions">
           {message ? <p>{message}</p> : <span />}
           <div>
-            {item ? <button className="button ghost" type="button" onClick={() => { setAmount(currentBasis); setOpen(false); }}>Close</button> : null}
+            {item ? <button className="button ghost" type="button" onClick={() => setOpen(false)}>Close</button> : null}
             <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save details" : "Add cash advance"}</button>
           </div>
         </div>
@@ -204,9 +162,8 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
         .cash-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}.cash-edit-field{display:grid;gap:6px;min-width:0}.cash-edit-field>span{color:var(--muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.cash-edit-field input,.cash-edit-field select,.cash-edit-field textarea{width:100%;min-width:0}.cash-edit-field textarea{resize:vertical}.cash-edit-field small{color:var(--muted);font-size:.74rem;line-height:1.35}.cash-edit-span-2{grid-column:1/-1}
         .cash-edit-field-emphasis{padding:12px;border:1px solid var(--accent-soft);border-radius:8px;background:var(--accent-soft)}.cash-edit-field-emphasis input{background:var(--surface)}
         .cash-lifecycle-card{display:grid;gap:12px;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft)}.cash-lifecycle-card>div:first-child{display:flex;justify-content:space-between;gap:12px}.cash-lifecycle-card>div:first-child span{color:var(--muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.cash-lifecycle-actions{display:flex;gap:8px;flex-wrap:wrap}
-        .cash-correction-card{display:grid;gap:14px;padding:16px;border:1px solid #e9c982;border-radius:8px;background:var(--warning-soft)}.cash-correction-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.cash-correction-heading span{color:var(--warning);font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}.cash-correction-heading h4{margin:2px 0 0}.cash-correction-heading>strong{color:var(--warning);white-space:nowrap}.cash-correction-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.cash-correction-stats div{display:grid;gap:4px;padding:11px;border-radius:6px;background:rgba(255,255,255,.72)}.cash-correction-stats span{color:var(--muted);font-size:.67rem;font-weight:800;text-transform:uppercase;letter-spacing:.055em}.cash-correction-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cash-credit-alert{margin:0;padding:10px 12px;border-radius:6px;background:rgba(255,255,255,.72);color:var(--danger);font-size:.8rem;font-weight:750}
         .cash-edit-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:14px;border-top:1px solid var(--line)}.cash-edit-actions>p{margin:0;color:var(--danger);font-size:.8rem;font-weight:700}.cash-edit-actions>div{display:flex;gap:8px;margin-left:auto}
-        @media(max-width:720px){.cash-edit-panel{padding:14px}.cash-edit-grid,.cash-correction-stats,.cash-correction-fields{grid-template-columns:1fr}.cash-edit-span-2{grid-column:1}.cash-correction-heading,.cash-edit-actions{display:grid}.cash-correction-heading>strong{white-space:normal}.cash-edit-actions>div{width:100%;margin-left:0}.cash-edit-actions button{flex:1}.cash-lifecycle-card>div:first-child{display:grid}}
+        @media(max-width:720px){.cash-edit-panel{padding:14px}.cash-edit-grid{grid-template-columns:1fr}.cash-edit-span-2{grid-column:1}.cash-edit-actions{display:grid}.cash-edit-actions>div{width:100%;margin-left:0}.cash-edit-actions button{flex:1}.cash-lifecycle-card>div:first-child{display:grid}}
       `}</style>
     </>
   );
