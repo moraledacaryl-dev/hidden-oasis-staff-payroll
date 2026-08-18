@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel
 
 from api.cash_advance_service import (
     CashAdvancePayload,
@@ -20,6 +21,10 @@ from core.db import DB_PATH, fetchall, fetchone, get_conn
 router = APIRouter(prefix="/api/v1")
 
 
+class LifecyclePayload(BaseModel):
+    reason: str | None = None
+
+
 def _columns(conn, table: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
@@ -30,11 +35,6 @@ def _table_exists(conn, table: str) -> bool:
 
 
 def _employee_department_sql(conn) -> tuple[str, str]:
-    """Return a schema-safe department select expression and optional join.
-
-    Older deployments stored employees.department directly. Newer deployments store
-    employees.department_id and departments.name. Cash advances must render either.
-    """
     employee_columns = _columns(conn, "employees") if _table_exists(conn, "employees") else set()
     if "department" in employee_columns:
         return "e.department", ""
@@ -131,6 +131,68 @@ def _insert_cash_advance(
     return int(cursor.lastrowid)
 
 
+def _ensure_lifecycle_events(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cash_advance_lifecycle_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cash_advance_id INTEGER NOT NULL,
+            from_status TEXT NOT NULL,
+            to_status TEXT NOT NULL,
+            reason TEXT,
+            actor_id INTEGER,
+            actor_name TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ca_lifecycle_events_advance ON cash_advance_lifecycle_events(cash_advance_id,id)"
+    )
+
+
+def _canonical_status(value: str | None) -> str:
+    status = str(value or "").strip()
+    return "Active" if status in {"Approved", "Released"} else status
+
+
+def _transition_cash_advance(
+    conn,
+    *,
+    advance: dict[str, Any],
+    target: str,
+    allowed_from: set[str],
+    user: dict[str, Any],
+    reason: str | None = None,
+    reason_required: bool = False,
+) -> None:
+    raw_status = str(advance.get("status") or "")
+    current = _canonical_status(raw_status)
+    if current not in allowed_from:
+        raise HTTPException(status_code=409, detail=f"Cannot transition cash advance from {raw_status or 'Unknown'} to {target}.")
+
+    clean_reason = str(reason or "").strip()
+    if reason_required and not clean_reason:
+        raise HTTPException(status_code=422, detail=f"A reason is required to mark this cash advance {target}.")
+
+    actor_name = str(user.get("display_name") or "System")
+    actor_id = user.get("id")
+    stamp = now_iso()
+    _ensure_lifecycle_events(conn)
+    conn.execute(
+        "UPDATE cash_advances SET status=?,updated_by=?,updated_at=? WHERE id=?",
+        (target, actor_name, stamp, advance["id"]),
+    )
+    conn.execute(
+        """
+        INSERT INTO cash_advance_lifecycle_events(
+            cash_advance_id,from_status,to_status,reason,actor_id,actor_name,created_at
+        ) VALUES(?,?,?,?,?,?,?)
+        """,
+        (advance["id"], raw_status, target, clean_reason or None, actor_id, actor_name, stamp),
+    )
+
+
 @router.get("/cash-advances")
 def list_cash_advances(
     authorization: str | None = Header(default=None, alias="Authorization"),
@@ -142,19 +204,10 @@ def list_cash_advances(
         ensure_schema(conn)
         columns = _columns(conn, "cash_advances")
         date_expr = "COALESCE(ca.advance_date, ca.request_date)" if "request_date" in columns else "ca.advance_date"
-        items = fetchall(
-            conn,
-            _cash_advance_select_sql(conn, f"ORDER BY date({date_expr}) DESC, ca.id DESC"),
-        )
+        items = fetchall(conn, _cash_advance_select_sql(conn, f"ORDER BY date({date_expr}) DESC, ca.id DESC"))
         for item in items:
             summary = recalculate_balance(conn, int(item["id"]))
-            item.update(
-                {
-                    "remaining_balance": summary["balance"],
-                    "status": summary["status"],
-                    "total_repaid": summary["paid"],
-                }
-            )
+            item.update({"remaining_balance": summary["balance"], "status": summary["status"], "total_repaid": summary["paid"]})
             item["repayments"] = repayment_history(conn, int(item["id"]))
         conn.commit()
         return {"ok": True, "items": items}
@@ -168,11 +221,7 @@ def save_cash_advance(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    user = (
-        require_cash_advance_editor(authorization, x_api_key)
-        if payload.id
-        else require_cash_advance_creator(authorization, x_api_key)
-    )
+    user = require_cash_advance_editor(authorization, x_api_key) if payload.id else require_cash_advance_creator(authorization, x_api_key)
     amount = round(float(payload.amount or 0), 2)
     deduction = round(float(payload.deduction_per_payroll or 0), 2)
     if amount <= 0:
@@ -198,27 +247,18 @@ def save_cash_advance(
             stored_amount = round(float(old.get("amount") or 0), 2)
             stored_basis = round(float(old.get("ledger_opening_balance") if old.get("ledger_opening_balance") is not None else stored_amount), 2)
             if abs(amount - stored_basis) >= 0.005:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Original amount / balance basis cannot be changed in normal edit. Use owner correction instead.",
-                )
+                raise HTTPException(status_code=409, detail="Original amount / balance basis cannot be changed in normal edit. Use owner correction instead.")
 
-            allowed_statuses = {"Pending", "Active", "Approved", "Partially Paid", "Fully Paid", "Cancelled", "Rejected"}
-            requested_status = str(payload.status or old.get("status") or "Pending").strip()
-            if requested_status not in allowed_statuses:
-                requested_status = str(old.get("status") or "Pending")
-            if requested_status in {"Active", "Approved"} and str(old.get("status") or "") in {"Pending", "Rejected"}:
-                raise HTTPException(status_code=409, detail="Use Approve cash advance to activate a pending advance.")
-
+            # Lifecycle status is deliberately immutable through ordinary detail edits.
+            # Approval/rejection/cancellation must use explicit transition endpoints.
             conn.execute(
-                "UPDATE cash_advances SET employee_id=?,advance_date=?,reason=?,approved_by=?,repayment_method=?,status=?,notes=?,updated_by=?,updated_at=? WHERE id=?",
+                "UPDATE cash_advances SET employee_id=?,advance_date=?,reason=?,approved_by=?,repayment_method=?,notes=?,updated_by=?,updated_at=? WHERE id=?",
                 (
                     payload.employee_id,
                     payload.advance_date,
                     payload.reason,
                     payload.approved_by,
                     method,
-                    requested_status,
                     payload.notes,
                     display_name,
                     stamp,
@@ -229,15 +269,7 @@ def save_cash_advance(
         else:
             if not fetchone(conn, "SELECT id FROM employees WHERE id=?", (payload.employee_id,)):
                 raise HTTPException(status_code=404, detail="Employee not found.")
-            advance_id = _insert_cash_advance(
-                conn,
-                payload=payload,
-                amount=amount,
-                deduction=deduction,
-                method=method,
-                display_name=display_name,
-                stamp=stamp,
-            )
+            advance_id = _insert_cash_advance(conn, payload=payload, amount=amount, deduction=deduction, method=method, display_name=display_name, stamp=stamp)
             _sync_legacy_fields(conn, advance_id, amount, deduction, amount, payload.advance_date)
 
         summary = recalculate_balance(conn, advance_id)
@@ -247,25 +279,38 @@ def save_cash_advance(
         _sync_legacy_fields(conn, advance_id, saved_amount, deduction, summary["balance"] if payload.id else saved_basis, payload.advance_date)
         conn.commit()
 
-        item = fetchone(
-            conn,
-            _cash_advance_select_sql(conn, "WHERE ca.id=?"),
-            (advance_id,),
-        ) or {}
-        item.update(
-            {
-                "remaining_balance": summary["balance"],
-                "status": summary["status"],
-                "total_repaid": summary["paid"],
-                "repayments": repayment_history(conn, advance_id),
-            }
-        )
+        item = fetchone(conn, _cash_advance_select_sql(conn, "WHERE ca.id=?"), (advance_id,)) or {}
+        item.update({
+            "remaining_balance": summary["balance"],
+            "status": summary["status"],
+            "total_repaid": summary["paid"],
+            "repayments": repayment_history(conn, advance_id),
+        })
         return {"ok": True, "item": item}
     except HTTPException:
         conn.rollback()
         raise
     finally:
         conn.close()
+
+
+def _load_for_transition(conn, cash_advance_id: int) -> dict[str, Any]:
+    advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
+    if not advance:
+        raise HTTPException(status_code=404, detail="Cash advance not found.")
+    return advance
+
+
+def _transition_response(conn, cash_advance_id: int) -> dict[str, Any]:
+    summary = recalculate_balance(conn, cash_advance_id)
+    item = fetchone(conn, _cash_advance_select_sql(conn, "WHERE ca.id=?"), (cash_advance_id,)) or {}
+    item.update({
+        "remaining_balance": summary["balance"],
+        "status": summary["status"],
+        "total_repaid": summary["paid"],
+        "repayments": repayment_history(conn, cash_advance_id),
+    })
+    return {"ok": True, "item": item}
 
 
 @router.post("/cash-advances/{cash_advance_id}/approve")
@@ -278,39 +323,71 @@ def approve_cash_advance(
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
-        advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
-        if not advance:
-            raise HTTPException(status_code=404, detail="Cash advance not found.")
-        status = str(advance.get("status") or "")
-        if status in {"Cancelled", "Fully Paid"}:
-            raise HTTPException(status_code=409, detail=f"Cannot approve a {status} cash advance.")
+        advance = _load_for_transition(conn, cash_advance_id)
+        _transition_cash_advance(conn, advance=advance, target="Active", allowed_from={"Pending", "Rejected"}, user=user)
+        display_name = str(user.get("display_name") or "System")
         stamp = now_iso()
-        display_name = user.get("display_name") or "System"
-        user_id = user.get("id")
         conn.execute(
             """
             UPDATE cash_advances
-               SET status='Active',
-                   approved_by=COALESCE(NULLIF(approved_by,''), ?),
-                   approved_by_user_id=?,
-                   approved_by_name=?,
-                   approved_at=?,
-                   updated_by=?,
-                   updated_at=?
+               SET approved_by=COALESCE(NULLIF(approved_by,''), ?),
+                   approved_by_user_id=?, approved_by_name=?, approved_at=?
              WHERE id=?
             """,
-            (display_name, user_id, display_name, stamp, display_name, stamp, cash_advance_id),
+            (display_name, user.get("id"), display_name, stamp, cash_advance_id),
         )
-        summary = recalculate_balance(conn, cash_advance_id)
+        response = _transition_response(conn, cash_advance_id)
         conn.commit()
-        item = fetchone(conn, _cash_advance_select_sql(conn, "WHERE ca.id=?"), (cash_advance_id,)) or {}
-        item.update({
-            "remaining_balance": summary["balance"],
-            "status": summary["status"],
-            "total_repaid": summary["paid"],
-            "repayments": repayment_history(conn, cash_advance_id),
-        })
-        return {"ok": True, "item": item}
+        return response
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post("/cash-advances/{cash_advance_id}/reject")
+def reject_cash_advance(
+    cash_advance_id: int,
+    payload: LifecyclePayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = require_cash_advance_editor(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        advance = _load_for_transition(conn, cash_advance_id)
+        _transition_cash_advance(conn, advance=advance, target="Rejected", allowed_from={"Pending"}, user=user, reason=payload.reason, reason_required=True)
+        response = _transition_response(conn, cash_advance_id)
+        conn.commit()
+        return response
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post("/cash-advances/{cash_advance_id}/cancel")
+def cancel_cash_advance(
+    cash_advance_id: int,
+    payload: LifecyclePayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = require_cash_advance_editor(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        advance = _load_for_transition(conn, cash_advance_id)
+        summary = recalculate_balance(conn, cash_advance_id)
+        if float(summary.get("paid") or 0) > 0:
+            raise HTTPException(status_code=409, detail="A cash advance with repayments cannot be cancelled. Reverse the repayments first.")
+        _transition_cash_advance(conn, advance=advance, target="Cancelled", allowed_from={"Pending", "Rejected", "Active"}, user=user, reason=payload.reason, reason_required=True)
+        response = _transition_response(conn, cash_advance_id)
+        conn.commit()
+        return response
     except HTTPException:
         conn.rollback()
         raise

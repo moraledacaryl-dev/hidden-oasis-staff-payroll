@@ -11,12 +11,15 @@ type Advance = {
   status?: string | null; notes?: string | null;
 };
 
+type LifecycleAction = "approve" | "reject" | "cancel";
+
 export function CashAdvanceFormV2({ employees, item = null, canEditExisting = false, isOwner = false }: { employees: Employee[]; item?: Advance | null; canEditExisting?: boolean; isOwner?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(!item);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [method, setMethod] = useState(item?.repayment_method || "Payroll deduction");
+  const [actionReason, setActionReason] = useState("");
   const encodedAmount = Number(item?.amount || 0);
   const currentBasis = Number(item?.ledger_opening_balance ?? item?.amount ?? 0);
   const [amount, setAmount] = useState(item ? currentBasis : 0);
@@ -27,6 +30,10 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
   const changed = Boolean(item) && Math.abs(amount - currentBasis) >= 0.005;
   const newBalance = Math.max(0, amount - totalRepaid);
   const credit = Math.max(0, totalRepaid - amount);
+  const canonicalStatus = ["Approved", "Released"].includes(String(item?.status || "")) ? "Active" : String(item?.status || "Pending");
+  const canApprove = Boolean(item?.id) && ["Pending", "Rejected"].includes(canonicalStatus);
+  const canReject = Boolean(item?.id) && canonicalStatus === "Pending";
+  const canCancel = Boolean(item?.id) && ["Pending", "Rejected", "Active"].includes(canonicalStatus) && totalRepaid <= 0;
 
   async function submit(formData: FormData) {
     setBusy(true);
@@ -65,7 +72,6 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
         approved_by: String(formData.get("approved_by") || "") || null,
         repayment_method: String(formData.get("repayment_method") || "Payroll deduction"),
         deduction_per_payroll: Number(formData.get("deduction_per_payroll") || 0),
-        status: String(formData.get("status") || "Active"),
         notes: String(formData.get("notes") || "") || null,
       }),
     });
@@ -79,21 +85,27 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
     router.refresh();
   }
 
-  async function approve() {
+  async function lifecycle(action: LifecycleAction) {
     if (!item?.id) return;
+    if (["reject", "cancel"].includes(action) && !actionReason.trim()) {
+      setMessage("Enter a reason before rejecting or cancelling this cash advance.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     const response = await fetch("/api/cash-advances", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "approve", cash_advance_id: item.id }),
+      body: JSON.stringify({ action, cash_advance_id: item.id, reason: actionReason.trim() || null }),
     });
     const data = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok || !data.ok) {
-      setMessage(data.detail || "Cash advance was not approved.");
+      setMessage(data.detail || `Cash advance could not be ${action}d.`);
       return;
     }
+    setActionReason("");
+    setOpen(false);
     router.refresh();
   }
 
@@ -108,7 +120,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
           <div>
             <span className="cash-edit-eyebrow">{item ? "Edit cash advance" : "New cash advance"}</span>
             <h3>{item ? "Update advance details" : "Add advance"}</h3>
-            {item ? <p>Change repayment settings and internal details. Original amount is locked after creation.</p> : null}
+            {item ? <p>Change repayment settings and internal details. Lifecycle state changes use the explicit actions below.</p> : null}
           </div>
           {item ? <button className="cash-edit-close" type="button" aria-label="Close" onClick={() => { setAmount(currentBasis); setOpen(false); }}>×</button> : null}
         </div>
@@ -122,10 +134,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
             </select>
           </label>
 
-          <label className="cash-edit-field">
-            <span>Advance date</span>
-            <input name="advance_date" type="date" defaultValue={(item?.advance_date || "").slice(0, 10)} required />
-          </label>
+          <label className="cash-edit-field"><span>Advance date</span><input name="advance_date" type="date" defaultValue={(item?.advance_date || "").slice(0, 10)} required /></label>
 
           <label className="cash-edit-field cash-edit-field-emphasis">
             <span>{item ? "Balance basis" : "Original amount"}</span>
@@ -142,47 +151,29 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
           </label>
 
           {method === "Payroll deduction" ? (
-            <label className="cash-edit-field">
-              <span>Suggested deduction</span>
-              <input name="deduction_per_payroll" type="number" min="0" step="0.01" defaultValue={item?.deduction_per_payroll ?? 0} />
-              <small>Can still be changed during payroll review.</small>
-            </label>
+            <label className="cash-edit-field"><span>Suggested deduction</span><input name="deduction_per_payroll" type="number" min="0" step="0.01" defaultValue={item?.deduction_per_payroll ?? 0} /><small>Can still be changed during payroll review.</small></label>
           ) : <input type="hidden" name="deduction_per_payroll" value="0" />}
 
-          <label className="cash-edit-field">
-            <span>Approved by</span>
-            <input name="approved_by" defaultValue={item?.approved_by || ""} placeholder="General Manager or owner" />
-          </label>
-
-          <label className="cash-edit-field cash-edit-span-2">
-            <span>Reason</span>
-            <input name="reason" defaultValue={item?.reason || ""} placeholder="Purpose of the advance" />
-          </label>
-
-          <label className="cash-edit-field cash-edit-span-2">
-            <span>Notes</span>
-            <textarea name="notes" defaultValue={item?.notes || ""} rows={3} placeholder="Optional internal note" />
-          </label>
-
-          {item ? (
-            <label className="cash-edit-field">
-              <span>Status</span>
-              <select name="status" defaultValue={item.status || "Pending"}>
-                <option>Pending</option>
-                <option>Active</option>
-                <option>Cancelled</option>
-                <option>Rejected</option>
-              </select>
-            </label>
-          ) : <input type="hidden" name="status" value="Pending" />}
+          <label className="cash-edit-field"><span>Approved by</span><input name="approved_by" defaultValue={item?.approved_by || ""} placeholder="General Manager or owner" /></label>
+          <label className="cash-edit-field cash-edit-span-2"><span>Reason</span><input name="reason" defaultValue={item?.reason || ""} placeholder="Purpose of the advance" /></label>
+          <label className="cash-edit-field cash-edit-span-2"><span>Notes</span><textarea name="notes" defaultValue={item?.notes || ""} rows={3} placeholder="Optional internal note" /></label>
         </div>
+
+        {item && (canApprove || canReject || canCancel) ? (
+          <section className="cash-lifecycle-card">
+            <div><span>Lifecycle</span><strong>Current state: {canonicalStatus}</strong></div>
+            {(canReject || canCancel) ? <label className="cash-edit-field"><span>Reason for reject/cancel</span><input value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder="Required for reject or cancel" /></label> : null}
+            <div className="cash-lifecycle-actions">
+              {canApprove ? <button className="button" type="button" disabled={busy} onClick={() => void lifecycle("approve")}>Approve</button> : null}
+              {canReject ? <button className="button ghost" type="button" disabled={busy} onClick={() => void lifecycle("reject")}>Reject</button> : null}
+              {canCancel ? <button className="button ghost" type="button" disabled={busy} onClick={() => void lifecycle("cancel")}>Cancel advance</button> : null}
+            </div>
+          </section>
+        ) : null}
 
         {item && changed ? (
           <section className="cash-correction-card">
-            <div className="cash-correction-heading">
-              <div><span>Owner correction</span><h4>Review balance change</h4></div>
-              <strong>{newBalance.toLocaleString("en-PH", { style: "currency", currency: "PHP" })} remaining</strong>
-            </div>
+            <div className="cash-correction-heading"><div><span>Owner correction</span><h4>Review balance change</h4></div><strong>{newBalance.toLocaleString("en-PH", { style: "currency", currency: "PHP" })} remaining</strong></div>
             <div className="cash-correction-stats">
               <div><span>Previous basis</span><strong>{currentBasis.toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</strong></div>
               <div><span>Corrected basis</span><strong>{amount.toLocaleString("en-PH", { style: "currency", currency: "PHP" })}</strong></div>
@@ -199,9 +190,8 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
         <div className="cash-edit-actions">
           {message ? <p>{message}</p> : <span />}
           <div>
-            {item ? <button className="button ghost" type="button" onClick={() => { setAmount(currentBasis); setOpen(false); }}>Cancel</button> : null}
-            {item && ["Pending", "Rejected"].includes(String(item.status || "")) ? <button className="button" type="button" disabled={busy} onClick={approve}>Approve</button> : null}
-            <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save changes" : "Add cash advance"}</button>
+            {item ? <button className="button ghost" type="button" onClick={() => { setAmount(currentBasis); setOpen(false); }}>Close</button> : null}
+            <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save details" : "Add cash advance"}</button>
           </div>
         </div>
       </form>
@@ -213,9 +203,10 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
         .cash-edit-close{width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:var(--surface-soft);color:var(--muted);font-size:1.2rem;line-height:1;cursor:pointer}
         .cash-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}.cash-edit-field{display:grid;gap:6px;min-width:0}.cash-edit-field>span{color:var(--muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.cash-edit-field input,.cash-edit-field select,.cash-edit-field textarea{width:100%;min-width:0}.cash-edit-field textarea{resize:vertical}.cash-edit-field small{color:var(--muted);font-size:.74rem;line-height:1.35}.cash-edit-span-2{grid-column:1/-1}
         .cash-edit-field-emphasis{padding:12px;border:1px solid var(--accent-soft);border-radius:8px;background:var(--accent-soft)}.cash-edit-field-emphasis input{background:var(--surface)}
+        .cash-lifecycle-card{display:grid;gap:12px;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft)}.cash-lifecycle-card>div:first-child{display:flex;justify-content:space-between;gap:12px}.cash-lifecycle-card>div:first-child span{color:var(--muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.cash-lifecycle-actions{display:flex;gap:8px;flex-wrap:wrap}
         .cash-correction-card{display:grid;gap:14px;padding:16px;border:1px solid #e9c982;border-radius:8px;background:var(--warning-soft)}.cash-correction-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}.cash-correction-heading span{color:var(--warning);font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}.cash-correction-heading h4{margin:2px 0 0}.cash-correction-heading>strong{color:var(--warning);white-space:nowrap}.cash-correction-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.cash-correction-stats div{display:grid;gap:4px;padding:11px;border-radius:6px;background:rgba(255,255,255,.72)}.cash-correction-stats span{color:var(--muted);font-size:.67rem;font-weight:800;text-transform:uppercase;letter-spacing:.055em}.cash-correction-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cash-credit-alert{margin:0;padding:10px 12px;border-radius:6px;background:rgba(255,255,255,.72);color:var(--danger);font-size:.8rem;font-weight:750}
         .cash-edit-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:14px;border-top:1px solid var(--line)}.cash-edit-actions>p{margin:0;color:var(--danger);font-size:.8rem;font-weight:700}.cash-edit-actions>div{display:flex;gap:8px;margin-left:auto}
-        @media(max-width:720px){.cash-edit-panel{padding:14px}.cash-edit-grid,.cash-correction-stats,.cash-correction-fields{grid-template-columns:1fr}.cash-edit-span-2{grid-column:1}.cash-correction-heading,.cash-edit-actions{display:grid}.cash-correction-heading>strong{white-space:normal}.cash-edit-actions>div{width:100%;margin-left:0}.cash-edit-actions button{flex:1}}
+        @media(max-width:720px){.cash-edit-panel{padding:14px}.cash-edit-grid,.cash-correction-stats,.cash-correction-fields{grid-template-columns:1fr}.cash-edit-span-2{grid-column:1}.cash-correction-heading,.cash-edit-actions{display:grid}.cash-correction-heading>strong{white-space:normal}.cash-edit-actions>div{width:100%;margin-left:0}.cash-edit-actions button{flex:1}.cash-lifecycle-card>div:first-child{display:grid}}
       `}</style>
     </>
   );

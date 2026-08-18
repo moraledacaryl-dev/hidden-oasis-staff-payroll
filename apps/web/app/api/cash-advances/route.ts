@@ -13,27 +13,29 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
-  const correctionId = Number(body.cash_advance_id || 0);
-  const approveId = Number(body.cash_advance_id || body.id || 0);
-  const settlementId = Number(body.cash_advance_id || 0);
-  const isCorrection = body.action === "correct_amount" && correctionId > 0;
-  const isApproval = body.action === "approve" && approveId > 0;
-  const isSettlement = body.action === "settle_credit" && settlementId > 0;
+  const cashAdvanceId = Number(body.cash_advance_id || body.id || 0);
+  const action = String(body.action || "");
+  const transitionActions = new Set(["approve", "reject", "cancel"]);
+  const isCorrection = action === "correct_amount" && cashAdvanceId > 0;
+  const isTransition = transitionActions.has(action) && cashAdvanceId > 0;
+  const isSettlement = action === "settle_credit" && cashAdvanceId > 0;
+
   const endpoint = isCorrection
-    ? `${apiBaseUrl()}/api/v1/cash-advances/${correctionId}/correct-amount`
-    : isApproval
-      ? `${apiBaseUrl()}/api/v1/cash-advances/${approveId}/approve`
+    ? `${apiBaseUrl()}/api/v1/cash-advances/${cashAdvanceId}/correct-amount`
+    : isTransition
+      ? `${apiBaseUrl()}/api/v1/cash-advances/${cashAdvanceId}/${action}`
       : isSettlement
-        ? `${apiBaseUrl()}/api/v1/cash-advances/${settlementId}/settle-credit`
+        ? `${apiBaseUrl()}/api/v1/cash-advances/${cashAdvanceId}/settle-credit`
         : `${apiBaseUrl()}/api/v1/cash-advances`;
+
   const payload = isCorrection
     ? {
         corrected_amount: body.corrected_amount,
         correction_reason: body.correction_reason,
         reference: body.reference || null,
       }
-    : isApproval
-      ? {}
+    : isTransition
+      ? action === "approve" ? {} : { reason: body.reason || null }
       : isSettlement
         ? {
             amount: body.amount,
@@ -43,6 +45,7 @@ export async function POST(request: Request) {
             target_cash_advance_id: body.target_cash_advance_id || null,
           }
         : body;
+
   const response = await fetch(endpoint, {
     method: "POST",
     headers: await backendHeaders(true),
