@@ -75,8 +75,16 @@ def role_to_key(role: str | None) -> str:
 
 
 def privileged_mfa_required(user: dict[str, Any]) -> bool:
-    role_key = role_to_key(user.get("role"))
+    required = (
+        os.getenv("STAFF_PAYROLL_REQUIRE_PRIVILEGED_MFA", "false")
+        .strip()
+        .lower()
+        == "true"
+    )
+    if not required:
+        return False
 
+    role_key = role_to_key(user.get("role"))
     return (
         role_key in {ROLE_OWNER, ROLE_PAYROLL}
         and not int(user.get("mfa_enabled") or 0)
