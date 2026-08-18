@@ -4,11 +4,28 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./PayrollAdjustmentEditor.module.css";
 
-type CashAdvance = { id: number; advance_date: string; amount: number; available_balance: number; reason?: string | null };
+type CashAdvance = {
+  id: number;
+  advance_date: string;
+  amount: number;
+  available_balance: number;
+  deduction_per_payroll?: number | null;
+  reason?: string | null;
+};
 type Adjustment = { additional_earning?: number; additional_earning_note?: string | null; other_deduction?: number; other_deduction_note?: string | null; cash_advance_id?: number | null; cash_advance_amount?: number };
 
 function peso(value?: number | null): string {
   return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(value || 0));
+}
+
+function roundMoney(value: number): number {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function clampCashAmount(advance: CashAdvance, value: number): number {
+  const available = Math.max(0, roundMoney(Number(advance.available_balance ?? 0)));
+  const requested = Math.max(0, roundMoney(Number(value ?? 0)));
+  return Math.min(available, requested);
 }
 
 export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disabled = false }: { runId: number; employeeId: number; employeeName: string; disabled?: boolean }) {
@@ -38,8 +55,8 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
     const current = data.adjustment || {};
     setAdvances(data.cash_advances || []);
     setAdjustment(current);
-    setSelectedAdvanceId(current.cash_advance_id ? Number(current.cash_advance_id) : null);
-    setCashAmount(Number(current.cash_advance_amount || 0));
+    setSelectedAdvanceId(current.cash_advance_id != null ? Number(current.cash_advance_id) : null);
+    setCashAmount(Number(current.cash_advance_amount ?? 0));
     setServerEditable(data.editable !== false);
   }, [employeeId, runId]);
 
@@ -49,7 +66,16 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
     const id = value ? Number(value) : null;
     setSelectedAdvanceId(id);
     const item = advances.find((advance) => advance.id === id);
-    setCashAmount(item ? Math.min(Number(item.available_balance || 0), Number(adjustment.cash_advance_amount || item.available_balance || 0)) : 0);
+    if (!item) {
+      setCashAmount(0);
+      return;
+    }
+
+    const saved = Number(adjustment.cash_advance_id) === id
+      ? Number(adjustment.cash_advance_amount ?? 0)
+      : null;
+    const suggested = Number(item.deduction_per_payroll ?? 0);
+    setCashAmount(clampCashAmount(item, saved ?? suggested));
   }
 
   async function submit(formData: FormData) {
@@ -113,8 +139,13 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
                   {advances.map((advance) => <option key={advance.id} value={advance.id}>#{advance.id} · {advance.advance_date} · Available {peso(advance.available_balance)}</option>)}
                 </select>
               </label>
-              <label className={styles.field}><span className={styles.fieldLabel}>Deduction this cutoff</span><input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance || 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
-              {selectedAdvance ? <div className={styles.balanceRow}><span>Available balance</span><strong>{peso(selectedAdvance.available_balance)}</strong></div> : advances.length ? <p className={styles.helper}>Choose an advance to apply it to this payroll.</p> : <p className={styles.helper}>No available cash advances found for this employee.</p>}
+              <label className={styles.field}><span className={styles.fieldLabel}>Deduction this cutoff</span><input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance ?? 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
+              {selectedAdvance ? (
+                <>
+                  <div className={styles.balanceRow}><span>Suggested deduction</span><strong>{peso(Math.min(Number(selectedAdvance.available_balance ?? 0), Number(selectedAdvance.deduction_per_payroll ?? 0)))}</strong></div>
+                  <div className={styles.balanceRow}><span>Available balance</span><strong>{peso(selectedAdvance.available_balance)}</strong></div>
+                </>
+              ) : advances.length ? <p className={styles.helper}>Choose an advance to apply it to this payroll.</p> : <p className={styles.helper}>No available cash advances found for this employee.</p>}
             </section>
 
             <section className={styles.section}>
