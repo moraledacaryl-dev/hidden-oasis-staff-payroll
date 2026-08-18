@@ -4,8 +4,18 @@ import json
 import os
 import signal
 import socket
+import sys
 import time
 from datetime import datetime
+from pathlib import Path
+
+# When this file is executed directly, Python puts ``scripts/`` rather than
+# the repository root on sys.path. Add the project root explicitly so the
+# canonical ``api`` and ``core`` packages resolve both under systemd and when
+# operators invoke the worker manually for diagnostics.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from api.main import configured_db_path
 from core.db import get_conn
