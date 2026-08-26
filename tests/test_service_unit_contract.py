@@ -16,8 +16,10 @@ class ServiceUnitContractTests(unittest.TestCase):
         source = Path(
             "deployment/staff-payroll-web.service"
         ).read_text(encoding="utf-8")
-        self.assertIn("--hostname 127.0.0.1 --port 3001", source)
-        self.assertNotIn("--hostname 0.0.0.0", source)
+        self.assertIn("Environment=HOSTNAME=127.0.0.1", source)
+        self.assertIn("Environment=PORT=3001", source)
+        self.assertIn(".next/standalone/server.js", source)
+        self.assertNotIn("HOSTNAME=0.0.0.0", source)
 
     def test_all_services_run_as_dedicated_user_with_hardening(self) -> None:
         for filename in (
