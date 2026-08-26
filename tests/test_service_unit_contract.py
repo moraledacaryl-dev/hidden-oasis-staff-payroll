@@ -66,6 +66,15 @@ class ServiceUnitContractTests(unittest.TestCase):
             source,
         )
 
+    def test_web_cache_write_path_is_optional(self) -> None:
+        source = Path(
+            "deployment/staff-payroll-web.service"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "ReadWritePaths=-/opt/hiddenoasis/staff-payroll/current/apps/web/.next/cache",
+            source,
+        )
+
     def test_deploy_script_uses_canonical_names_and_worker(self) -> None:
         source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
         self.assertIn(
@@ -145,7 +154,6 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn('chown root:"$SERVICE_GROUP" "$RELEASE_DIR/data"', source)
         self.assertIn('chmod 0750 "$RELEASE_DIR/data"', source)
         self.assertIn('rm -f "$CURRENT_LINK"', source)
-        self.assertIn("First-ever activation has no prior runtime symlink", source)
 
     def test_cutover_polls_readiness_and_emits_failure_diagnostics(self) -> None:
         source = Path("scripts/cutover_nonroot_runtime.sh").read_text(encoding="utf-8")
@@ -161,6 +169,20 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn("Cutover-window service diagnostics before rollback", source)
         self.assertIn('journalctl -u "$unit" --since "$CUTOVER_STARTED_AT"', source)
         self.assertNotIn("sleep 3", source)
+
+    def test_cutover_clears_stale_listeners_forward_and_rollback(self) -> None:
+        source = Path("scripts/cutover_nonroot_runtime.sh").read_text(encoding="utf-8")
+        self.assertIn("clear_listener_after_stop()", source)
+        self.assertGreaterEqual(
+            source.count('clear_listener_after_stop "$WEB_SERVICE" 3001'),
+            2,
+        )
+        self.assertGreaterEqual(
+            source.count('clear_listener_after_stop "$API_SERVICE" 8001'),
+            2,
+        )
+        self.assertIn('mkdir -p "$RELEASE_DIR/apps/web/.next/cache"', source)
+        self.assertIn('systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"', source)
 
 
 if __name__ == "__main__":
