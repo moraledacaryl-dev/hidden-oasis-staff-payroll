@@ -2,6 +2,9 @@
 set -euo pipefail
 
 APP_ROOT="${APP_ROOT:-/root/repos/hidden-oasis-staff-payroll}"
+APP_ENV="${APP_ENV:-/etc/hiddenoasis/staff-payroll.env}"
+RUNTIME_BASE="${RUNTIME_BASE:-/opt/hiddenoasis/staff-payroll}"
+CURRENT_LINK="$RUNTIME_BASE/current"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/hidden-oasis-staff-payroll/dropin-migration}"
 API_SERVICE="staff-payroll-api.service"
 WEB_SERVICE="staff-payroll-web.service"
@@ -10,26 +13,62 @@ WORKER_SERVICE="hiddenoasis-staff-integration-worker.service"
 [[ "$(id -u)" == "0" ]] || { echo "Fatal: migration must run as root" >&2; exit 1; }
 cd "$APP_ROOT"
 [[ -z "$(git status --porcelain)" ]] || { echo "Fatal: working tree is dirty" >&2; exit 1; }
+[[ -f "$APP_ENV" ]] || { echo "Fatal: missing live env: $APP_ENV" >&2; exit 1; }
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-DROPIN_BACKUP="$BACKUP_ROOT/$TIMESTAMP"
-install -d -m 0700 "$DROPIN_BACKUP"
+MIGRATION_BACKUP="$BACKUP_ROOT/$TIMESTAMP"
+install -d -m 0700 "$MIGRATION_BACKUP"
 
-restore_dropins_and_root_runtime() {
+PREVIOUS_LINK=""
+if [[ -L "$CURRENT_LINK" ]]; then
+  PREVIOUS_LINK="$(readlink -f "$CURRENT_LINK" || true)"
+fi
+
+# Snapshot the complete pre-migration systemd/environment state. The nested
+# cutover has its own rollback for failures during activation; this outer
+# snapshot also protects failures in the post-cutover effective-unit checks.
+cp -a "$APP_ENV" "$MIGRATION_BACKUP/staff-payroll.env.before"
+for service in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
+  unit_path="/etc/systemd/system/$service"
+  if [[ -f "$unit_path" ]]; then
+    cp -a "$unit_path" "$MIGRATION_BACKUP/$service.before"
+  fi
+  dropin_dir="$unit_path.d"
+  if [[ -d "$dropin_dir" ]]; then
+    cp -a "$dropin_dir" "$MIGRATION_BACKUP/$service.d"
+  fi
+done
+
+restore_complete_pre_migration_state() {
   local status="$1"
-  echo "Non-root migration failed; restoring legacy systemd drop-ins." >&2
+  echo "Non-root migration failed; restoring complete pre-migration state." >&2
 
-  for service in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
+  for service in "$WORKER_SERVICE" "$WEB_SERVICE" "$API_SERVICE"; do
     systemctl stop "$service" >/dev/null 2>&1 || true
   done
 
+  cp -a "$MIGRATION_BACKUP/staff-payroll.env.before" "$APP_ENV" || true
+  chmod 0600 "$APP_ENV" || true
+
   for service in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
-    dropin_dir="/etc/systemd/system/$service.d"
+    unit_path="/etc/systemd/system/$service"
+    if [[ -f "$MIGRATION_BACKUP/$service.before" ]]; then
+      cp -a "$MIGRATION_BACKUP/$service.before" "$unit_path" || true
+    fi
+
+    dropin_dir="$unit_path.d"
     rm -rf "$dropin_dir"
-    if [[ -d "$DROPIN_BACKUP/$service.d" ]]; then
-      cp -a "$DROPIN_BACKUP/$service.d" "$dropin_dir"
+    if [[ -d "$MIGRATION_BACKUP/$service.d" ]]; then
+      cp -a "$MIGRATION_BACKUP/$service.d" "$dropin_dir" || true
     fi
   done
+
+  if [[ -n "$PREVIOUS_LINK" ]]; then
+    ln -sfn "$PREVIOUS_LINK" "$RUNTIME_BASE/.current.rollback" || true
+    mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK" || true
+  else
+    rm -f "$CURRENT_LINK" || true
+  fi
 
   systemctl daemon-reload || true
   systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
@@ -37,17 +76,16 @@ restore_dropins_and_root_runtime() {
   systemctl restart "$WEB_SERVICE" || true
   systemctl restart "$WORKER_SERVICE" || true
 
-  echo "Legacy drop-ins restored from: $DROPIN_BACKUP" >&2
+  echo "Complete rollback material restored from: $MIGRATION_BACKUP" >&2
   exit "$status"
 }
 
-trap 'status=$?; restore_dropins_and_root_runtime "$status"' ERR
+trap 'status=$?; restore_complete_pre_migration_state "$status"' ERR
 
 echo "Backing up legacy systemd drop-ins..."
 for service in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
   dropin_dir="/etc/systemd/system/$service.d"
   if [[ -d "$dropin_dir" ]]; then
-    cp -a "$dropin_dir" "$DROPIN_BACKUP/$service.d"
     echo "Saved: $dropin_dir"
   else
     echo "No drop-ins: $dropin_dir"
@@ -100,6 +138,5 @@ for service in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
 done
 
 trap - ERR
-
 echo "Non-root systemd migration completed successfully."
-echo "Legacy drop-in rollback material retained at: $DROPIN_BACKUP"
+echo "Complete rollback material retained at: $MIGRATION_BACKUP"
