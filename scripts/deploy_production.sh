@@ -149,6 +149,12 @@ if [[ ! -d "$RELEASE_DIR" ]]; then
     --exclude='./apps/web/.next' \
     -cf - . | tar -xf - -C "$RELEASE_DIR"
 
+  # core.db still calls DATA_DIR.mkdir(exist_ok=True) even when the configured
+  # SQLite path is external. Keep an empty application data directory in each
+  # immutable release so that legacy compatibility check succeeds without
+  # granting the service write access to application code.
+  mkdir -p "$RELEASE_DIR/data"
+
   python3 -m venv "$RELEASE_DIR/.venv-api"
   "$RELEASE_DIR/.venv-api/bin/python" -m pip install --upgrade pip
   "$RELEASE_DIR/.venv-api/bin/pip" install -r "$RELEASE_DIR/requirements-api.txt"
@@ -161,6 +167,7 @@ if [[ ! -d "$RELEASE_DIR" ]]; then
 
   chown -R root:"$SERVICE_GROUP" "$RELEASE_DIR"
   chmod -R o-rwx "$RELEASE_DIR"
+  chmod 0750 "$RELEASE_DIR/data"
   if [[ -d "$RELEASE_DIR/apps/web/.next/cache" ]]; then
     chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$RELEASE_DIR/apps/web/.next/cache"
     chmod -R u+rwX,g-rwx,o-rwx "$RELEASE_DIR/apps/web/.next/cache"
