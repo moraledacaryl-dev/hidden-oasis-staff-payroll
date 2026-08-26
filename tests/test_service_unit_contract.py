@@ -93,7 +93,7 @@ class ServiceUnitContractTests(unittest.TestCase):
             'WORKER_SERVICE="${WORKER_SERVICE:-hiddenoasis-staff-integration-worker.service}"',
             source,
         )
-        self.assertIn('systemctl restart "$WORKER_SERVICE"', source)
+        self.assertIn('systemctl start "$WORKER_SERVICE"', source)
         self.assertIn('verify_service_active "$WORKER_SERVICE"', source)
         self.assertNotIn("hidden-oasis-payroll-api", source)
         self.assertNotIn("hidden-oasis-payroll-web", source)
@@ -121,17 +121,15 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn('systemctl show "$API_SERVICE" -p User --value', source)
         self.assertIn('systemctl show "$WORKER_SERVICE" -p User --value', source)
 
-    def test_deploy_script_clears_stale_listeners_and_creates_web_cache(self) -> None:
+    def test_deploy_script_fully_quiesces_runtime_and_creates_web_cache(self) -> None:
         source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
-        self.assertIn("clear_listener_after_stop()", source)
-        self.assertGreaterEqual(
-            source.count('clear_listener_after_stop "$WEB_SERVICE" 3001'),
-            2,
-        )
-        self.assertGreaterEqual(
-            source.count('clear_listener_after_stop "$API_SERVICE" 8001'),
-            2,
-        )
+        self.assertIn("quiesce_runtime()", source)
+        self.assertIn("wait_port_stably_free()", source)
+        self.assertIn('systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE"', source)
+        self.assertIn('systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE"', source)
+        self.assertGreaterEqual(source.count("quiesce_runtime"), 3)
+        self.assertIn("wait_port_stably_free 3001", source)
+        self.assertIn("wait_port_stably_free 8001", source)
         self.assertIn("mkdir -p .next/cache", source)
         self.assertIn('systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"', source)
 
