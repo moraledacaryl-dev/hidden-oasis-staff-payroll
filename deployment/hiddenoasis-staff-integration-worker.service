@@ -5,12 +5,12 @@ Wants=network-online.target staff-payroll-api.service
 
 [Service]
 Type=simple
-User=root
-Group=root
+User=staff-payroll
+Group=staff-payroll
 UMask=0077
-WorkingDirectory=/root/repos/hidden-oasis-staff-payroll
+WorkingDirectory=/opt/hiddenoasis/staff-payroll/current
 EnvironmentFile=/etc/hiddenoasis/staff-payroll.env
-ExecStart=/root/repos/hidden-oasis-staff-payroll/.venv-api/bin/python scripts/run_integration_worker.py
+ExecStart=/opt/hiddenoasis/staff-payroll/current/.venv-api/bin/python scripts/run_integration_worker.py
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
@@ -19,7 +19,7 @@ KillSignal=SIGTERM
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
-ProtectHome=read-only
+ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -30,7 +30,7 @@ RestrictRealtime=yes
 SystemCallArchitectures=native
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadWritePaths=/root/repos/hidden-oasis-staff-payroll/data
+ReadWritePaths=/var/lib/hiddenoasis/staff-payroll
 
 [Install]
 WantedBy=multi-user.target
