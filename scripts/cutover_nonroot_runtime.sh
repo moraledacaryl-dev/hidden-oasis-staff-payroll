@@ -54,6 +54,14 @@ RELEASE_DIR="$RELEASES_DIR/$SHA"
 [[ -x "$RELEASE_DIR/.venv-api/bin/python" ]] || fail "runtime Python environment is missing"
 [[ -f "$RELEASE_DIR/apps/web/.next/BUILD_ID" ]] || fail "runtime web build is missing"
 
+# core.db retains a legacy DATA_DIR.mkdir(exist_ok=True) call even when the
+# configured SQLite database lives in /var/lib. The immutable release must
+# therefore contain an empty application data directory. It stays root-owned
+# and non-writable by the service account.
+mkdir -p "$RELEASE_DIR/data"
+chown root:"$SERVICE_GROUP" "$RELEASE_DIR/data"
+chmod 0750 "$RELEASE_DIR/data"
+
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 CUTOVER_BACKUP="$BACKUP_ROOT/$TIMESTAMP"
 install -d -m 0700 "$CUTOVER_BACKUP"
@@ -81,6 +89,9 @@ rollback() {
   if [[ -n "$PREVIOUS_LINK" ]]; then
     ln -sfn "$PREVIOUS_LINK" "$RUNTIME_BASE/.current.rollback" || true
     mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK" || true
+  else
+    # First-ever activation has no prior runtime symlink to restore.
+    rm -f "$CURRENT_LINK" || true
   fi
   systemctl daemon-reload || true
   systemctl restart "$API_SERVICE" || true
