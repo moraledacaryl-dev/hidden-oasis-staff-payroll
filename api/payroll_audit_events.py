@@ -26,6 +26,10 @@ def event(source: str, title: str, actor: str | None, details: str | None, creat
     }
 
 
+def _peso_from_centavos(value: int | float | None) -> str:
+    return f"PHP {int(value or 0) / 100:,.2f}"
+
+
 @router.get("/payroll/runs/{run_id}/audit-events")
 def payroll_run_audit_events(run_id: int, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
     must_be_payroll_user(authorization, x_api_key)
@@ -45,6 +49,38 @@ def payroll_run_audit_events(run_id: int, authorization: str | None = Header(def
             events.append(event("payroll_runs", "Marked paid", run.get("approved_by") or run.get("prepared_by"), "Payroll marked paid", run.get("paid_at"), run_id))
         if run.get("reopen_reason"):
             events.append(event("payroll_runs", "Returned to draft", run.get("prepared_by"), run.get("reopen_reason"), run.get("updated_at") or run.get("created_at"), run_id))
+
+        if table_exists(conn, "payroll_adjustment_events"):
+            rows = fetchall(
+                conn,
+                """
+                SELECT pae.*, e.full_name AS employee_name
+                FROM payroll_adjustment_events pae
+                LEFT JOIN employees e ON e.id=pae.employee_id
+                WHERE pae.payroll_run_id=?
+                ORDER BY pae.created_at ASC, pae.id ASC
+                """,
+                (run_id,),
+            )
+            for row in rows:
+                employee = row.get("employee_name") or f"Employee {row.get('employee_id')}"
+                detail = (
+                    f"{employee}: {_peso_from_centavos(row.get('old_centavos'))} → "
+                    f"{_peso_from_centavos(row.get('new_centavos'))}. Reason: {row.get('reason')}. "
+                    f"Request: {row.get('request_id')}"
+                )
+                if row.get("cash_advance_id"):
+                    detail += f". Cash advance #{row.get('cash_advance_id')}"
+                events.append(
+                    event(
+                        "payroll_adjustment_events",
+                        str(row.get("adjustment_kind") or "Payroll adjustment").replace("_", " ").title(),
+                        row.get("actor_name"),
+                        detail,
+                        row.get("created_at"),
+                        row.get("id"),
+                    )
+                )
 
         if table_exists(conn, "payroll_corrections"):
             rows = fetchall(conn, "SELECT pc.*, e.full_name AS employee_name FROM payroll_corrections pc LEFT JOIN employees e ON e.id=pc.employee_id WHERE pc.payroll_run_id=? OR pc.applied_to_run_id=? ORDER BY COALESCE(pc.created_at, pc.applied_at) ASC, pc.id ASC", (run_id, run_id))
