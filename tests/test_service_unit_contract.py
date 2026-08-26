@@ -132,11 +132,11 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertLess(stop_worker, final_copy)
         self.assertLess(stop_web, final_copy)
         self.assertLess(stop_api, final_copy)
-        self.assertIn("Cutover failed; restoring previous production configuration.", source)
+        self.assertIn("Cutover failed while running:", source)
         self.assertIn("staff-payroll.env.before", source)
         self.assertIn("systemctl daemon-reload", source)
-        self.assertIn('verify_listener_owner "$API_SERVICE" 8001', source)
-        self.assertIn('verify_listener_owner "$WEB_SERVICE" 3001', source)
+        self.assertIn('wait_listener_owner "$API_SERVICE" 8001', source)
+        self.assertIn('wait_listener_owner "$WEB_SERVICE" 3001', source)
         self.assertIn("PRAGMA integrity_check", source)
 
     def test_cutover_handles_legacy_data_dir_and_first_activation_rollback(self) -> None:
@@ -146,6 +146,21 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn('chmod 0750 "$RELEASE_DIR/data"', source)
         self.assertIn('rm -f "$CURRENT_LINK"', source)
         self.assertIn("First-ever activation has no prior runtime symlink", source)
+
+    def test_cutover_polls_readiness_and_emits_failure_diagnostics(self) -> None:
+        source = Path("scripts/cutover_nonroot_runtime.sh").read_text(encoding="utf-8")
+        self.assertIn('READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-45}"', source)
+        self.assertIn("wait_service_active()", source)
+        self.assertIn("wait_listener_owner()", source)
+        self.assertIn("wait_http()", source)
+        self.assertIn('wait_service_active "$API_SERVICE"', source)
+        self.assertIn('wait_service_active "$WEB_SERVICE"', source)
+        self.assertIn('wait_service_active "$WORKER_SERVICE"', source)
+        self.assertIn('wait_http "API" "http://127.0.0.1:8001/health"', source)
+        self.assertIn('wait_http "web" "http://127.0.0.1:3001/login"', source)
+        self.assertIn("Cutover-window service diagnostics before rollback", source)
+        self.assertIn('journalctl -u "$unit" --since "$CUTOVER_STARTED_AT"', source)
+        self.assertNotIn("sleep 3", source)
 
 
 if __name__ == "__main__":
