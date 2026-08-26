@@ -10,14 +10,17 @@ class SystemdDropinMigrationContractTests(unittest.TestCase):
             "scripts/cutover_nonroot_runtime_clean.sh"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("DROPIN_BACKUP", source)
-        self.assertIn('cp -a "$dropin_dir" "$DROPIN_BACKUP/$service.d"', source)
+        self.assertIn("MIGRATION_BACKUP", source)
+        self.assertIn('cp -a "$dropin_dir" "$MIGRATION_BACKUP/$service.d"', source)
         self.assertGreaterEqual(
             source.count('rm -rf "/etc/systemd/system/$service.d"'),
             1,
         )
-        self.assertIn("restore_dropins_and_root_runtime()", source)
-        self.assertIn('cp -a "$DROPIN_BACKUP/$service.d" "$dropin_dir"', source)
+        self.assertIn("restore_complete_pre_migration_state()", source)
+        self.assertIn(
+            'cp -a "$MIGRATION_BACKUP/$service.d" "$dropin_dir"',
+            source,
+        )
         self.assertIn("systemctl daemon-reload", source)
 
     def test_wrapper_verifies_effective_nonroot_unit_configuration(self) -> None:
