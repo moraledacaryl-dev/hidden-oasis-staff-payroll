@@ -33,6 +33,36 @@ listener_pid() {
     | head -n 1
 }
 
+clear_listener_after_stop() {
+  local service="$1" port="$2"
+  local main_pid listen_pid
+  main_pid="$(systemctl show "$service" -p MainPID --value 2>/dev/null || true)"
+  listen_pid="$(listener_pid "$port")"
+  [[ -n "$listen_pid" ]] || return 0
+
+  if [[ -n "$main_pid" && "$main_pid" != "0" && "$listen_pid" == "$main_pid" ]]; then
+    echo "Waiting for stopped service $service PID $main_pid to release port $port..."
+  else
+    echo "Clearing stale listener PID $listen_pid from port $port before starting $service..."
+  fi
+
+  kill -TERM "$listen_pid" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    kill -0 "$listen_pid" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$listen_pid" 2>/dev/null; then
+    echo "Listener PID $listen_pid did not exit after SIGTERM; sending SIGKILL" >&2
+    kill -KILL "$listen_pid" 2>/dev/null || true
+  fi
+
+  for _ in $(seq 1 10); do
+    [[ -z "$(listener_pid "$port")" ]] && return 0
+    sleep 1
+  done
+  fail "port $port remains occupied after stopping $service"
+}
+
 wait_service_active() {
   local service="$1"
   local deadline=$((SECONDS + READINESS_TIMEOUT_SECONDS))
@@ -110,6 +140,12 @@ mkdir -p "$RELEASE_DIR/data"
 chown root:"$SERVICE_GROUP" "$RELEASE_DIR/data"
 chmod 0750 "$RELEASE_DIR/data"
 
+# Next may omit .next/cache on a clean production build. Create it explicitly
+# so the service sandbox always has a concrete writable cache target.
+mkdir -p "$RELEASE_DIR/apps/web/.next/cache"
+chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$RELEASE_DIR/apps/web/.next/cache"
+chmod 0700 "$RELEASE_DIR/apps/web/.next/cache"
+
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 CUTOVER_BACKUP="$BACKUP_ROOT/$TIMESTAMP"
 install -d -m 0700 "$CUTOVER_BACKUP"
@@ -136,6 +172,13 @@ rollback() {
     journalctl -u "$unit" --since "$CUTOVER_STARTED_AT" --no-pager -o short-iso >&2 || true
   done
   echo "Restoring previous production configuration." >&2
+
+  systemctl stop "$WORKER_SERVICE" || true
+  systemctl stop "$WEB_SERVICE" || true
+  systemctl stop "$API_SERVICE" || true
+  clear_listener_after_stop "$WEB_SERVICE" 3001 || true
+  clear_listener_after_stop "$API_SERVICE" 8001 || true
+
   cp -a "$CUTOVER_BACKUP/staff-payroll.env.before" "$APP_ENV" || true
   for unit in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
     if [[ -f "$CUTOVER_BACKUP/$unit.before" ]]; then
@@ -146,10 +189,10 @@ rollback() {
     ln -sfn "$PREVIOUS_LINK" "$RUNTIME_BASE/.current.rollback" || true
     mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK" || true
   else
-    # First-ever activation has no prior runtime symlink to restore.
     rm -f "$CURRENT_LINK" || true
   fi
   systemctl daemon-reload || true
+  systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
   systemctl restart "$API_SERVICE" || true
   systemctl restart "$WEB_SERVICE" || true
   systemctl restart "$WORKER_SERVICE" || true
@@ -161,6 +204,8 @@ echo "Stopping write-producing services for final state synchronization..."
 systemctl stop "$WORKER_SERVICE"
 systemctl stop "$WEB_SERVICE"
 systemctl stop "$API_SERVICE"
+clear_listener_after_stop "$WEB_SERVICE" 3001
+clear_listener_after_stop "$API_SERVICE" 8001
 
 SOURCE_DB="$SOURCE_DB" TARGET_DB="$TARGET_DB" python3 - <<'PY'
 import os
@@ -243,6 +288,7 @@ install -m 0644 deployment/staff-payroll-api.service "/etc/systemd/system/$API_S
 install -m 0644 deployment/staff-payroll-web.service "/etc/systemd/system/$WEB_SERVICE"
 install -m 0644 deployment/hiddenoasis-staff-integration-worker.service "/etc/systemd/system/$WORKER_SERVICE"
 systemctl daemon-reload
+systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
 
 ln -sfn "$RELEASE_DIR" "$RUNTIME_BASE/.current.new"
 mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"
