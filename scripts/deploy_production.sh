@@ -25,11 +25,6 @@ RELEASE_DIR="$RELEASES_DIR/$CURRENT_COMMIT"
 PREVIOUS_RELEASE=""
 ACTIVATED=0
 
-fail() {
-  echo "Fatal: $*" >&2
-  exit 1
-}
-
 listener_pid() {
   local port="$1"
   ss -ltnp "sport = :$port" 2>/dev/null \
@@ -68,7 +63,8 @@ wait_port_stably_free() {
     fi
     sleep 1
   done
-  fail "port $port could not be kept free during runtime transition"
+  echo "Fatal: port $port could not be kept free during runtime transition" >&2
+  return 1
 }
 
 quiesce_runtime() {
@@ -87,6 +83,33 @@ quiesce_runtime() {
   kill_listener 8001
   wait_port_stably_free 3001
   wait_port_stably_free 8001
+}
+
+rollback_runtime() {
+  local status="${1:-$?}"
+  if [[ "$ACTIVATED" == "1" && -n "$PREVIOUS_RELEASE" ]]; then
+    echo "Deployment failed; restoring previous runtime release: $PREVIOUS_RELEASE" >&2
+    # Prevent a secondary failure during rollback from recursively entering
+    # rollback again. Best-effort quiescence is followed by restoring the
+    # prior immutable pointer and canonical services.
+    ACTIVATED=0
+    quiesce_runtime || true
+    ln -sfn "$PREVIOUS_RELEASE" "$RUNTIME_BASE/.current.rollback"
+    mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK"
+    systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
+    systemctl start "$API_SERVICE" || true
+    systemctl start "$WEB_SERVICE" || true
+    systemctl start "$WORKER_SERVICE" || true
+  fi
+  exit "$status"
+}
+
+fail() {
+  echo "Fatal: $*" >&2
+  if [[ "$ACTIVATED" == "1" && -n "$PREVIOUS_RELEASE" ]]; then
+    rollback_runtime 1
+  fi
+  exit 1
 }
 
 verify_listener_owner() {
@@ -149,20 +172,6 @@ wait_runtime_ready() {
   fail "runtime readiness timeout"
 }
 
-rollback_runtime() {
-  local status=$?
-  if [[ "$ACTIVATED" == "1" && -n "$PREVIOUS_RELEASE" ]]; then
-    echo "Deployment failed; restoring previous runtime release: $PREVIOUS_RELEASE" >&2
-    quiesce_runtime || true
-    ln -sfn "$PREVIOUS_RELEASE" "$RUNTIME_BASE/.current.rollback"
-    mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK"
-    systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
-    systemctl start "$API_SERVICE" || true
-    systemctl start "$WEB_SERVICE" || true
-    systemctl start "$WORKER_SERVICE" || true
-  fi
-  exit "$status"
-}
 trap rollback_runtime ERR
 
 echo "Deploying Hidden Oasis Staff Payroll"
