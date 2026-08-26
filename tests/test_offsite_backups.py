@@ -45,26 +45,28 @@ class OffsiteBackupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "staff-payroll-package-test.zip.fernet"
             source.write_bytes(b"encrypted-backup")
+            expected_sha = sha256_file(source)
+            expected_size = source.stat().st_size
             with patch.dict(os.environ, S3_ENV, clear=False), patch(
                 "core.offsite_backups._s3_client", return_value=client
             ):
                 destination = copy_offsite(source)
 
-        self.assertEqual(
-            destination,
-            "s3://hidden-oasis-backups/staff/payroll/staff-payroll-package-test.zip.fernet",
-        )
-        client.upload_file.assert_called_once()
-        call = client.upload_file.call_args
-        self.assertEqual(call.args[1], "hidden-oasis-backups")
-        self.assertEqual(
-            call.args[2],
-            "staff/payroll/staff-payroll-package-test.zip.fernet",
-        )
-        metadata = call.kwargs["ExtraArgs"]["Metadata"]
-        self.assertEqual(metadata["sha256"], sha256_file(source))
-        self.assertEqual(metadata["bytes"], str(source.stat().st_size))
-        self.assertEqual(metadata["encrypted"], "true")
+            self.assertEqual(
+                destination,
+                "s3://hidden-oasis-backups/staff/payroll/staff-payroll-package-test.zip.fernet",
+            )
+            client.upload_file.assert_called_once()
+            call = client.upload_file.call_args
+            self.assertEqual(call.args[1], "hidden-oasis-backups")
+            self.assertEqual(
+                call.args[2],
+                "staff/payroll/staff-payroll-package-test.zip.fernet",
+            )
+            metadata = call.kwargs["ExtraArgs"]["Metadata"]
+            self.assertEqual(metadata["sha256"], expected_sha)
+            self.assertEqual(metadata["bytes"], str(expected_size))
+            self.assertEqual(metadata["encrypted"], "true")
 
     def test_s3_head_verification_requires_size_and_sha_match(self) -> None:
         client = Mock()
