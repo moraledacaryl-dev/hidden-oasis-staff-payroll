@@ -44,6 +44,25 @@ class SystemdDropinMigrationContractTests(unittest.TestCase):
         )
         self.assertIn('[[ -z "$dropins" ]]', source)
 
+    def test_wrapper_fully_quiesces_legacy_runtime_before_cutover_and_rollback(self) -> None:
+        source = Path(
+            "scripts/cutover_nonroot_runtime_clean.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("quiesce_runtime()", source)
+        self.assertIn(
+            'systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE"',
+            source,
+        )
+        self.assertIn(
+            'systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE"',
+            source,
+        )
+        self.assertIn("wait_port_stably_free()", source)
+        self.assertIn('wait_port_stably_free 3001', source)
+        self.assertIn('wait_port_stably_free 8001', source)
+        self.assertGreaterEqual(source.count("quiesce_runtime"), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
