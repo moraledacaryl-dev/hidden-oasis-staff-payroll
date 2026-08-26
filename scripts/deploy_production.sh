@@ -17,6 +17,7 @@ DEPLOY_STATE_FILE="${DEPLOY_STATE_FILE:-/var/lib/hiddenoasis/staff-payroll/deplo
 SOURCE_VENV="${SOURCE_VENV:-$APP_ROOT/.venv-api}"
 SOURCE_PYTHON="$SOURCE_VENV/bin/python"
 SOURCE_PIP="$SOURCE_VENV/bin/pip"
+READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-45}"
 
 cd "$APP_ROOT"
 CURRENT_COMMIT="$(git rev-parse HEAD)"
@@ -73,6 +74,44 @@ verify_service_active() {
   systemctl is-active --quiet "$service" \
     || fail "$service is not active"
   echo "OK service active: $service"
+}
+
+runtime_ready() {
+  local api_pid web_pid api_listener web_listener
+  systemctl is-active --quiet "$API_SERVICE" || return 1
+  systemctl is-active --quiet "$WEB_SERVICE" || return 1
+  systemctl is-active --quiet "$WORKER_SERVICE" || return 1
+
+  api_pid="$(systemctl show "$API_SERVICE" -p MainPID --value)"
+  web_pid="$(systemctl show "$WEB_SERVICE" -p MainPID --value)"
+  api_listener="$(listener_pid 8001)"
+  web_listener="$(listener_pid 3001)"
+  [[ -n "$api_pid" && "$api_pid" != "0" && "$api_pid" == "$api_listener" ]] || return 1
+  [[ -n "$web_pid" && "$web_pid" != "0" && "$web_pid" == "$web_listener" ]] || return 1
+  curl -fsS "$API_HEALTH_URL" >/dev/null 2>&1 || return 1
+  curl -fsS "$WEB_HEALTH_URL" >/dev/null 2>&1 || return 1
+  return 0
+}
+
+wait_runtime_ready() {
+  local waited=0
+  while (( waited < READINESS_TIMEOUT_SECONDS )); do
+    if runtime_ready; then
+      echo "OK runtime readiness established after ${waited}s"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  echo "Runtime readiness failed after ${READINESS_TIMEOUT_SECONDS}s; diagnostics:" >&2
+  for unit in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
+    echo "--- $unit" >&2
+    systemctl status "$unit" --no-pager -l >&2 || true
+    journalctl -u "$unit" --since '-3 minutes' --no-pager -n 80 >&2 || true
+  done
+  ss -ltnp | grep -E ':8001|:3001' >&2 || true
+  fail "runtime readiness timeout"
 }
 
 rollback_runtime() {
@@ -206,7 +245,7 @@ systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
 systemctl start "$API_SERVICE"
 systemctl start "$WEB_SERVICE"
 systemctl start "$WORKER_SERVICE"
-sleep 3
+wait_runtime_ready
 
 verify_service_active "$API_SERVICE"
 verify_service_active "$WEB_SERVICE"
