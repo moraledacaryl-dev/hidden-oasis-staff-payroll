@@ -9,7 +9,7 @@ class ProductionRecoveryGateContractTests(unittest.TestCase):
         source = Path("scripts/production_preflight.py").read_text(encoding="utf-8")
         for token in (
             "STAFF_PAYROLL_BACKUP_KEY",
-            "STAFF_PAYROLL_OFFSITE_BACKUP_DIR",
+            "verify_offsite_copy",
             "STAFF_PAYROLL_MAX_BACKUP_AGE_HOURS",
             "STAFF_PAYROLL_RESTORE_DRILL_MARKER",
             "STAFF_PAYROLL_MAX_RESTORE_DRILL_AGE_DAYS",
