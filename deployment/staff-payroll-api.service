@@ -4,19 +4,19 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
+User=staff-payroll
+Group=staff-payroll
 UMask=0077
-WorkingDirectory=/root/repos/hidden-oasis-staff-payroll
+WorkingDirectory=/opt/hiddenoasis/staff-payroll/current
 EnvironmentFile=/etc/hiddenoasis/staff-payroll.env
-ExecStart=/root/repos/hidden-oasis-staff-payroll/.venv-api/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
+ExecStart=/opt/hiddenoasis/staff-payroll/current/.venv-api/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 Restart=on-failure
 RestartSec=3
 
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
-ProtectHome=read-only
+ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -27,7 +27,7 @@ RestrictRealtime=yes
 SystemCallArchitectures=native
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadWritePaths=/root/repos/hidden-oasis-staff-payroll/data
+ReadWritePaths=/var/lib/hiddenoasis/staff-payroll /var/backups/hidden-oasis-staff-payroll/runtime
 
 [Install]
 WantedBy=multi-user.target
