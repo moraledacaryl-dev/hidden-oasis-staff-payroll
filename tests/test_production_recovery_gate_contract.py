@@ -20,6 +20,13 @@ class ProductionRecoveryGateContractTests(unittest.TestCase):
         ):
             self.assertIn(token, source)
 
+    def test_offsite_deferral_is_explicit_and_warns_about_residual_risk(self) -> None:
+        preflight = Path("scripts/production_preflight.py").read_text(encoding="utf-8")
+        example = Path(".env.example").read_text(encoding="utf-8")
+        self.assertIn("STAFF_PAYROLL_ALLOW_OFFSITE_BACKUP_DEFERRED", preflight)
+        self.assertIn("accepted residual risk", preflight)
+        self.assertIn("STAFF_PAYROLL_ALLOW_OFFSITE_BACKUP_DEFERRED=false", example)
+
     def test_preflight_checks_schema_and_outbox_thresholds(self) -> None:
         source = Path("scripts/production_preflight.py").read_text(encoding="utf-8")
         self.assertIn("from core.db import MIGRATIONS", source)
@@ -43,6 +50,7 @@ class ProductionRecoveryGateContractTests(unittest.TestCase):
         for token in (
             "STAFF_PAYROLL_BACKUP_DIR=",
             "STAFF_PAYROLL_BACKUP_KEY=",
+            "STAFF_PAYROLL_ALLOW_OFFSITE_BACKUP_DEFERRED=",
             "STAFF_PAYROLL_OFFSITE_BACKUP_DIR=",
             "STAFF_PAYROLL_RESTORE_DRILL_MARKER=",
             "STAFF_PAYROLL_MAX_BACKUP_AGE_HOURS=",
