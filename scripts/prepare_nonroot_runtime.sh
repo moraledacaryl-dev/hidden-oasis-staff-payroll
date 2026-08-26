@@ -11,6 +11,7 @@ UPLOAD_DIR="$STATE_DIR/uploads"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/hidden-oasis-staff-payroll/runtime}"
 SOURCE_DB="${SOURCE_DB:-$APP_ROOT/data/staff_payroll.sqlite}"
 RUNTIME_BASE="${RUNTIME_BASE:-/opt/hiddenoasis/staff-payroll}"
+PENDING_ENV="$STATE_DIR/runtime-env.pending"
 
 fail() {
   echo "Fatal: $*" >&2
@@ -40,7 +41,7 @@ install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 "$UPLOAD_DIR"
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 "$BACKUP_DIR"
 
 if [[ ! -f "$DB_PATH" ]]; then
-  echo "Creating consistent SQLite copy at $DB_PATH"
+  echo "Creating non-live staging copy at $DB_PATH"
   SOURCE_DB="$SOURCE_DB" TARGET_DB="$DB_PATH" python3 - <<'PY'
 import os
 import sqlite3
@@ -48,7 +49,6 @@ from pathlib import Path
 
 source = Path(os.environ["SOURCE_DB"]).resolve()
 target = Path(os.environ["TARGET_DB"]).resolve()
-
 target.parent.mkdir(parents=True, exist_ok=True)
 source_conn = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
 target_conn = sqlite3.connect(str(target))
@@ -62,56 +62,26 @@ finally:
     source_conn.close()
 PY
 else
-  echo "State database already exists; leaving it unchanged: $DB_PATH"
+  echo "Staging database already exists; leaving it unchanged: $DB_PATH"
 fi
 
 chown "$SERVICE_USER":"$SERVICE_GROUP" "$DB_PATH"
 chmod 0600 "$DB_PATH"
 rm -f "$DB_PATH-wal" "$DB_PATH-shm"
 
-APP_ENV="$APP_ENV" \
-DB_PATH="$DB_PATH" \
-UPLOAD_DIR="$UPLOAD_DIR" \
-BACKUP_DIR="$BACKUP_DIR" \
-python3 - <<'PY'
-import os
-from pathlib import Path
+cat >"$PENDING_ENV" <<EOF
+STAFF_PAYROLL_DB_PATH=$DB_PATH
+STAFF_UPLOAD_DIR=$UPLOAD_DIR
+STAFF_PAYROLL_BACKUP_DIR=$BACKUP_DIR
+EOF
+chown root:"$SERVICE_GROUP" "$PENDING_ENV"
+chmod 0640 "$PENDING_ENV"
 
-path = Path(os.environ["APP_ENV"])
-updates = {
-    "STAFF_PAYROLL_DB_PATH": os.environ["DB_PATH"],
-    "STAFF_UPLOAD_DIR": os.environ["UPLOAD_DIR"],
-    "STAFF_PAYROLL_BACKUP_DIR": os.environ["BACKUP_DIR"],
-}
-lines = path.read_text(encoding="utf-8").splitlines()
-seen = set()
-out = []
-for line in lines:
-    stripped = line.strip()
-    matched = False
-    for key, value in updates.items():
-        if stripped.startswith(f"{key}="):
-            if key not in seen:
-                out.append(f"{key}={value}")
-                seen.add(key)
-            matched = True
-            break
-    if not matched:
-        out.append(line)
-for key, value in updates.items():
-    if key not in seen:
-        if out and out[-1] != "":
-            out.append("")
-        out.append(f"{key}={value}")
-path.write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
-
-chmod 0600 "$APP_ENV"
-
-echo "Prepared non-root runtime layout."
+echo "Prepared non-root runtime layout without changing the live environment."
 echo "Service account: $SERVICE_USER:$SERVICE_GROUP"
-echo "State database: $DB_PATH"
+echo "Staging database: $DB_PATH"
 echo "Uploads: $UPLOAD_DIR"
 echo "Runtime backups: $BACKUP_DIR"
 echo "Runtime releases: $RUNTIME_BASE/releases"
-echo "No services were restarted."
+echo "Pending env fragment: $PENDING_ENV"
+echo "The live env file was not modified and no services were restarted."
