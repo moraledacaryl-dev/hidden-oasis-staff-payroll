@@ -23,7 +23,15 @@ class IntegrationWorkerEntrypointContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn(
-            "ExecStart=/root/repos/hidden-oasis-staff-payroll/.venv-api/bin/python scripts/run_integration_worker.py",
+            "WorkingDirectory=/opt/hiddenoasis/staff-payroll/current",
+            source,
+        )
+        self.assertIn(
+            "ExecStart=/opt/hiddenoasis/staff-payroll/current/.venv-api/bin/python scripts/run_integration_worker.py",
+            source,
+        )
+        self.assertNotIn(
+            "ExecStart=/root/repos/hidden-oasis-staff-payroll/.venv-api/bin/python",
             source,
         )
 
