@@ -12,7 +12,16 @@ type CashAdvance = {
   deduction_per_payroll?: number | null;
   reason?: string | null;
 };
-type Adjustment = { additional_earning?: number; additional_earning_note?: string | null; other_deduction?: number; other_deduction_note?: string | null; cash_advance_id?: number | null; cash_advance_amount?: number };
+type Adjustment = {
+  additional_earning?: number;
+  additional_earning_note?: string | null;
+  other_deduction?: number;
+  other_deduction_note?: string | null;
+  cash_advance_id?: number | null;
+  cash_advance_amount?: number;
+  cash_advance_note?: string | null;
+  version?: number;
+};
 
 function peso(value?: number | null): string {
   return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(value || 0));
@@ -38,9 +47,14 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
   const [adjustment, setAdjustment] = useState<Adjustment>({});
   const [selectedAdvanceId, setSelectedAdvanceId] = useState<number | null>(null);
   const [cashAmount, setCashAmount] = useState(0);
+  const [cashNote, setCashNote] = useState("");
   const [serverEditable, setServerEditable] = useState(true);
 
   const selectedAdvance = useMemo(() => advances.find((item) => item.id === selectedAdvanceId), [advances, selectedAdvanceId]);
+  const suggestedCash = selectedAdvance
+    ? clampCashAmount(selectedAdvance, Number(selectedAdvance.deduction_per_payroll ?? 0))
+    : 0;
+  const cashNeedsReason = Boolean(selectedAdvanceId) && cashAmount > 0 && roundMoney(cashAmount) !== roundMoney(suggestedCash);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,6 +71,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
     setAdjustment(current);
     setSelectedAdvanceId(current.cash_advance_id != null ? Number(current.cash_advance_id) : null);
     setCashAmount(Number(current.cash_advance_amount ?? 0));
+    setCashNote(String(current.cash_advance_note || ""));
     setServerEditable(data.editable !== false);
   }, [employeeId, runId]);
 
@@ -68,6 +83,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
     const item = advances.find((advance) => advance.id === id);
     if (!item) {
       setCashAmount(0);
+      setCashNote("");
       return;
     }
 
@@ -76,6 +92,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
       : null;
     const suggested = Number(item.deduction_per_payroll ?? 0);
     setCashAmount(clampCashAmount(item, saved ?? suggested));
+    setCashNote(Number(adjustment.cash_advance_id) === id ? String(adjustment.cash_advance_note || "") : "");
   }
 
   async function submit(formData: FormData) {
@@ -91,12 +108,15 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
         other_deduction_note: String(formData.get("other_deduction_note") || "") || null,
         cash_advance_id: selectedAdvanceId,
         cash_advance_amount: Number(formData.get("cash_advance_amount") || 0),
+        cash_advance_note: String(formData.get("cash_advance_note") || "") || null,
+        expected_version: Number(adjustment.version ?? 0),
       }),
     });
     const data = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok || !data.ok) {
       setMessage(typeof data.detail === "string" ? data.detail : "Adjustments were not saved.");
+      if (response.status === 409) void load();
       return;
     }
     setOpen(false);
@@ -123,7 +143,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
       <div className={styles.header}>
         <div className={styles.headerCopy}>
           <h3>{employeeName}</h3>
-          <p className={styles.helper}>Apply this cutoff&apos;s cash advance deduction here. Saving updates this employee&apos;s payroll item before owner review.</p>
+          <p className={styles.helper}>Apply this cutoff&apos;s cash advance deduction here. Saving updates this employee&apos;s payroll item before owner review and records an immutable audit event for every financial change.</p>
         </div>
       </div>
 
@@ -142,8 +162,12 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
               <label className={styles.field}><span className={styles.fieldLabel}>Deduction this cutoff</span><input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance ?? 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
               {selectedAdvance ? (
                 <>
-                  <div className={styles.balanceRow}><span>Suggested deduction</span><strong>{peso(Math.min(Number(selectedAdvance.available_balance ?? 0), Number(selectedAdvance.deduction_per_payroll ?? 0)))}</strong></div>
+                  <div className={styles.balanceRow}><span>Suggested deduction</span><strong>{peso(suggestedCash)}</strong></div>
                   <div className={styles.balanceRow}><span>Available balance</span><strong>{peso(selectedAdvance.available_balance)}</strong></div>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Reason {cashNeedsReason ? "(required)" : "(optional)"}</span>
+                    <input name="cash_advance_note" value={cashNote} onChange={(event) => setCashNote(event.target.value)} required={cashNeedsReason} placeholder={cashNeedsReason ? "Why this differs from the configured suggestion" : "Optional note"} />
+                  </label>
                 </>
               ) : advances.length ? <p className={styles.helper}>Choose an advance to apply it to this payroll.</p> : <p className={styles.helper}>No available cash advances found for this employee.</p>}
             </section>
@@ -151,13 +175,13 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, disab
             <section className={styles.section}>
               <div className={styles.sectionTitle}><strong>Additional earning</strong><span>Bonus, allowance, or one-time correction.</span></div>
               <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="additional_earning" type="number" min="0" step="0.01" defaultValue={adjustment.additional_earning || 0} /></label>
-              <label className={styles.field}><span className={styles.fieldLabel}>Description</span><input name="additional_earning_note" defaultValue={adjustment.additional_earning_note || ""} placeholder="Optional note" /></label>
+              <label className={styles.field}><span className={styles.fieldLabel}>Reason</span><input name="additional_earning_note" defaultValue={adjustment.additional_earning_note || ""} placeholder="Required whenever amount is nonzero" /></label>
             </section>
 
             <section className={styles.section}>
               <div className={styles.sectionTitle}><strong>Other deduction</strong><span>Uniform, damage, or another approved deduction.</span></div>
               <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="other_deduction" type="number" min="0" step="0.01" defaultValue={adjustment.other_deduction || 0} /></label>
-              <label className={styles.field}><span className={styles.fieldLabel}>Description</span><input name="other_deduction_note" defaultValue={adjustment.other_deduction_note || ""} placeholder="Optional note" /></label>
+              <label className={styles.field}><span className={styles.fieldLabel}>Reason</span><input name="other_deduction_note" defaultValue={adjustment.other_deduction_note || ""} placeholder="Required whenever amount is nonzero" /></label>
             </section>
           </div>
 
