@@ -121,6 +121,22 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn("source_conn.backup(target_conn)", source)
         self.assertNotIn("systemctl restart", source)
 
+    def test_cutover_stops_writers_before_final_copy_and_has_rollback(self) -> None:
+        source = Path("scripts/cutover_nonroot_runtime.sh").read_text(encoding="utf-8")
+        stop_worker = source.index('systemctl stop "$WORKER_SERVICE"')
+        stop_web = source.index('systemctl stop "$WEB_SERVICE"')
+        stop_api = source.index('systemctl stop "$API_SERVICE"')
+        final_copy = source.index('s.backup(t)')
+        self.assertLess(stop_worker, final_copy)
+        self.assertLess(stop_web, final_copy)
+        self.assertLess(stop_api, final_copy)
+        self.assertIn("Cutover failed; restoring previous production configuration.", source)
+        self.assertIn("staff-payroll.env.before", source)
+        self.assertIn("systemctl daemon-reload", source)
+        self.assertIn('verify_listener_owner "$API_SERVICE" 8001', source)
+        self.assertIn('verify_listener_owner "$WEB_SERVICE" 3001', source)
+        self.assertIn("PRAGMA integrity_check", source)
+
 
 if __name__ == "__main__":
     unittest.main()
