@@ -12,7 +12,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; employeeId: string }> }) {
   const { id, employeeId } = await params;
   const headers = await backendHeaders(true);
-  headers.set("X-Request-ID", request.headers.get("X-Request-ID") || randomUUID());
+  headers["X-Request-ID"] = request.headers.get("X-Request-ID") || randomUUID();
   const response = await fetch(`${apiBaseUrl()}/api/v1/payroll/runs/${id}/employees/${employeeId}/adjustments`, {
     method: "POST",
     headers,
