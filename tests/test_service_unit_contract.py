@@ -99,6 +99,8 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn('RELEASE_DIR="$RELEASES_DIR/$CURRENT_COMMIT"', source)
         self.assertIn('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"', source)
         self.assertIn("restoring previous runtime release", source)
+        self.assertIn('mkdir -p "$RELEASE_DIR/data"', source)
+        self.assertIn('chmod 0750 "$RELEASE_DIR/data"', source)
         self.assertNotIn("git reset --hard", source)
 
     def test_deploy_script_verifies_listener_and_runtime_user(self) -> None:
@@ -136,6 +138,14 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn('verify_listener_owner "$API_SERVICE" 8001', source)
         self.assertIn('verify_listener_owner "$WEB_SERVICE" 3001', source)
         self.assertIn("PRAGMA integrity_check", source)
+
+    def test_cutover_handles_legacy_data_dir_and_first_activation_rollback(self) -> None:
+        source = Path("scripts/cutover_nonroot_runtime.sh").read_text(encoding="utf-8")
+        self.assertIn('mkdir -p "$RELEASE_DIR/data"', source)
+        self.assertIn('chown root:"$SERVICE_GROUP" "$RELEASE_DIR/data"', source)
+        self.assertIn('chmod 0750 "$RELEASE_DIR/data"', source)
+        self.assertIn('rm -f "$CURRENT_LINK"', source)
+        self.assertIn("First-ever activation has no prior runtime symlink", source)
 
 
 if __name__ == "__main__":
