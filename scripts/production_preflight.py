@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import hashlib
 import importlib
 import json
 import os
@@ -20,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from core.backups import backup_path, list_backups, verify_backup
 from core.db import MIGRATIONS
+from core.offsite_backups import verify_offsite_copy
 from core.runtime_guard import validate_runtime_environment
 
 DB = Path(os.getenv("STAFF_PAYROLL_DB_PATH", "data/staff_payroll.sqlite"))
@@ -60,14 +60,6 @@ def env_int(name: str, default: int, *, minimum: int = 0) -> int:
 
 def file_age_seconds(path: Path) -> float:
     return max(0.0, time.time() - path.stat().st_mtime)
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def parse_marker_time(value: str) -> datetime:
@@ -169,23 +161,30 @@ def check_backup_recovery() -> int:
         print(f"     backup verification error: {exc}")
     failures += print_status(backup_verified, "latest backup verifies and contains a valid SQLite database")
 
-    offsite_raw = os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR", "").strip()
-    failures += print_status(bool(offsite_raw), "offsite backup destination configured")
-    if offsite_raw:
-        offsite_dir = Path(offsite_raw).expanduser()
-        offsite_copy = offsite_dir / latest_path.name
-        failures += print_status(offsite_dir.is_dir(), f"offsite backup directory exists: {offsite_dir}")
-        failures += print_status(offsite_copy.is_file(), f"matching latest offsite backup exists: {offsite_copy.name}")
-        if offsite_copy.is_file():
-            failures += print_status(
-                file_age_seconds(offsite_copy) <= max_age_hours * 3600,
-                f"offsite backup age <= {max_age_hours}h",
-            )
-            failures += print_status(
-                offsite_copy.stat().st_size == latest_path.stat().st_size
-                and sha256(offsite_copy) == sha256(latest_path),
-                "offsite backup matches local encrypted backup",
-            )
+    try:
+        offsite = verify_offsite_copy(latest_path)
+    except Exception as exc:
+        offsite = {
+            "configured": True,
+            "exists": False,
+            "matching": False,
+            "destination": None,
+            "last_modified": None,
+        }
+        print(f"     offsite verification error: {exc}")
+    failures += print_status(bool(offsite.get("configured")), "offsite backup destination configured")
+    if offsite.get("configured"):
+        destination = str(offsite.get("destination") or "configured destination")
+        failures += print_status(bool(offsite.get("exists")), f"matching latest offsite backup exists: {destination}")
+        if offsite.get("exists"):
+            last_modified = offsite.get("last_modified")
+            recent = False
+            if isinstance(last_modified, datetime):
+                if last_modified.tzinfo is None:
+                    last_modified = last_modified.replace(tzinfo=timezone.utc)
+                recent = (datetime.now(timezone.utc) - last_modified.astimezone(timezone.utc)).total_seconds() <= max_age_hours * 3600
+            failures += print_status(recent, f"offsite backup age <= {max_age_hours}h")
+            failures += print_status(bool(offsite.get("matching")), "offsite backup matches local encrypted backup")
 
     marker = Path(
         os.getenv(
@@ -352,6 +351,7 @@ def main() -> int:
         "core/runtime_guard.py",
         "core/mfa_security.py",
         "core/backups.py",
+        "core/offsite_backups.py",
         "scripts/restore_drill.py",
     ]
     result = subprocess.run(compile_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
