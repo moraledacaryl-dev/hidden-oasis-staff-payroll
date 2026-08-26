@@ -58,6 +58,13 @@ def env_int(name: str, default: int, *, minimum: int = 0) -> int:
         return max(minimum, default)
 
 
+def env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def file_age_seconds(path: Path) -> float:
     return max(0.0, time.time() - path.stat().st_mtime)
 
@@ -161,6 +168,7 @@ def check_backup_recovery() -> int:
         print(f"     backup verification error: {exc}")
     failures += print_status(backup_verified, "latest backup verifies and contains a valid SQLite database")
 
+    offsite_deferred = env_flag("STAFF_PAYROLL_ALLOW_OFFSITE_BACKUP_DEFERRED", False)
     try:
         offsite = verify_offsite_copy(latest_path)
     except Exception as exc:
@@ -172,7 +180,12 @@ def check_backup_recovery() -> int:
             "last_modified": None,
         }
         print(f"     offsite verification error: {exc}")
-    failures += print_status(bool(offsite.get("configured")), "offsite backup destination configured")
+
+    if not offsite.get("configured") and offsite_deferred:
+        print("WARN offsite backup intentionally deferred; server-loss protection remains an accepted residual risk")
+    else:
+        failures += print_status(bool(offsite.get("configured")), "offsite backup destination configured")
+
     if offsite.get("configured"):
         destination = str(offsite.get("destination") or "configured destination")
         failures += print_status(bool(offsite.get("exists")), f"matching latest offsite backup exists: {destination}")
