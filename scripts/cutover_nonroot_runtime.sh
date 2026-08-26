@@ -18,10 +18,12 @@ API_SERVICE="staff-payroll-api.service"
 WEB_SERVICE="staff-payroll-web.service"
 WORKER_SERVICE="hiddenoasis-staff-integration-worker.service"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/hidden-oasis-staff-payroll/cutover}"
+READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-45}"
+CUTOVER_STARTED_AT="$(date --iso-8601=seconds)"
 
 fail() {
   echo "Fatal: $*" >&2
-  exit 1
+  return 1
 }
 
 listener_pid() {
@@ -31,13 +33,59 @@ listener_pid() {
     | head -n 1
 }
 
-verify_listener_owner() {
+wait_service_active() {
+  local service="$1"
+  local deadline=$((SECONDS + READINESS_TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    if systemctl is-active --quiet "$service"; then
+      echo "OK service active: $service"
+      return 0
+    fi
+    if systemctl is-failed --quiet "$service"; then
+      echo "Service entered failed state: $service" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for active service: $service" >&2
+  return 1
+}
+
+wait_listener_owner() {
   local service="$1" port="$2"
+  local deadline=$((SECONDS + READINESS_TIMEOUT_SECONDS))
   local main_pid listen_pid
+  while (( SECONDS < deadline )); do
+    main_pid="$(systemctl show "$service" -p MainPID --value)"
+    listen_pid="$(listener_pid "$port")"
+    if [[ -n "$main_pid" && "$main_pid" != "0" && "$main_pid" == "$listen_pid" ]]; then
+      echo "OK listener ownership: $service PID $main_pid -> 127.0.0.1:$port"
+      return 0
+    fi
+    if systemctl is-failed --quiet "$service"; then
+      echo "$service failed before owning port $port" >&2
+      return 1
+    fi
+    sleep 1
+  done
   main_pid="$(systemctl show "$service" -p MainPID --value)"
   listen_pid="$(listener_pid "$port")"
-  [[ -n "$main_pid" && "$main_pid" != "0" ]] || fail "$service has no MainPID"
-  [[ "$main_pid" == "$listen_pid" ]] || fail "$service MainPID $main_pid does not own port $port (listener ${listen_pid:-none})"
+  echo "Timed out waiting for $service MainPID $main_pid to own port $port (listener ${listen_pid:-none})" >&2
+  return 1
+}
+
+wait_http() {
+  local label="$1" url="$2"
+  local deadline=$((SECONDS + READINESS_TIMEOUT_SECONDS))
+  while (( SECONDS < deadline )); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      echo "OK HTTP ready: $label"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for HTTP readiness: $label ($url)" >&2
+  return 1
 }
 
 [[ "$(id -u)" == "0" ]] || fail "cutover must run as root"
@@ -78,8 +126,16 @@ if [[ -L "$CURRENT_LINK" ]]; then
 fi
 
 rollback() {
-  local status=$?
-  echo "Cutover failed; restoring previous production configuration." >&2
+  local status="$1"
+  local failed_command="$2"
+  echo "Cutover failed while running: $failed_command" >&2
+  echo "Cutover-window service diagnostics before rollback:" >&2
+  for unit in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
+    echo "--- $unit" >&2
+    systemctl status "$unit" --no-pager -l >&2 || true
+    journalctl -u "$unit" --since "$CUTOVER_STARTED_AT" --no-pager -o short-iso >&2 || true
+  done
+  echo "Restoring previous production configuration." >&2
   cp -a "$CUTOVER_BACKUP/staff-payroll.env.before" "$APP_ENV" || true
   for unit in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
     if [[ -f "$CUTOVER_BACKUP/$unit.before" ]]; then
@@ -99,7 +155,7 @@ rollback() {
   systemctl restart "$WORKER_SERVICE" || true
   exit "$status"
 }
-trap rollback ERR
+trap 'status=$?; failed_command=$BASH_COMMAND; rollback "$status" "$failed_command"' ERR
 
 echo "Stopping write-producing services for final state synchronization..."
 systemctl stop "$WORKER_SERVICE"
@@ -194,18 +250,17 @@ mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"
 systemctl restart "$API_SERVICE"
 systemctl restart "$WEB_SERVICE"
 systemctl restart "$WORKER_SERVICE"
-sleep 3
 
-systemctl is-active --quiet "$API_SERVICE"
-systemctl is-active --quiet "$WEB_SERVICE"
-systemctl is-active --quiet "$WORKER_SERVICE"
+wait_service_active "$API_SERVICE"
+wait_service_active "$WEB_SERVICE"
+wait_service_active "$WORKER_SERVICE"
 [[ "$(systemctl show "$API_SERVICE" -p User --value)" == "$SERVICE_USER" ]] || fail "API is not running as $SERVICE_USER"
 [[ "$(systemctl show "$WEB_SERVICE" -p User --value)" == "$SERVICE_USER" ]] || fail "web is not running as $SERVICE_USER"
 [[ "$(systemctl show "$WORKER_SERVICE" -p User --value)" == "$SERVICE_USER" ]] || fail "worker is not running as $SERVICE_USER"
-verify_listener_owner "$API_SERVICE" 8001
-verify_listener_owner "$WEB_SERVICE" 3001
-curl -fsS http://127.0.0.1:8001/health >/dev/null
-curl -fsS http://127.0.0.1:3001/login >/dev/null
+wait_listener_owner "$API_SERVICE" 8001
+wait_listener_owner "$WEB_SERVICE" 3001
+wait_http "API" "http://127.0.0.1:8001/health"
+wait_http "web" "http://127.0.0.1:3001/login"
 
 TARGET_DB="$TARGET_DB" "$RELEASE_DIR/.venv-api/bin/python" - <<'PY'
 import os
