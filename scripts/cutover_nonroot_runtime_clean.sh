@@ -15,6 +15,66 @@ cd "$APP_ROOT"
 [[ -z "$(git status --porcelain)" ]] || { echo "Fatal: working tree is dirty" >&2; exit 1; }
 [[ -f "$APP_ENV" ]] || { echo "Fatal: missing live env: $APP_ENV" >&2; exit 1; }
 
+listener_pid() {
+  local port="$1"
+  ss -ltnp "sport = :$port" 2>/dev/null \
+    | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' \
+    | head -n 1
+}
+
+kill_listener() {
+  local port="$1" pid
+  pid="$(listener_pid "$port")"
+  [[ -n "$pid" ]] || return 0
+  echo "Terminating listener PID $pid on port $port..."
+  kill -TERM "$pid" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+}
+
+wait_port_stably_free() {
+  local port="$1"
+  local stable=0
+  for _ in $(seq 1 30); do
+    if [[ -z "$(listener_pid "$port")" ]]; then
+      stable=$((stable + 1))
+      if (( stable >= 3 )); then
+        echo "Port $port remained free for 3 consecutive checks."
+        return 0
+      fi
+    else
+      stable=0
+      kill_listener "$port"
+    fi
+    sleep 1
+  done
+  echo "Fatal: port $port could not be kept free before migration" >&2
+  return 1
+}
+
+quiesce_runtime() {
+  echo "Quiescing current runtime and all service descendants..."
+  systemctl stop "$WORKER_SERVICE" || true
+  systemctl stop "$WEB_SERVICE" || true
+  systemctl stop "$API_SERVICE" || true
+
+  # Legacy Next/Uvicorn launchers have historically left descendants alive
+  # after the unit MainPID exits. Kill any remaining unit cgroup members, then
+  # independently clear the known loopback listeners.
+  systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE" >/dev/null 2>&1 || true
+  systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE" >/dev/null 2>&1 || true
+
+  kill_listener 3001
+  kill_listener 8001
+  wait_port_stably_free 3001
+  wait_port_stably_free 8001
+}
+
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 MIGRATION_BACKUP="$BACKUP_ROOT/$TIMESTAMP"
 install -d -m 0700 "$MIGRATION_BACKUP"
@@ -43,9 +103,7 @@ restore_complete_pre_migration_state() {
   local status="$1"
   echo "Non-root migration failed; restoring complete pre-migration state." >&2
 
-  for service in "$WORKER_SERVICE" "$WEB_SERVICE" "$API_SERVICE"; do
-    systemctl stop "$service" >/dev/null 2>&1 || true
-  done
+  quiesce_runtime || true
 
   cp -a "$MIGRATION_BACKUP/staff-payroll.env.before" "$APP_ENV" || true
   chmod 0600 "$APP_ENV" || true
@@ -91,6 +149,10 @@ for service in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
     echo "No drop-ins: $dropin_dir"
   fi
 done
+
+# Stop the legacy runtime before deleting its effective drop-ins. This also
+# prevents a detached Next child from racing the non-root web service for 3001.
+quiesce_runtime
 
 echo "Removing legacy systemd drop-ins before non-root cutover..."
 for service in "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"; do
