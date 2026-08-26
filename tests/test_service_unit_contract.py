@@ -121,6 +121,20 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn('systemctl show "$API_SERVICE" -p User --value', source)
         self.assertIn('systemctl show "$WORKER_SERVICE" -p User --value', source)
 
+    def test_deploy_script_clears_stale_listeners_and_creates_web_cache(self) -> None:
+        source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
+        self.assertIn("clear_listener_after_stop()", source)
+        self.assertGreaterEqual(
+            source.count('clear_listener_after_stop "$WEB_SERVICE" 3001'),
+            2,
+        )
+        self.assertGreaterEqual(
+            source.count('clear_listener_after_stop "$API_SERVICE" 8001'),
+            2,
+        )
+        self.assertIn("mkdir -p .next/cache", source)
+        self.assertIn('systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"', source)
+
     def test_prepare_script_creates_external_state_paths_without_restart(self) -> None:
         source = Path("scripts/prepare_nonroot_runtime.sh").read_text(encoding="utf-8")
         self.assertIn("useradd", source)
