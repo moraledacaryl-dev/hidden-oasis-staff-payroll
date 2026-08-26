@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from core.runtime_guard import validate_runtime_environment
+
 DB = Path(os.getenv("STAFF_PAYROLL_DB_PATH", "data/staff_payroll.sqlite"))
 REQUIRED = [
     "app_users",
@@ -39,8 +41,15 @@ def main() -> int:
     failures = 0
     db = DB.expanduser().resolve()
     failures += print_status(db.exists(), f"database exists: {db}")
-    failures += print_status(bool(os.getenv("STAFF_PAYROLL_API_KEY")), "api key configured")
-    failures += print_status(bool(os.getenv("STAFF_PAYROLL_SESSION_SECRET")), "session secret configured")
+
+    try:
+        validate_runtime_environment()
+        runtime_ok = True
+    except RuntimeError as exc:
+        runtime_ok = False
+        print(f"     {exc}")
+    failures += print_status(runtime_ok, "production runtime security configuration")
+
     try:
         server = importlib.import_module("api.server")
         entrypoint_ok = getattr(server, "app", None) is not None
@@ -57,6 +66,20 @@ def main() -> int:
         failures += print_status(bool(integrity and str(integrity[0]).lower() == "ok"), "sqlite integrity")
         for table in REQUIRED:
             failures += print_status(table_exists(conn, table), f"table {table}")
+
+        plaintext_mfa = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM app_users
+            WHERE mfa_secret IS NOT NULL
+              AND TRIM(mfa_secret) <> ''
+              AND mfa_secret NOT LIKE 'fernet:%'
+            """
+        ).fetchone()[0]
+        failures += print_status(
+            int(plaintext_mfa or 0) == 0,
+            "no plaintext MFA secrets",
+        )
 
         exact_duplicate_groups = conn.execute(
             """
@@ -108,6 +131,9 @@ def main() -> int:
         "api/schedules.py",
         "api/payroll_revision_controls.py",
         "api/production_health.py",
+        "api/users.py",
+        "core/runtime_guard.py",
+        "core/mfa_security.py",
     ]
     result = subprocess.run(compile_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     failures += print_status(result.returncode == 0, "python compile")
