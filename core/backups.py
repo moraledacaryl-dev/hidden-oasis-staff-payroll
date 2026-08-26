@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .db import DB_PATH
+from .offsite_backups import copy_offsite
 
 
 class BackupVerificationError(RuntimeError):
@@ -57,16 +58,7 @@ def _plain_backup(source: Path, target: Path) -> None:
 
 
 def _copy_offsite(target: Path) -> str | None:
-    offsite_path = None
-    offsite_dir = os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR", "").strip()
-    if offsite_dir:
-        offsite = Path(offsite_dir).expanduser()
-        offsite.mkdir(parents=True, exist_ok=True)
-        offsite_target = offsite / target.name
-        shutil.copy2(target, offsite_target)
-        offsite_target.chmod(0o600)
-        offsite_path = str(offsite_target)
-    return offsite_path
+    return copy_offsite(target)
 
 
 def _backup_candidates(directory: Path) -> list[Path]:
