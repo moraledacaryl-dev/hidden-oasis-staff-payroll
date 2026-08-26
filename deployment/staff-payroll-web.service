@@ -28,7 +28,7 @@ RestrictRealtime=yes
 SystemCallArchitectures=native
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadWritePaths=/opt/hiddenoasis/staff-payroll/current/apps/web/.next/cache
+ReadWritePaths=-/opt/hiddenoasis/staff-payroll/current/apps/web/.next/cache
 
 [Install]
 WantedBy=multi-user.target
