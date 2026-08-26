@@ -5,19 +5,19 @@ Wants=staff-payroll-api.service
 
 [Service]
 Type=simple
-User=root
-Group=root
+User=staff-payroll
+Group=staff-payroll
 UMask=0077
-WorkingDirectory=/root/repos/hidden-oasis-staff-payroll/apps/web
+WorkingDirectory=/opt/hiddenoasis/staff-payroll/current/apps/web
 EnvironmentFile=/etc/hiddenoasis/staff-payroll.env
-ExecStart=/usr/bin/node /root/repos/hidden-oasis-staff-payroll/apps/web/node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3001
+ExecStart=/usr/bin/node /opt/hiddenoasis/staff-payroll/current/apps/web/node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3001
 Restart=on-failure
 RestartSec=3
 
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
-ProtectHome=read-only
+ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -28,6 +28,7 @@ RestrictRealtime=yes
 SystemCallArchitectures=native
 CapabilityBoundingSet=
 AmbientCapabilities=
+ReadWritePaths=/opt/hiddenoasis/staff-payroll/current/apps/web/.next/cache
 
 [Install]
 WantedBy=multi-user.target
