@@ -18,6 +18,8 @@ SOURCE_VENV="${SOURCE_VENV:-$APP_ROOT/.venv-api}"
 SOURCE_PYTHON="$SOURCE_VENV/bin/python"
 SOURCE_PIP="$SOURCE_VENV/bin/pip"
 READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-45}"
+WEB_UNIT_PATH="/etc/systemd/system/$WEB_SERVICE"
+WEB_UNIT_BACKUP=""
 
 cd "$APP_ROOT"
 CURRENT_COMMIT="$(git rev-parse HEAD)"
@@ -73,9 +75,6 @@ quiesce_runtime() {
   systemctl stop "$WEB_SERVICE" || true
   systemctl stop "$API_SERVICE" || true
 
-  # Next/Uvicorn launchers can leave descendants alive after MainPID exits.
-  # Kill all remaining cgroup members, independently clear known listeners,
-  # then require the ports to remain free before any new service is started.
   systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE" >/dev/null 2>&1 || true
   systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE" >/dev/null 2>&1 || true
 
@@ -85,22 +84,50 @@ quiesce_runtime() {
   wait_port_stably_free 8001
 }
 
+rollback_http_ready() {
+  systemctl is-active --quiet "$API_SERVICE" || return 1
+  systemctl is-active --quiet "$WEB_SERVICE" || return 1
+  systemctl is-active --quiet "$WORKER_SERVICE" || return 1
+  curl -fsS "$API_HEALTH_URL" >/dev/null 2>&1 || return 1
+  curl -fsS "$WEB_HEALTH_URL" >/dev/null 2>&1 || return 1
+  return 0
+}
+
+wait_rollback_ready() {
+  local waited=0
+  while (( waited < READINESS_TIMEOUT_SECONDS )); do
+    if rollback_http_ready; then
+      echo "OK previous runtime HTTP health restored after ${waited}s"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "WARNING: previous runtime did not become HTTP-ready within ${READINESS_TIMEOUT_SECONDS}s" >&2
+  systemctl status "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" --no-pager -l >&2 || true
+  ss -ltnp | grep -E ':8001|:3001' >&2 || true
+  return 1
+}
+
 rollback_runtime() {
   local status="${1:-$?}"
   if [[ "$ACTIVATED" == "1" && -n "$PREVIOUS_RELEASE" ]]; then
     echo "Deployment failed; restoring previous runtime release: $PREVIOUS_RELEASE" >&2
-    # Prevent a secondary failure during rollback from recursively entering
-    # rollback again. Best-effort quiescence is followed by restoring the
-    # prior immutable pointer and canonical services.
     ACTIVATED=0
     quiesce_runtime || true
     ln -sfn "$PREVIOUS_RELEASE" "$RUNTIME_BASE/.current.rollback"
     mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK"
+    if [[ -n "$WEB_UNIT_BACKUP" && -f "$WEB_UNIT_BACKUP" ]]; then
+      install -m 0644 "$WEB_UNIT_BACKUP" "$WEB_UNIT_PATH" || true
+      systemctl daemon-reload || true
+    fi
     systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
     systemctl start "$API_SERVICE" || true
     systemctl start "$WEB_SERVICE" || true
     systemctl start "$WORKER_SERVICE" || true
+    wait_rollback_ready || true
   fi
+  [[ -n "$WEB_UNIT_BACKUP" ]] && rm -f "$WEB_UNIT_BACKUP" || true
   exit "$status"
 }
 
@@ -184,6 +211,7 @@ id "$SERVICE_USER" >/dev/null 2>&1 || fail "service user $SERVICE_USER does not 
 getent group "$SERVICE_GROUP" >/dev/null 2>&1 || fail "service group $SERVICE_GROUP does not exist"
 [[ -z "$(git status --porcelain)" ]] || fail "working tree is dirty; refusing production deployment"
 [[ -f "$APP_ENV" ]] || fail "env file not found at $APP_ENV"
+[[ -f "$APP_ROOT/deployment/$WEB_SERVICE" ]] || fail "canonical web unit missing from deployment/$WEB_SERVICE"
 
 set -a
 source "$APP_ENV"
@@ -233,6 +261,13 @@ npm run lint
 npm run typecheck
 rm -rf .next
 npm run build
+test -f .next/standalone/server.js
+mkdir -p .next/standalone/.next
+rm -rf .next/standalone/.next/static .next/standalone/public
+cp -a .next/static .next/standalone/.next/static
+if [[ -d public ]]; then
+  cp -a public .next/standalone/public
+fi
 cd "$APP_ROOT"
 
 if [[ -L "$CURRENT_LINK" ]]; then
@@ -260,7 +295,13 @@ if [[ ! -d "$RELEASE_DIR" ]]; then
   cd "$RELEASE_DIR/apps/web"
   npm ci
   npm run build
-  mkdir -p .next/cache
+  test -f .next/standalone/server.js
+  mkdir -p .next/standalone/.next .next/cache
+  rm -rf .next/standalone/.next/static .next/standalone/public
+  cp -a .next/static .next/standalone/.next/static
+  if [[ -d public ]]; then
+    cp -a public .next/standalone/public
+  fi
   cd "$APP_ROOT"
 
   chown -R root:"$SERVICE_GROUP" "$RELEASE_DIR"
@@ -270,6 +311,14 @@ if [[ ! -d "$RELEASE_DIR" ]]; then
   chmod 0700 "$RELEASE_DIR/apps/web/.next/cache"
 fi
 
+[[ -f "$RELEASE_DIR/apps/web/.next/standalone/server.js" ]] \
+  || fail "staged standalone Next server is missing"
+
+if [[ -f "$WEB_UNIT_PATH" ]]; then
+  WEB_UNIT_BACKUP="$(mktemp /run/staff-payroll-web.service.before.XXXXXX)"
+  cp -a "$WEB_UNIT_PATH" "$WEB_UNIT_BACKUP"
+fi
+
 mkdir -p "$RUNTIME_BASE"
 ln -sfn "$RELEASE_DIR" "$RUNTIME_BASE/.current.new"
 mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"
@@ -277,6 +326,8 @@ ACTIVATED=1
 
 echo "Restarting canonical services on staged release..."
 quiesce_runtime
+install -m 0644 "$APP_ROOT/deployment/$WEB_SERVICE" "$WEB_UNIT_PATH"
+systemctl daemon-reload
 systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
 systemctl start "$API_SERVICE"
 systemctl start "$WEB_SERVICE"
@@ -295,6 +346,9 @@ verify_listener_owner "$WEB_SERVICE" 3001
   || fail "$WEB_SERVICE is not running as $SERVICE_USER"
 [[ "$(systemctl show "$WORKER_SERVICE" -p User --value)" == "$SERVICE_USER" ]] \
   || fail "$WORKER_SERVICE is not running as $SERVICE_USER"
+
+[[ "$(systemctl show "$WEB_SERVICE" -p ExecStart --value)" == *".next/standalone/server.js"* ]] \
+  || fail "$WEB_SERVICE is not using the standalone server"
 
 echo "Checking API health..."
 curl -fsS "$API_HEALTH_URL"
@@ -316,5 +370,5 @@ chown "$SERVICE_USER":"$SERVICE_GROUP" "$DEPLOY_STATE_FILE"
 chmod 600 "$DEPLOY_STATE_FILE"
 ACTIVATED=0
 trap - ERR
-
+[[ -n "$WEB_UNIT_BACKUP" ]] && rm -f "$WEB_UNIT_BACKUP" || true
 echo "Deployment completed successfully."
