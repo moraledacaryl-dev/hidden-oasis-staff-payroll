@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import secrets
 from typing import Any
 
@@ -13,7 +15,6 @@ from core.mfa_security import (
     generate_recovery_codes,
     hash_recovery_codes,
 )
-
 from core.audit import log_audit
 from core.auth import (
     generate_totp_secret,
@@ -77,19 +78,10 @@ def require_owner(
     x_api_key: str | None,
 ) -> dict[str, Any]:
     user = require_user(authorization, x_api_key)
-
     if user.get("role_key") != "owner":
-        raise HTTPException(
-            status_code=403,
-            detail="Owner access required.",
-        )
-
+        raise HTTPException(status_code=403, detail="Owner access required.")
     if int(user.get("mfa_setup_required") or 0):
-        raise HTTPException(
-            status_code=428,
-            detail="MFA setup is required for this account.",
-        )
-
+        raise HTTPException(status_code=428, detail="MFA setup is required for this account.")
     return user
 
 
@@ -135,6 +127,24 @@ def active_owner_count(conn) -> int:
     return sum(1 for row in rows if role_to_key(row.get("role")) == "owner")
 
 
+def privileged_mfa_enforced(row: dict[str, Any]) -> bool:
+    required = os.getenv("STAFF_PAYROLL_REQUIRE_PRIVILEGED_MFA", "false").strip().lower() == "true"
+    return required and role_to_key(row.get("role")) in {"owner", "payroll"}
+
+
+def ensure_mfa_pending_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mfa_pending_enrollments (
+            user_id INTEGER PRIMARY KEY,
+            encrypted_secret TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES app_users(id) ON DELETE CASCADE
+        )
+        """
+    )
+
+
 @router.post("/auth/change-password")
 def change_password(
     payload: ChangePasswordRequest,
@@ -158,13 +168,7 @@ def change_password(
             "UPDATE app_users SET last_login_at=COALESCE(last_login_at, ?), session_version=COALESCE(session_version,1)+1 WHERE id=?",
             (now_iso(), row["id"]),
         )
-        log_audit(
-            conn,
-            actor=user.get("display_name"),
-            action="Password changed",
-            table_name="app_users",
-            record_id=int(row["id"]),
-        )
+        log_audit(conn, actor=user.get("display_name"), action="Password changed", table_name="app_users", record_id=int(row["id"]))
         conn.commit()
         return {"ok": True, "message": "Password changed. Sign in again."}
     finally:
@@ -221,13 +225,7 @@ def create_user(
                 session_version, mfa_enabled, created_at, employee_id
             ) VALUES(?,?,?,1,1,1,0,?,?)
             """,
-            (
-                display_name,
-                role_name,
-                hash_password(temporary_password),
-                now_iso(),
-                payload.employee_id,
-            ),
+            (display_name, role_name, hash_password(temporary_password), now_iso(), payload.employee_id),
         )
         user_id = int(cursor.lastrowid)
         log_audit(
@@ -240,11 +238,7 @@ def create_user(
         )
         conn.commit()
         row = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,)) or {}
-        return {
-            "ok": True,
-            "user": public_app_user(row),
-            "temporary_password": temporary_password,
-        }
+        return {"ok": True, "user": public_app_user(row), "temporary_password": temporary_password}
     except HTTPException:
         conn.rollback()
         raise
@@ -266,17 +260,8 @@ def reset_user_password(
         if not row:
             raise HTTPException(status_code=404, detail="User not found.")
         set_user_password(conn, user_id, temporary_password, must_change=True, commit=False)
-        conn.execute(
-            "UPDATE app_users SET session_version=COALESCE(session_version,1)+1 WHERE id=?",
-            (user_id,),
-        )
-        log_audit(
-            conn,
-            actor=owner.get("display_name"),
-            action="Password reset",
-            table_name="app_users",
-            record_id=user_id,
-        )
+        conn.execute("UPDATE app_users SET session_version=COALESCE(session_version,1)+1 WHERE id=?", (user_id,))
+        log_audit(conn, actor=owner.get("display_name"), action="Password reset", table_name="app_users", record_id=user_id)
         conn.commit()
         return {
             "ok": True,
@@ -303,11 +288,7 @@ def set_user_active(
         row = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,))
         if not row:
             raise HTTPException(status_code=404, detail="User not found.")
-        if (
-            not payload.active
-            and role_to_key(row.get("role")) == "owner"
-            and active_owner_count(conn) <= 1
-        ):
+        if not payload.active and role_to_key(row.get("role")) == "owner" and active_owner_count(conn) <= 1:
             raise HTTPException(status_code=409, detail="At least one active owner account is required.")
         conn.execute(
             "UPDATE app_users SET active=?, session_version=COALESCE(session_version,1)+1 WHERE id=?",
@@ -342,14 +323,9 @@ def set_user_employee(
             raise HTTPException(status_code=404, detail="User not found.")
         employee_id = payload.employee_id
         if employee_id is not None:
-            employee = fetchone(conn, "SELECT id FROM employees WHERE id=?", (employee_id,))
-            if not employee:
+            if not fetchone(conn, "SELECT id FROM employees WHERE id=?", (employee_id,)):
                 raise HTTPException(status_code=404, detail="Employee not found.")
-            duplicate = fetchone(
-                conn,
-                "SELECT id FROM app_users WHERE employee_id=? AND id<>?",
-                (employee_id, user_id),
-            )
+            duplicate = fetchone(conn, "SELECT id FROM app_users WHERE employee_id=? AND id<>?", (employee_id, user_id))
             if duplicate:
                 raise HTTPException(status_code=409, detail="That employee already has an account.")
         conn.execute("UPDATE app_users SET employee_id=? WHERE id=?", (employee_id, user_id))
@@ -366,7 +342,7 @@ def set_user_employee(
             conn,
             """
             SELECT au.id, au.display_name, au.role, au.active, au.must_change_password,
-                   au.last_login_at, au.created_at, au.employee_id,
+                   au.mfa_enabled, au.last_login_at, au.created_at, au.employee_id,
                    e.full_name AS employee_name
             FROM app_users au
             LEFT JOIN employees e ON e.id = au.employee_id
@@ -395,17 +371,9 @@ def set_user_role(
             raise HTTPException(status_code=404, detail="User not found.")
         if int(owner.get("id") or 0) == user_id and _role_key != "owner":
             raise HTTPException(status_code=409, detail="You cannot change your own owner role.")
-        if (
-            role_to_key(row.get("role")) == "owner"
-            and _role_key != "owner"
-            and int(row.get("active") or 0)
-            and active_owner_count(conn) <= 1
-        ):
+        if role_to_key(row.get("role")) == "owner" and _role_key != "owner" and int(row.get("active") or 0) and active_owner_count(conn) <= 1:
             raise HTTPException(status_code=409, detail="At least one active owner account is required.")
-        conn.execute(
-            "UPDATE app_users SET role=?, session_version=COALESCE(session_version,1)+1 WHERE id=?",
-            (role, user_id),
-        )
+        conn.execute("UPDATE app_users SET role=?, session_version=COALESCE(session_version,1)+1 WHERE id=?", (role, user_id))
         log_audit(
             conn,
             actor=owner.get("display_name"),
@@ -428,41 +396,16 @@ def owner_reset_user_mfa(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    owner = require_owner(
-        authorization,
-        x_api_key,
-    )
-
+    owner = require_owner(authorization, x_api_key)
     conn = get_conn(DB_PATH)
-
     try:
-        owner_row = fetchone(
-            conn,
-            "SELECT * FROM app_users WHERE id=? AND active=1",
-            (owner["id"],),
-        )
-
-        if not owner_row or not verify_password(
-            payload.owner_password,
-            owner_row.get("password_hash"),
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="Owner password is incorrect.",
-            )
-
-        target = fetchone(
-            conn,
-            "SELECT * FROM app_users WHERE id=?",
-            (user_id,),
-        )
-
+        ensure_mfa_pending_schema(conn)
+        owner_row = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (owner["id"],))
+        if not owner_row or not verify_password(payload.owner_password, owner_row.get("password_hash")):
+            raise HTTPException(status_code=400, detail="Owner password is incorrect.")
+        target = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,))
         if not target:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found.",
-            )
-
+            raise HTTPException(status_code=404, detail="User not found.")
         conn.execute(
             """
             UPDATE app_users
@@ -475,7 +418,7 @@ def owner_reset_user_mfa(
             """,
             (user_id,),
         )
-
+        conn.execute("DELETE FROM mfa_pending_enrollments WHERE user_id=?", (user_id,))
         log_audit(
             conn,
             actor=owner.get("display_name"),
@@ -483,30 +426,18 @@ def owner_reset_user_mfa(
             table_name="app_users",
             record_id=user_id,
             details={
-                "target_display_name":
-                    target.get("display_name"),
-                "target_role":
-                    target.get("role"),
+                "target_display_name": target.get("display_name"),
+                "target_role": target.get("role"),
+                "re_enrollment_required": privileged_mfa_enforced(target),
             },
         )
-
         conn.commit()
-
-        updated = fetchone(
-            conn,
-            "SELECT * FROM app_users WHERE id=?",
-            (user_id,),
-        ) or {}
-
+        updated = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,)) or {}
         return {
             "ok": True,
-            "message": (
-                "MFA reset. Existing sessions and "
-                "recovery codes were revoked."
-            ),
+            "message": "MFA reset. Existing sessions and recovery codes were revoked. The user can sign in and re-enroll from Security settings.",
             "user": public_app_user(updated),
         }
-
     finally:
         conn.close()
 
@@ -518,21 +449,27 @@ def setup_mfa(
 ) -> dict[str, Any]:
     user = require_user(authorization, x_api_key)
     secret = generate_totp_secret()
+    encrypted = encrypt_mfa_secret(secret)
     conn = get_conn(DB_PATH)
     try:
+        ensure_mfa_pending_schema(conn)
         conn.execute(
             """
-            UPDATE app_users
-            SET mfa_secret=?,
-                mfa_enabled=0,
-                mfa_confirmed_at=NULL,
-                mfa_recovery_codes=NULL
-            WHERE id=?
+            INSERT INTO mfa_pending_enrollments(user_id, encrypted_secret, created_at)
+            VALUES(?,?,?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                encrypted_secret=excluded.encrypted_secret,
+                created_at=excluded.created_at
             """,
-            (
-                encrypt_mfa_secret(secret),
-                user["id"],
-            ),
+            (user["id"], encrypted, now_iso()),
+        )
+        log_audit(
+            conn,
+            actor=user.get("display_name"),
+            action="MFA enrollment started",
+            table_name="app_users",
+            record_id=int(user["id"]),
+            details={"replacement": bool(user.get("mfa_enabled"))},
         )
         conn.commit()
         return {
@@ -553,47 +490,33 @@ def confirm_mfa(
     user = require_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        row = fetchone(
-            conn,
-            "SELECT * FROM app_users WHERE id=? AND active=1",
-            (user["id"],),
-        )
-
-        secret = (
-            decrypt_mfa_secret(row.get("mfa_secret"))
-            if row
-            else None
-        )
-
+        ensure_mfa_pending_schema(conn)
+        row = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (user["id"],))
+        pending = fetchone(conn, "SELECT * FROM mfa_pending_enrollments WHERE user_id=?", (user["id"],))
+        encrypted_secret = pending.get("encrypted_secret") if pending else None
+        if not encrypted_secret:
+            raise HTTPException(status_code=409, detail="Start authenticator setup before confirming.")
+        secret = decrypt_mfa_secret(encrypted_secret)
         if not row or not verify_totp(secret, payload.code):
-            raise HTTPException(
-                status_code=400,
-                detail="Authenticator code is invalid.",
-            )
-
+            raise HTTPException(status_code=400, detail="Authenticator code is invalid.")
         recovery_codes = generate_recovery_codes()
-
         conn.execute(
             """
             UPDATE app_users
-            SET mfa_enabled=1,
+            SET mfa_secret=?,
+                mfa_enabled=1,
                 mfa_confirmed_at=?,
                 mfa_recovery_codes=?,
                 session_version=COALESCE(session_version,1)+1
             WHERE id=?
             """,
-            (
-                now_iso(),
-                __import__("json").dumps(
-                    hash_recovery_codes(recovery_codes)
-                ),
-                user["id"],
-            ),
+            (encrypted_secret, now_iso(), json.dumps(hash_recovery_codes(recovery_codes)), user["id"]),
         )
+        conn.execute("DELETE FROM mfa_pending_enrollments WHERE user_id=?", (user["id"],))
         log_audit(
             conn,
             actor=user.get("display_name"),
-            action="MFA enabled",
+            action="MFA enabled or replaced",
             table_name="app_users",
             record_id=int(user["id"]),
         )
@@ -615,55 +538,20 @@ def regenerate_mfa_recovery_codes(
 ) -> dict[str, Any]:
     user = require_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
-
     try:
-        row = fetchone(
-            conn,
-            "SELECT * FROM app_users WHERE id=? AND active=1",
-            (user["id"],),
-        )
-
+        row = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (user["id"],))
         if not row or not int(row.get("mfa_enabled") or 0):
-            raise HTTPException(
-                status_code=400,
-                detail="Authenticator is not enabled.",
-            )
-
-        if not verify_password(
-            payload.password,
-            row.get("password_hash"),
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="Password is incorrect.",
-            )
-
-        secret = decrypt_mfa_secret(
-            row.get("mfa_secret")
-        )
-
+            raise HTTPException(status_code=400, detail="Authenticator is not enabled.")
+        if not verify_password(payload.password, row.get("password_hash")):
+            raise HTTPException(status_code=400, detail="Password is incorrect.")
+        secret = decrypt_mfa_secret(row.get("mfa_secret"))
         if not verify_totp(secret, payload.code):
-            raise HTTPException(
-                status_code=400,
-                detail="Authenticator code is invalid.",
-            )
-
+            raise HTTPException(status_code=400, detail="Authenticator code is invalid.")
         recovery_codes = generate_recovery_codes()
-
         conn.execute(
-            """
-            UPDATE app_users
-            SET mfa_recovery_codes=?
-            WHERE id=?
-            """,
-            (
-                __import__("json").dumps(
-                    hash_recovery_codes(recovery_codes)
-                ),
-                user["id"],
-            ),
+            "UPDATE app_users SET mfa_recovery_codes=? WHERE id=?",
+            (json.dumps(hash_recovery_codes(recovery_codes)), user["id"]),
         )
-
         log_audit(
             conn,
             actor=user.get("display_name"),
@@ -671,15 +559,10 @@ def regenerate_mfa_recovery_codes(
             table_name="app_users",
             record_id=int(user["id"]),
         )
-
         conn.commit()
-
         return {
             "ok": True,
-            "message": (
-                "New recovery codes generated. "
-                "All previous recovery codes are now invalid."
-            ),
+            "message": "New recovery codes generated. All previous recovery codes are now invalid.",
             "recovery_codes": recovery_codes,
         }
     finally:
@@ -696,15 +579,19 @@ def disable_mfa(
     conn = get_conn(DB_PATH)
     try:
         row = fetchone(conn, "SELECT * FROM app_users WHERE id=? AND active=1", (user["id"],))
-        if not row or not verify_password(payload.password, row.get("password_hash")):
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found.")
+        if privileged_mfa_enforced(row):
+            raise HTTPException(
+                status_code=409,
+                detail="Privileged accounts cannot disable MFA in production. Use Replace authenticator or an Owner MFA reset followed by re-enrollment.",
+            )
+        if not verify_password(payload.password, row.get("password_hash")):
             raise HTTPException(status_code=400, detail="Password is incorrect.")
         secret = decrypt_mfa_secret(row.get("mfa_secret"))
-
         if not verify_totp(secret, payload.code):
-            raise HTTPException(
-                status_code=400,
-                detail="Authenticator code is invalid.",
-            )
+            raise HTTPException(status_code=400, detail="Authenticator code is invalid.")
+        ensure_mfa_pending_schema(conn)
         conn.execute(
             """
             UPDATE app_users
@@ -717,13 +604,8 @@ def disable_mfa(
             """,
             (user["id"],),
         )
-        log_audit(
-            conn,
-            actor=user.get("display_name"),
-            action="MFA disabled",
-            table_name="app_users",
-            record_id=int(user["id"]),
-        )
+        conn.execute("DELETE FROM mfa_pending_enrollments WHERE user_id=?", (user["id"],))
+        log_audit(conn, actor=user.get("display_name"), action="MFA disabled", table_name="app_users", record_id=int(user["id"]))
         conn.commit()
         return {"ok": True, "message": "Authenticator disabled. Sign in again."}
     finally:
