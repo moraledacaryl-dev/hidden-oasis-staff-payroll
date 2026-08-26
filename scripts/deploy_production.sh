@@ -36,6 +36,23 @@ listener_pid() {
     | head -n 1
 }
 
+clear_listener_after_stop() {
+  local service="$1" port="$2"
+  local listen_pid
+  listen_pid="$(listener_pid "$port")"
+  [[ -n "$listen_pid" ]] || return 0
+  echo "Clearing stale listener PID $listen_pid from port $port before starting $service..."
+  kill -TERM "$listen_pid" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    kill -0 "$listen_pid" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$listen_pid" 2>/dev/null; then
+    kill -KILL "$listen_pid" 2>/dev/null || true
+  fi
+  [[ -z "$(listener_pid "$port")" ]] || fail "port $port remains occupied after stopping $service"
+}
+
 verify_listener_owner() {
   local service="$1"
   local port="$2"
@@ -62,8 +79,14 @@ rollback_runtime() {
   local status=$?
   if [[ "$ACTIVATED" == "1" && -n "$PREVIOUS_RELEASE" ]]; then
     echo "Deployment failed; restoring previous runtime release: $PREVIOUS_RELEASE" >&2
+    systemctl stop "$WORKER_SERVICE" || true
+    systemctl stop "$WEB_SERVICE" || true
+    systemctl stop "$API_SERVICE" || true
+    clear_listener_after_stop "$WEB_SERVICE" 3001 || true
+    clear_listener_after_stop "$API_SERVICE" 8001 || true
     ln -sfn "$PREVIOUS_RELEASE" "$RUNTIME_BASE/.current.rollback"
     mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK"
+    systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
     systemctl restart "$API_SERVICE" || true
     systemctl restart "$WEB_SERVICE" || true
     systemctl restart "$WORKER_SERVICE" || true
@@ -84,7 +107,6 @@ getent group "$SERVICE_GROUP" >/dev/null 2>&1 || fail "service group $SERVICE_GR
 [[ -f "$APP_ENV" ]] || fail "env file not found at $APP_ENV"
 
 set -a
-# shellcheck source=/dev/null
 source "$APP_ENV"
 set +a
 
@@ -149,10 +171,6 @@ if [[ ! -d "$RELEASE_DIR" ]]; then
     --exclude='./apps/web/.next' \
     -cf - . | tar -xf - -C "$RELEASE_DIR"
 
-  # core.db still calls DATA_DIR.mkdir(exist_ok=True) even when the configured
-  # SQLite path is external. Keep an empty application data directory in each
-  # immutable release so that legacy compatibility check succeeds without
-  # granting the service write access to application code.
   mkdir -p "$RELEASE_DIR/data"
 
   python3 -m venv "$RELEASE_DIR/.venv-api"
@@ -163,15 +181,14 @@ if [[ ! -d "$RELEASE_DIR" ]]; then
   cd "$RELEASE_DIR/apps/web"
   npm ci
   npm run build
+  mkdir -p .next/cache
   cd "$APP_ROOT"
 
   chown -R root:"$SERVICE_GROUP" "$RELEASE_DIR"
   chmod -R o-rwx "$RELEASE_DIR"
   chmod 0750 "$RELEASE_DIR/data"
-  if [[ -d "$RELEASE_DIR/apps/web/.next/cache" ]]; then
-    chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$RELEASE_DIR/apps/web/.next/cache"
-    chmod -R u+rwX,g-rwx,o-rwx "$RELEASE_DIR/apps/web/.next/cache"
-  fi
+  chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$RELEASE_DIR/apps/web/.next/cache"
+  chmod 0700 "$RELEASE_DIR/apps/web/.next/cache"
 fi
 
 mkdir -p "$RUNTIME_BASE"
@@ -180,9 +197,15 @@ mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"
 ACTIVATED=1
 
 echo "Restarting canonical services on staged release..."
-systemctl restart "$API_SERVICE"
-systemctl restart "$WEB_SERVICE"
-systemctl restart "$WORKER_SERVICE"
+systemctl stop "$WORKER_SERVICE"
+systemctl stop "$WEB_SERVICE"
+systemctl stop "$API_SERVICE"
+clear_listener_after_stop "$WEB_SERVICE" 3001
+clear_listener_after_stop "$API_SERVICE" 8001
+systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
+systemctl start "$API_SERVICE"
+systemctl start "$WEB_SERVICE"
+systemctl start "$WORKER_SERVICE"
 sleep 3
 
 verify_service_active "$API_SERVICE"
