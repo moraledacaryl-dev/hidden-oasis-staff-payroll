@@ -37,21 +37,56 @@ listener_pid() {
     | head -n 1
 }
 
-clear_listener_after_stop() {
-  local service="$1" port="$2"
-  local listen_pid
-  listen_pid="$(listener_pid "$port")"
-  [[ -n "$listen_pid" ]] || return 0
-  echo "Clearing stale listener PID $listen_pid from port $port before starting $service..."
-  kill -TERM "$listen_pid" 2>/dev/null || true
+kill_listener() {
+  local port="$1" pid
+  pid="$(listener_pid "$port")"
+  [[ -n "$pid" ]] || return 0
+  echo "Terminating listener PID $pid on port $port..."
+  kill -TERM "$pid" 2>/dev/null || true
   for _ in $(seq 1 10); do
-    kill -0 "$listen_pid" 2>/dev/null || break
+    kill -0 "$pid" 2>/dev/null || break
     sleep 1
   done
-  if kill -0 "$listen_pid" 2>/dev/null; then
-    kill -KILL "$listen_pid" 2>/dev/null || true
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
   fi
-  [[ -z "$(listener_pid "$port")" ]] || fail "port $port remains occupied after stopping $service"
+}
+
+wait_port_stably_free() {
+  local port="$1"
+  local stable=0
+  for _ in $(seq 1 30); do
+    if [[ -z "$(listener_pid "$port")" ]]; then
+      stable=$((stable + 1))
+      if (( stable >= 3 )); then
+        echo "Port $port remained free for 3 consecutive checks."
+        return 0
+      fi
+    else
+      stable=0
+      kill_listener "$port"
+    fi
+    sleep 1
+  done
+  fail "port $port could not be kept free during runtime transition"
+}
+
+quiesce_runtime() {
+  echo "Quiescing runtime and all service descendants..."
+  systemctl stop "$WORKER_SERVICE" || true
+  systemctl stop "$WEB_SERVICE" || true
+  systemctl stop "$API_SERVICE" || true
+
+  # Next/Uvicorn launchers can leave descendants alive after MainPID exits.
+  # Kill all remaining cgroup members, independently clear known listeners,
+  # then require the ports to remain free before any new service is started.
+  systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE" >/dev/null 2>&1 || true
+  systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE" >/dev/null 2>&1 || true
+
+  kill_listener 3001
+  kill_listener 8001
+  wait_port_stably_free 3001
+  wait_port_stably_free 8001
 }
 
 verify_listener_owner() {
@@ -118,17 +153,13 @@ rollback_runtime() {
   local status=$?
   if [[ "$ACTIVATED" == "1" && -n "$PREVIOUS_RELEASE" ]]; then
     echo "Deployment failed; restoring previous runtime release: $PREVIOUS_RELEASE" >&2
-    systemctl stop "$WORKER_SERVICE" || true
-    systemctl stop "$WEB_SERVICE" || true
-    systemctl stop "$API_SERVICE" || true
-    clear_listener_after_stop "$WEB_SERVICE" 3001 || true
-    clear_listener_after_stop "$API_SERVICE" 8001 || true
+    quiesce_runtime || true
     ln -sfn "$PREVIOUS_RELEASE" "$RUNTIME_BASE/.current.rollback"
     mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK"
     systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
-    systemctl restart "$API_SERVICE" || true
-    systemctl restart "$WEB_SERVICE" || true
-    systemctl restart "$WORKER_SERVICE" || true
+    systemctl start "$API_SERVICE" || true
+    systemctl start "$WEB_SERVICE" || true
+    systemctl start "$WORKER_SERVICE" || true
   fi
   exit "$status"
 }
@@ -236,11 +267,7 @@ mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"
 ACTIVATED=1
 
 echo "Restarting canonical services on staged release..."
-systemctl stop "$WORKER_SERVICE"
-systemctl stop "$WEB_SERVICE"
-systemctl stop "$API_SERVICE"
-clear_listener_after_stop "$WEB_SERVICE" 3001
-clear_listener_after_stop "$API_SERVICE" 8001
+quiesce_runtime
 systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
 systemctl start "$API_SERVICE"
 systemctl start "$WEB_SERVICE"
