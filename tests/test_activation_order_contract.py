@@ -20,7 +20,20 @@ class ActivationOrderContractTests(unittest.TestCase):
         self.assertIn("wait_port_stably_free 8001", source)
         self.assertIn(".next/standalone/server.js", source)
         self.assertIn("rollback 1", source)
-        self.assertIn("Rollback HTTP health restored.", source)
+
+    def test_activation_rollback_requires_full_runtime_readiness(self) -> None:
+        source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
+
+        rollback_start = source.index("rollback() {")
+        rollback_end = source.index("[[ \"$(id -u)\" == \"0\" ]]", rollback_start)
+        rollback = source[rollback_start:rollback_end]
+
+        self.assertIn("if wait_runtime_ready; then", rollback)
+        self.assertIn("Rollback runtime readiness restored.", rollback)
+        self.assertIn("rollback failed to restore canonical runtime readiness", rollback)
+        self.assertIn('systemctl status "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"', rollback)
+        self.assertIn("ss -ltnp", rollback)
+        self.assertNotIn("Rollback HTTP health restored.", rollback)
 
 
 if __name__ == "__main__":
