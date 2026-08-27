@@ -11,7 +11,7 @@ class ActivationOrderContractTests(unittest.TestCase):
         quiesce = source.index("quiesce_old_runtime\n")
         switch = source.index('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"')
         install_unit = source.index('install -m 0644 "$APP_ROOT/deployment/$WEB_SERVICE" "$WEB_UNIT_PATH"')
-        start_web = source.index('systemctl start "$WEB_SERVICE"')
+        start_web = source.index('systemctl start "$WEB_SERVICE"', install_unit)
 
         self.assertLess(quiesce, switch)
         self.assertLess(switch, install_unit)
