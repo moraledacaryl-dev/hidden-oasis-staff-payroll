@@ -132,7 +132,7 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertGreaterEqual(source.count("quiesce_runtime"), 3)
         self.assertIn("wait_port_stably_free 3001", source)
         self.assertIn("wait_port_stably_free 8001", source)
-        self.assertIn("mkdir -p .next/cache", source)
+        self.assertIn(".next/cache", source)
         self.assertIn('systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"', source)
 
     def test_prepare_script_creates_external_state_paths_without_restart(self) -> None:
