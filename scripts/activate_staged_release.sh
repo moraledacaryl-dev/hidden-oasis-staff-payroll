@@ -120,14 +120,19 @@ rollback() {
   systemctl start "$API_SERVICE" || true
   systemctl start "$WEB_SERVICE" || true
   systemctl start "$WORKER_SERVICE" || true
-  for _ in $(seq 1 "$READINESS_TIMEOUT_SECONDS"); do
-    if curl -fsS "$API_HEALTH_URL" >/dev/null 2>&1 \
-      && curl -fsS "$WEB_HEALTH_URL" >/dev/null 2>&1; then
-      echo "Rollback HTTP health restored."
-      break
-    fi
-    sleep 1
-  done
+
+  if wait_runtime_ready; then
+    echo "Rollback runtime readiness restored."
+  else
+    echo "ERROR: rollback failed to restore canonical runtime readiness." >&2
+    systemctl status "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" --no-pager -l >&2 || true
+    ss -ltnp | grep -E ':8001|:3001' >&2 || true
+    journalctl -u "$API_SERVICE" --since '-3 minutes' --no-pager -n 80 >&2 || true
+    journalctl -u "$WEB_SERVICE" --since '-3 minutes' --no-pager -n 80 >&2 || true
+    [[ -n "$WEB_UNIT_BACKUP" ]] && rm -f "$WEB_UNIT_BACKUP" || true
+    exit 1
+  fi
+
   [[ -n "$WEB_UNIT_BACKUP" ]] && rm -f "$WEB_UNIT_BACKUP" || true
   exit "$rc"
 }
