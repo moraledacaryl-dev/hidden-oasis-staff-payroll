@@ -367,7 +367,13 @@ def main() -> int:
         "core/offsite_backups.py",
         "scripts/restore_drill.py",
     ]
-    result = subprocess.run(compile_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    result = subprocess.run(
+        compile_cmd,
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
     failures += print_status(result.returncode == 0, "python compile")
     if result.returncode != 0:
         print(result.stdout)
