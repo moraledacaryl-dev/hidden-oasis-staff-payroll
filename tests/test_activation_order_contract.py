@@ -91,6 +91,41 @@ class ActivationOrderContractTests(unittest.TestCase):
         rollback = source[rollback_start:rollback_end]
         self.assertIn("unmask_web_runtime", rollback)
 
+    def test_activation_retires_deprecated_root_web_unit(self) -> None:
+        source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'LEGACY_WEB_SERVICE="${LEGACY_WEB_SERVICE:-hidden-oasis-payroll-web.service}"',
+            source,
+        )
+        fence_start = source.index("fence_legacy_web_runtime() {")
+        fence_end = source.index("mask_web_runtime() {", fence_start)
+        fence = source[fence_start:fence_end]
+        self.assertIn('systemctl disable --now "$LEGACY_WEB_SERVICE"', fence)
+        self.assertIn('systemctl mask --runtime --now "$LEGACY_WEB_SERVICE"', fence)
+        self.assertIn(
+            'systemctl kill --kill-who=all --signal=SIGKILL "$LEGACY_WEB_SERVICE"',
+            fence,
+        )
+        self.assertIn('wait_service_inactive "$LEGACY_WEB_SERVICE"', fence)
+
+        quiesce_start = source.index("quiesce_old_runtime() {")
+        quiesce_end = source.index("runtime_ready() {", quiesce_start)
+        quiesce = source[quiesce_start:quiesce_end]
+        self.assertIn("fence_legacy_web_runtime", quiesce)
+        self.assertLess(
+            quiesce.index("fence_legacy_web_runtime"),
+            quiesce.index("mask_web_runtime"),
+        )
+
+        runtime_start = source.index("runtime_ready() {")
+        runtime_end = source.index("wait_runtime_ready() {", runtime_start)
+        runtime = source[runtime_start:runtime_end]
+        self.assertIn(
+            'systemctl is-active --quiet "$LEGACY_WEB_SERVICE"',
+            runtime,
+        )
+
     def test_preswitch_quiescence_failure_restores_untouched_runtime(self) -> None:
         source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
 
