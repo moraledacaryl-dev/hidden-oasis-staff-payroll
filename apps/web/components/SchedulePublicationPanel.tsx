@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ConfirmActionModal } from "@/components/ConfirmActionModal";
 
 type Publication = {
   status?: string;
@@ -17,6 +18,7 @@ type State = {
 export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
   const [state, setState] = useState<State>({ publication: null, pending: false });
   const [notes, setNotes] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -41,13 +43,6 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
 
   async function publish() {
     const republish = Boolean(state.publication);
-    const confirmed = window.confirm(
-      republish
-        ? "Republish this week so staff can see the latest revisions?"
-        : "Publish this week so staff can see it?"
-    );
-    if (!confirmed) return;
-
     setBusy(true);
     setMessage("");
     const response = await fetch("/api/schedule/shifts", {
@@ -63,11 +58,13 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
       return;
     }
 
+    setConfirmOpen(false);
     setState({ publication: data.publication || null, pending: false });
     setMessage(republish ? "Revised schedule published." : "Schedule published.");
   }
 
   const published = state.publication?.status === "Published";
+  const republish = Boolean(state.publication);
   const label = state.pending ? "Changes Pending" : published ? "Published" : "Draft";
 
   return (
@@ -97,12 +94,26 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
       </label>
 
       <div className="action-row">
-        <button className="button" type="button" disabled={busy || (published && !state.pending)} onClick={publish}>
+        <button className="button" type="button" disabled={busy || (published && !state.pending)} onClick={() => setConfirmOpen(true)}>
           {busy ? "Publishing…" : state.pending ? "Republish revised schedule" : published ? "Published" : "Publish schedule"}
         </button>
       </div>
 
       {message ? <p className="muted">{message}</p> : null}
+
+      <ConfirmActionModal
+        open={confirmOpen}
+        title={republish ? "Republish this schedule?" : "Publish this schedule?"}
+        description={republish
+          ? "Staff will see the latest revisions for this week after you republish."
+          : "Staff will be able to see this week after you publish it."}
+        confirmLabel={republish ? "Republish schedule" : "Publish schedule"}
+        busy={busy}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={publish}
+      >
+        {notes ? <p className="muted">Publication note: {notes}</p> : null}
+      </ConfirmActionModal>
     </section>
   );
 }
