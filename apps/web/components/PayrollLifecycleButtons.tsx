@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ConfirmActionModal } from "@/components/ConfirmActionModal";
 import type { RoleKey } from "@/lib/types";
 
 type PayrollAction = "lock" | "approve" | "paid" | "reopen";
@@ -10,13 +11,12 @@ export function PayrollLifecycleButtons({ runId, status, role = "owner" }: { run
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [paidOpen, setPaidOpen] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState("");
   const [reopenConfirm, setReopenConfirm] = useState("");
 
   async function submit(action: PayrollAction, options: { reason?: string; confirmation?: string } = {}) {
-    if (action === "paid" && !window.confirm("Mark this payroll run as paid? This applies cash advance repayments and reduces outstanding balances.")) return;
-
     if (action === "reopen") {
       const reason = String(options.reason || "").trim();
       const confirmation = String(options.confirmation || "").trim();
@@ -56,6 +56,7 @@ export function PayrollLifecycleButtons({ runId, status, role = "owner" }: { run
 
     setMessage("Saved.");
     setBusy(null);
+    setPaidOpen(false);
     setReopenOpen(false);
     setReopenReason("");
     setReopenConfirm("");
@@ -78,7 +79,7 @@ export function PayrollLifecycleButtons({ runId, status, role = "owner" }: { run
         ) : null}
 
         {role === "owner" && status === "Approved" ? (
-          <button className="button small" disabled={!!busy} onClick={() => submit("paid")}>
+          <button className="button small" disabled={!!busy} onClick={() => setPaidOpen(true)}>
             {busy === "paid" ? "Marking paid..." : "Mark Paid"}
           </button>
         ) : null}
@@ -91,6 +92,18 @@ export function PayrollLifecycleButtons({ runId, status, role = "owner" }: { run
 
         {message ? <span className="muted">{message}</span> : null}
       </div>
+
+      <ConfirmActionModal
+        open={paidOpen}
+        title="Mark payroll run paid?"
+        description="This finalizes the paid state, applies cash-advance repayments, and reduces outstanding cash-advance balances. Later changes must use the controlled correction or reopen workflow."
+        confirmLabel="Confirm Mark Paid"
+        confirmationPhrase="MARK PAID"
+        danger
+        busy={busy === "paid"}
+        onClose={() => setPaidOpen(false)}
+        onConfirm={() => submit("paid")}
+      />
 
       {reopenOpen ? (
         <section className="reopen-confirm-card">
