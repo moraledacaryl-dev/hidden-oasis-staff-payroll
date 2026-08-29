@@ -1,8 +1,36 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 const baseUrl = (process.env.BROWSER_SMOKE_BASE_URL || "http://127.0.0.1:3001").replace(/\/$/, "");
-const port = Number(process.env.BROWSER_DEBUG_PORT || 9223);
+const port = Number(process.env.MOBILE_GEOMETRY_DEBUG_PORT || 9224);
 const tokens = JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
+const browserPath = [
+  process.env.BROWSER_BIN,
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+].find((candidate) => candidate && existsSync(candidate));
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+async function waitForChrome() {
+  const endpoint = `http://127.0.0.1:${port}/json/version`;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      const response = await fetch(endpoint);
+      if (response.ok) return;
+    } catch {
+      // Chrome is still starting.
+    }
+    await delay(150);
+  }
+  throw new Error(`Chrome DevTools did not start on port ${port}.`);
+}
 
 class CdpSession {
   constructor(url) {
@@ -96,6 +124,8 @@ async function inspect(role, route, selectors) {
           if (!element) return null;
           const rect = element.getBoundingClientRect();
           const style = getComputedStyle(element);
+          const parent = element.parentElement;
+          const parentRect = parent?.getBoundingClientRect();
           return {
             tag: element.tagName,
             className: String(element.className || ""),
@@ -113,6 +143,11 @@ async function inspect(role, route, selectors) {
             paddingRight: style.paddingRight,
             boxSizing: style.boxSizing,
             display: style.display,
+            position: style.position,
+            parentClassName: String(parent?.className || ""),
+            parentLeft: parentRect?.left ?? null,
+            parentRight: parentRect?.right ?? null,
+            parentWidth: parentRect?.width ?? null,
           };
         };
         const selectors = ${JSON.stringify(selectors)};
@@ -135,7 +170,28 @@ async function inspect(role, route, selectors) {
   }
 }
 
+if (!browserPath) {
+  console.error("MOBILE_GEOMETRY diagnostic skipped: Chrome or Chromium not found.");
+  process.exit(0);
+}
+
+const profileDir = await mkdtemp(path.join(os.tmpdir(), "staff-payroll-geometry-chrome-"));
+const browser = spawn(browserPath, [
+  "--headless=new",
+  `--remote-debugging-port=${port}`,
+  `--user-data-dir=${profileDir}`,
+  "--no-first-run",
+  "--disable-background-networking",
+  "--disable-component-update",
+  "--disable-default-apps",
+  "--disable-dev-shm-usage",
+  "--no-sandbox",
+  "about:blank",
+], { stdio: "ignore" });
+const browserExit = new Promise((resolve) => browser.once("exit", resolve));
+
 try {
+  await waitForChrome();
   await inspect("owner", "/schedule", {
     heading: "header[class*='pageHeading']",
     headingActions: "div[class*='headingActions']",
@@ -148,4 +204,12 @@ try {
   });
 } catch (error) {
   console.error(`MOBILE_GEOMETRY diagnostic failed: ${error instanceof Error ? error.message : String(error)}`);
+} finally {
+  browser.kill("SIGTERM");
+  await Promise.race([browserExit, delay(3000)]);
+  if (browser.exitCode === null && browser.signalCode === null) {
+    browser.kill("SIGKILL");
+    await Promise.race([browserExit, delay(1000)]);
+  }
+  await rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
