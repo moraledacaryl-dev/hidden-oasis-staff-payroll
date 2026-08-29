@@ -62,6 +62,30 @@ class ActivationOrderContractTests(unittest.TestCase):
             post_switch,
         )
 
+    def test_activation_fences_legacy_web_restarts_before_standalone_start(self) -> None:
+        source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
+
+        quiesce_start = source.index("quiesce_old_runtime() {")
+        quiesce_end = source.index("runtime_ready() {", quiesce_start)
+        quiesce = source[quiesce_start:quiesce_end]
+
+        self.assertIn('systemctl stop "$WEB_SERVICE"', quiesce)
+        self.assertIn("mask_web_runtime", quiesce)
+        self.assertIn("wait_port_stably_free 3001", quiesce)
+
+        switch = source.index('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"')
+        start_web = source.index('if ! systemctl start "$WEB_SERVICE"; then', switch)
+        pre_start = source[switch:start_web]
+
+        self.assertIn("unmask_web_runtime", pre_start)
+        self.assertIn("kill_listener 3001", pre_start)
+        self.assertIn("wait_port_stably_free 3001", pre_start)
+
+        rollback_start = source.index("rollback() {")
+        rollback_end = source.index("[[ \"$(id -u)\" == \"0\" ]]", rollback_start)
+        rollback = source[rollback_start:rollback_end]
+        self.assertIn("unmask_web_runtime", rollback)
+
 
 if __name__ == "__main__":
     unittest.main()
