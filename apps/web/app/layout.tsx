@@ -18,6 +18,7 @@ import "./payroll-run-pass4.css";
 import "./pass5-system.css";
 import "./staff-portal.css";
 import "./pass7-integration.css";
+import "./responsive-grid-track.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",

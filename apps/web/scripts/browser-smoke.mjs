@@ -142,12 +142,26 @@ async function inspectPage(session, role, route, viewport) {
         for (let node = element; node && node !== document.body; node = node.parentElement) {
           const classes = String(node.className || "");
           if (classes.includes("boardScroll") || classes.includes("matrixGrid") || node.classList?.contains("table-wrap")) return true;
+          const style = getComputedStyle(node);
+          if ((style.overflowX === "auto" || style.overflowX === "scroll") && node.scrollWidth > node.clientWidth + 1) return true;
+        }
+        return false;
+      };
+      const isHiddenOffCanvas = (element) => {
+        for (let node = element; node && node !== document.body; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (style.display === "none" || style.visibility === "hidden") return true;
+          if (style.position === "fixed") {
+            const rect = node.getBoundingClientRect();
+            if (rect.right <= 0 || rect.left >= window.innerWidth) return true;
+          }
         }
         return false;
       };
       const visibleProblems = [...document.querySelectorAll("body *")].filter((element) => {
         const style = getComputedStyle(element);
         if (style.position === "fixed" || style.position === "absolute") return false;
+        if (isHiddenOffCanvas(element)) return false;
         if (isIntentionalScrollRegion(element)) return false;
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && (rect.right > window.innerWidth + 2 || rect.left < -2);
@@ -176,7 +190,7 @@ async function inspectPage(session, role, route, viewport) {
     const dragStartEvaluation = await session.send("Runtime.evaluate", {
       returnByValue: true,
       expression: `(() => {
-        const source = document.querySelector('[data-schedule-shift][draggable="true"]');
+        const source = document.querySelector('[draggable="true"]');
         if (!source) return { started: false };
         source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
         return { started: true };
@@ -186,11 +200,11 @@ async function inspectPage(session, role, route, viewport) {
     const dragEvaluation = await session.send("Runtime.evaluate", {
       returnByValue: true,
       expression: `(() => {
-        const source = document.querySelector('[data-schedule-shift][draggable="true"]');
+        const source = document.querySelector('[draggable="true"]');
         const sourceCell = source?.closest("[data-schedule-cell]");
-        const target = [...document.querySelectorAll('[data-schedule-cell][data-drop-enabled="true"]')].find((cell) => (
+        const target = [...document.querySelectorAll('[data-schedule-cell]')].find((cell) => (
           cell !== sourceCell &&
-          !cell.querySelector("[data-schedule-shift]")
+          !cell.querySelector('[draggable="true"]')
         ));
         if (!${Boolean(dragStartEvaluation.result?.value?.started)} || !source || !target) return { dispatched: false };
         const transfer = new DataTransfer();
@@ -231,12 +245,14 @@ async function inspectPage(session, role, route, viewport) {
       returnByValue: true,
       expression: `(() => {
         const selector = document.querySelector("[data-cutoff-selector]");
-        const month = document.querySelector('input[name="month"]');
-        const half = document.querySelector('select[name="half"]');
+        const start = document.querySelector('[data-cutoff-start="true"]');
+        const end = document.querySelector('[data-cutoff-end="true"]');
+        const payout = document.querySelector('[data-payroll-payout-date="true"]');
         return {
           selector: Boolean(selector),
-          month: Boolean(month?.value),
-          half: half?.value === "first" || half?.value === "second",
+          start: Boolean(start?.value),
+          end: Boolean(end?.value),
+          payout: Boolean(payout?.value),
           completedDefault: selector?.getAttribute("data-period-complete") === "true",
           createDraft: [...document.querySelectorAll("button")].some((button) => button.textContent?.includes("Create payroll draft") && !button.disabled),
         };

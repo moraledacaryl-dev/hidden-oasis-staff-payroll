@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, CalendarDays, CircleUserRound, Menu, Search, Users, WalletCards } from "lucide-react";
+import { CalendarDays, CircleUserRound, Menu, Users, WalletCards } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { roleLabels } from "@/lib/navigation";
 import type { RoleKey } from "@/lib/types";
@@ -64,8 +64,6 @@ export function WorkspaceChrome({ role }: { role: RoleKey }) {
           <div className={styles.crumb}><span>Staff &amp; Payroll</span><b>/</b><strong>{label}</strong></div>
         </div>
         <div className={styles.actions}>
-          <div className={styles.search} aria-label="Search shortcut"><Search size={16} /><span>Search staff, payroll, requests</span><kbd>⌘ K</kbd></div>
-          <button className={styles.iconButton} type="button" aria-label="Notifications"><Bell size={18} /><span /></button>
           <div className={styles.roleSwitch} aria-label="Current role">{roleLabels[role]}</div>
         </div>
       </header>
