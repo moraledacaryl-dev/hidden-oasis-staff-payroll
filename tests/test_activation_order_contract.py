@@ -8,7 +8,7 @@ class ActivationOrderContractTests(unittest.TestCase):
     def test_activation_quiesces_before_switching_current(self) -> None:
         source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
 
-        quiesce = source.index("quiesce_old_runtime\n")
+        quiesce = source.index("if ! quiesce_old_runtime; then")
         switch = source.index('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"')
         install_unit = source.index('install -m 0644 "$APP_ROOT/deployment/$WEB_SERVICE" "$WEB_UNIT_PATH"')
         start_web = source.index('systemctl start "$WEB_SERVICE"', install_unit)
@@ -25,7 +25,7 @@ class ActivationOrderContractTests(unittest.TestCase):
         source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
 
         rollback_start = source.index("rollback() {")
-        rollback_end = source.index("[[ \"$(id -u)\" == \"0\" ]]", rollback_start)
+        rollback_end = source.index('[[ "$(id -u)" == "0" ]]', rollback_start)
         rollback = source[rollback_start:rollback_end]
 
         self.assertIn("if wait_runtime_ready; then", rollback)
@@ -62,29 +62,53 @@ class ActivationOrderContractTests(unittest.TestCase):
             post_switch,
         )
 
-    def test_activation_fences_legacy_web_restarts_before_standalone_start(self) -> None:
+    def test_activation_fences_web_restarts_before_standalone_start(self) -> None:
         source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
+
+        mask_start = source.index("mask_web_runtime() {")
+        mask_end = source.index("unmask_web_runtime() {", mask_start)
+        mask = source[mask_start:mask_end]
+        self.assertIn('systemctl mask --runtime --now "$WEB_SERVICE"', mask)
+        self.assertIn('systemctl reset-failed "$WEB_SERVICE"', mask)
+        self.assertIn('wait_service_inactive "$WEB_SERVICE"', mask)
 
         quiesce_start = source.index("quiesce_old_runtime() {")
         quiesce_end = source.index("runtime_ready() {", quiesce_start)
         quiesce = source[quiesce_start:quiesce_end]
-
-        self.assertIn('systemctl stop "$WEB_SERVICE"', quiesce)
         self.assertIn("mask_web_runtime", quiesce)
         self.assertIn("wait_port_stably_free 3001", quiesce)
+        self.assertIn('wait_service_inactive "$WEB_SERVICE"', quiesce)
 
         switch = source.index('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"')
         start_web = source.index('if ! systemctl start "$WEB_SERVICE"; then', switch)
         pre_start = source[switch:start_web]
-
         self.assertIn("unmask_web_runtime", pre_start)
         self.assertIn("kill_listener 3001", pre_start)
         self.assertIn("wait_port_stably_free 3001", pre_start)
 
         rollback_start = source.index("rollback() {")
-        rollback_end = source.index("[[ \"$(id -u)\" == \"0\" ]]", rollback_start)
+        rollback_end = source.index('[[ "$(id -u)" == "0" ]]', rollback_start)
         rollback = source[rollback_start:rollback_end]
         self.assertIn("unmask_web_runtime", rollback)
+
+    def test_preswitch_quiescence_failure_restores_untouched_runtime(self) -> None:
+        source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
+
+        restore_start = source.index("restore_preswitch_runtime() {")
+        restore_end = source.index("rollback() {", restore_start)
+        restore = source[restore_start:restore_end]
+        self.assertIn("unmask_web_runtime", restore)
+        self.assertIn('systemctl start "$API_SERVICE"', restore)
+        self.assertIn('systemctl start "$WEB_SERVICE"', restore)
+        self.assertIn('systemctl start "$WORKER_SERVICE"', restore)
+        self.assertIn("if wait_runtime_ready; then", restore)
+        self.assertIn("Pre-switch runtime readiness restored.", restore)
+
+        guard = source.index("if ! quiesce_old_runtime; then")
+        switch = source.index('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"')
+        between = source[guard:switch]
+        self.assertIn("restore_preswitch_runtime || true", between)
+        self.assertIn("exit 1", between)
 
     def test_production_deploy_delegates_cutover_to_canonical_activator(self) -> None:
         source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
