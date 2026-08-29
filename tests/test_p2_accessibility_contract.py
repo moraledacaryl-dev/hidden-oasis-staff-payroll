@@ -81,6 +81,45 @@ class P2AccessibilityContractTests(unittest.TestCase):
         self.assertIn("grid-template-columns:minmax(0,1fr)", source)
         self.assertIn("overflow-wrap:anywhere", source)
 
+    def test_destructive_workflows_do_not_use_native_browser_confirm(self) -> None:
+        paths = [
+            "apps/web/components/RecalculatePayrollButton.tsx",
+            "apps/web/components/SchedulePublicationPanel.tsx",
+            "apps/web/components/ScheduleBoardClient.tsx",
+            "apps/web/components/PayrollLifecycleButtons.tsx",
+        ]
+        for path in paths:
+            with self.subTest(path=path):
+                source = Path(path).read_text(encoding="utf-8")
+                self.assertNotIn("window.confirm", source)
+                self.assertIn("ConfirmActionModal", source)
+
+    def test_paid_payroll_requires_typed_confirmation(self) -> None:
+        lifecycle = Path("apps/web/components/PayrollLifecycleButtons.tsx").read_text(encoding="utf-8")
+        mark_paid = Path("apps/web/components/MarkPaidButton.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('confirmationPhrase="MARK PAID"', lifecycle)
+        self.assertIn('onConfirm={() => submit("paid")}', lifecycle)
+        self.assertIn('confirmation !== "MARK PAID"', mark_paid)
+        self.assertIn("<AppModal", mark_paid)
+
+    def test_app_surfaces_are_named_and_contain_keyboard_focus(self) -> None:
+        source = Path("apps/web/components/AppSurface.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("aria-labelledby={titleId}", source)
+        self.assertIn("aria-describedby={description ? descriptionId : undefined}", source)
+        self.assertIn('event.key !== "Tab"', source)
+        self.assertIn("previousFocus?.focus()", source)
+        self.assertIn("FOCUSABLE_SELECTOR", source)
+
+    def test_confirmation_modal_cancels_safely_and_supports_typed_phrases(self) -> None:
+        source = Path("apps/web/components/ConfirmActionModal.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("confirmationPhrase", source)
+        self.assertIn("phraseMatches", source)
+        self.assertIn("autoFocus", source)
+        self.assertIn('className={danger ? "button danger" : "button"}', source)
+
 
 if __name__ == "__main__":
     unittest.main()
