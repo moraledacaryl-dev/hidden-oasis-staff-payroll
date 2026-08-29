@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
 
 type SurfaceProps = {
@@ -14,12 +14,22 @@ type SurfaceProps = {
   closeLabel?: string;
 };
 
-function useSurfaceLifecycle(open: boolean, onClose: () => void) {
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function useSurfaceLifecycle(open: boolean, onClose: () => void, surfaceRef: RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!open) return;
 
     const html = document.documentElement;
     const body = document.body;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousHtmlOverflow = html.style.overflow;
     const previousHtmlOverflowX = html.style.overflowX;
     const previousBodyOverflow = body.style.overflow;
@@ -33,12 +43,47 @@ function useSurfaceLifecycle(open: boolean, onClose: () => void) {
     body.style.overflowX = "hidden";
     body.style.overscrollBehavior = "none";
 
+    const focusFrame = window.requestAnimationFrame(() => {
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      const autofocus = surface.querySelector<HTMLElement>("[autofocus]");
+      const firstFocusable = surface.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      (autofocus || firstFocusable || surface).focus();
+    });
+
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      const focusable = Array.from(surface.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+        .filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true");
+
+      if (!focusable.length) {
+        event.preventDefault();
+        surface.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       delete html.dataset.appSurfaceOpen;
       html.style.overflow = previousHtmlOverflow;
       html.style.overflowX = previousHtmlOverflowX;
@@ -46,17 +91,18 @@ function useSurfaceLifecycle(open: boolean, onClose: () => void) {
       body.style.overflowX = previousBodyOverflowX;
       body.style.overscrollBehavior = previousBodyOverscroll;
       document.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
     };
-  }, [open, onClose]);
+  }, [open, onClose, surfaceRef]);
 }
 
-function SurfaceHeader({ eyebrow, title, description, onClose, closeLabel = "Close" }: Pick<SurfaceProps, "eyebrow" | "title" | "description" | "onClose" | "closeLabel">) {
+function SurfaceHeader({ eyebrow, title, description, onClose, closeLabel = "Close", titleId, descriptionId }: Pick<SurfaceProps, "eyebrow" | "title" | "description" | "onClose" | "closeLabel"> & { titleId: string; descriptionId: string }) {
   return (
     <header className="app-surface-header">
       <div className="app-surface-heading">
         {eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}
-        <h2>{title}</h2>
-        {description ? <p>{description}</p> : null}
+        <h2 id={titleId}>{title}</h2>
+        {description ? <p id={descriptionId}>{description}</p> : null}
       </div>
       <button aria-label={closeLabel} className="app-surface-close" onClick={onClose} type="button"><X aria-hidden="true" size={18} /></button>
     </header>
@@ -64,12 +110,16 @@ function SurfaceHeader({ eyebrow, title, description, onClose, closeLabel = "Clo
 }
 
 export function AppDrawer({ open, eyebrow, title, description, children, footer, onClose, closeLabel }: SurfaceProps) {
-  useSurfaceLifecycle(open, onClose);
+  const surfaceRef = useRef<HTMLElement | null>(null);
+  const id = useId();
+  const titleId = `${id}-title`;
+  const descriptionId = `${id}-description`;
+  useSurfaceLifecycle(open, onClose, surfaceRef);
   if (!open) return null;
   return (
     <div className="app-surface-backdrop app-drawer-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }} role="presentation">
-      <section aria-modal="true" className="app-surface app-drawer" role="dialog">
-        <SurfaceHeader closeLabel={closeLabel} description={description} eyebrow={eyebrow} onClose={onClose} title={title} />
+      <section aria-describedby={description ? descriptionId : undefined} aria-labelledby={titleId} aria-modal="true" className="app-surface app-drawer" ref={surfaceRef} role="dialog" tabIndex={-1}>
+        <SurfaceHeader closeLabel={closeLabel} description={description} descriptionId={descriptionId} eyebrow={eyebrow} onClose={onClose} title={title} titleId={titleId} />
         <div className="app-surface-body">{children}</div>
         {footer ? <footer className="app-surface-footer">{footer}</footer> : null}
       </section>
@@ -78,12 +128,16 @@ export function AppDrawer({ open, eyebrow, title, description, children, footer,
 }
 
 export function AppModal({ open, eyebrow, title, description, children, footer, onClose, closeLabel }: SurfaceProps) {
-  useSurfaceLifecycle(open, onClose);
+  const surfaceRef = useRef<HTMLElement | null>(null);
+  const id = useId();
+  const titleId = `${id}-title`;
+  const descriptionId = `${id}-description`;
+  useSurfaceLifecycle(open, onClose, surfaceRef);
   if (!open) return null;
   return (
     <div className="app-surface-backdrop app-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }} role="presentation">
-      <section aria-modal="true" className="app-surface app-modal" role="dialog">
-        <SurfaceHeader closeLabel={closeLabel} description={description} eyebrow={eyebrow} onClose={onClose} title={title} />
+      <section aria-describedby={description ? descriptionId : undefined} aria-labelledby={titleId} aria-modal="true" className="app-surface app-modal" ref={surfaceRef} role="dialog" tabIndex={-1}>
+        <SurfaceHeader closeLabel={closeLabel} description={description} descriptionId={descriptionId} eyebrow={eyebrow} onClose={onClose} title={title} titleId={titleId} />
         <div className="app-surface-body">{children}</div>
         {footer ? <footer className="app-surface-footer">{footer}</footer> : null}
       </section>
