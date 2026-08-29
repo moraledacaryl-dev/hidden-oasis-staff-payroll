@@ -7,6 +7,7 @@ CURRENT_LINK="$RUNTIME_BASE/current"
 API_SERVICE="${API_SERVICE:-staff-payroll-api.service}"
 WEB_SERVICE="${WEB_SERVICE:-staff-payroll-web.service}"
 WORKER_SERVICE="${WORKER_SERVICE:-hiddenoasis-staff-integration-worker.service}"
+LEGACY_WEB_SERVICE="${LEGACY_WEB_SERVICE:-hidden-oasis-payroll-web.service}"
 WEB_UNIT_PATH="/etc/systemd/system/$WEB_SERVICE"
 API_HEALTH_URL="${API_HEALTH_URL:-http://127.0.0.1:8001/health}"
 WEB_HEALTH_URL="${WEB_HEALTH_URL:-http://127.0.0.1:3001/login}"
@@ -72,6 +73,26 @@ wait_service_inactive() {
   return 1
 }
 
+legacy_web_unit_exists() {
+  [[ "$(systemctl show "$LEGACY_WEB_SERVICE" -p LoadState --value 2>/dev/null || true)" != "not-found" ]]
+}
+
+fence_legacy_web_runtime() {
+  legacy_web_unit_exists || return 0
+
+  echo "Retiring deprecated web unit: $LEGACY_WEB_SERVICE"
+  # Production evidence showed this legacy root-owned npm/next service owning
+  # port 3001 from /system.slice/hidden-oasis-payroll-web.service while the
+  # canonical non-root staff-payroll-web.service crash-looped on EADDRINUSE.
+  # Disable it persistently so it cannot return after reboot, and runtime-mask
+  # it during the cutover so queued restart jobs cannot recreate the listener.
+  systemctl disable --now "$LEGACY_WEB_SERVICE" >/dev/null 2>&1 || true
+  systemctl mask --runtime --now "$LEGACY_WEB_SERVICE" >/dev/null 2>&1 || true
+  systemctl kill --kill-who=all --signal=SIGKILL "$LEGACY_WEB_SERVICE" >/dev/null 2>&1 || true
+  systemctl reset-failed "$LEGACY_WEB_SERVICE" >/dev/null 2>&1 || true
+  wait_service_inactive "$LEGACY_WEB_SERVICE"
+}
+
 mask_web_runtime() {
   # --now stops the loaded unit at the same boundary where the runtime mask is
   # installed, preventing an already queued Restart=on-failure job from racing
@@ -92,8 +113,11 @@ unmask_web_runtime() {
 
 quiesce_old_runtime() {
   echo "Stopping old runtime before changing current release..."
-  # Fence web first. The previous stop -> mask ordering allowed RestartSec=3
-  # to queue a new web process between those two operations.
+  # Fence any deprecated root-owned web service first; it is an independent
+  # systemd unit and cannot be controlled by masking staff-payroll-web.service.
+  fence_legacy_web_runtime
+  # Fence canonical web next. The previous stop -> mask ordering allowed
+  # RestartSec=3 to queue a new web process between those two operations.
   mask_web_runtime
   systemctl stop "$WORKER_SERVICE" || true
   systemctl stop "$API_SERVICE" || true
@@ -101,10 +125,12 @@ quiesce_old_runtime() {
   systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE" >/dev/null 2>&1 || true
   systemctl reset-failed "$WEB_SERVICE" >/dev/null 2>&1 || true
   wait_service_inactive "$WEB_SERVICE"
+  wait_service_inactive "$LEGACY_WEB_SERVICE" || true
   kill_listener 3001
   kill_listener 8001
   wait_port_stably_free 3001
   wait_service_inactive "$WEB_SERVICE"
+  wait_service_inactive "$LEGACY_WEB_SERVICE" || true
   wait_port_stably_free 8001
 }
 
@@ -113,6 +139,9 @@ runtime_ready() {
   systemctl is-active --quiet "$API_SERVICE" || return 1
   systemctl is-active --quiet "$WEB_SERVICE" || return 1
   systemctl is-active --quiet "$WORKER_SERVICE" || return 1
+  if legacy_web_unit_exists && systemctl is-active --quiet "$LEGACY_WEB_SERVICE"; then
+    return 1
+  fi
   api_pid="$(systemctl show "$API_SERVICE" -p MainPID --value)"
   web_pid="$(systemctl show "$WEB_SERVICE" -p MainPID --value)"
   api_listener="$(listener_pid 8001)"
@@ -159,6 +188,7 @@ rollback() {
   systemctl stop "$WORKER_SERVICE" "$WEB_SERVICE" "$API_SERVICE" >/dev/null 2>&1 || true
   systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE" >/dev/null 2>&1 || true
   systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE" >/dev/null 2>&1 || true
+  fence_legacy_web_runtime || true
   kill_listener 3001 || true
   kill_listener 8001 || true
   wait_port_stably_free 3001 || true
@@ -206,8 +236,8 @@ if [[ -f "$WEB_UNIT_PATH" ]]; then
   cp -a "$WEB_UNIT_PATH" "$WEB_UNIT_BACKUP"
 fi
 
-# Critical ordering invariant: the old runtime must be stopped and both ports
-# proven stable-free before the current symlink can point at the new release.
+# Critical ordering invariant: the old runtime and every service capable of
+# owning the Staff web/API ports must be stopped before current can move.
 if ! quiesce_old_runtime; then
   restore_preswitch_runtime || true
   [[ -n "$WEB_UNIT_BACKUP" ]] && rm -f "$WEB_UNIT_BACKUP" || true
@@ -233,6 +263,7 @@ systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
 
 # Re-fence port 3001 immediately before starting the standalone unit. This
 # catches any delayed legacy Next process that survived the first quiescence.
+fence_legacy_web_runtime || rollback 1
 kill_listener 3001
 if ! wait_port_stably_free 3001; then
   rollback 1
@@ -256,6 +287,11 @@ fi
 
 WEB_EXEC="$(systemctl show "$WEB_SERVICE" -p ExecStart --value)"
 [[ "$WEB_EXEC" == *".next/standalone/server.js"* ]] || rollback 1
+
+if legacy_web_unit_exists && systemctl is-active --quiet "$LEGACY_WEB_SERVICE"; then
+  echo "Fatal: deprecated web service is active after activation: $LEGACY_WEB_SERVICE" >&2
+  rollback 1
+fi
 
 printf '%s\n' "$SHA" > /var/lib/hiddenoasis/staff-payroll/deployed-sha
 chown staff-payroll:staff-payroll /var/lib/hiddenoasis/staff-payroll/deployed-sha
