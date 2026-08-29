@@ -21,6 +21,26 @@ class P2AccessibilityContractTests(unittest.TestCase):
         self.assertNotIn('Bell,', source)
         self.assertNotIn('Search,', source)
 
+    def test_browser_smoke_understands_current_responsive_surfaces(self) -> None:
+        source = Path("apps/web/scripts/browser-smoke.mjs").read_text(encoding="utf-8")
+
+        self.assertIn('style.overflowX === "auto" || style.overflowX === "scroll"', source)
+        self.assertIn("isHiddenOffCanvas", source)
+        self.assertIn('rect.right <= 0 || rect.left >= window.innerWidth', source)
+        self.assertIn("isHiddenOffCanvas(element)", source)
+
+    def test_browser_smoke_uses_current_cutoff_and_schedule_contracts(self) -> None:
+        source = Path("apps/web/scripts/browser-smoke.mjs").read_text(encoding="utf-8")
+
+        self.assertIn('[data-cutoff-start="true"]', source)
+        self.assertIn('[data-cutoff-end="true"]', source)
+        self.assertIn('[data-payroll-payout-date="true"]', source)
+        self.assertNotIn("input[name=\"month\"]", source)
+        self.assertNotIn("select[name=\"half\"]", source)
+        self.assertIn("document.querySelector('[draggable=\"true\"]')", source)
+        self.assertIn("document.querySelectorAll('[data-schedule-cell]')", source)
+        self.assertNotIn("data-drop-enabled", source)
+
 
 if __name__ == "__main__":
     unittest.main()
