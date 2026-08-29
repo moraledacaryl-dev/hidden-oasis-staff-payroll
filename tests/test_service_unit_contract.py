@@ -78,41 +78,46 @@ class ServiceUnitContractTests(unittest.TestCase):
         )
 
     def test_deploy_script_uses_canonical_names_and_worker(self) -> None:
-        source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
+        deploy = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
+        activator = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
         self.assertIn(
             'APP_ENV="${APP_ENV:-/etc/hiddenoasis/staff-payroll.env}"',
-            source,
+            deploy,
         )
         self.assertIn(
             'API_SERVICE="${API_SERVICE:-staff-payroll-api.service}"',
-            source,
+            deploy,
         )
         self.assertIn(
             'WEB_SERVICE="${WEB_SERVICE:-staff-payroll-web.service}"',
-            source,
+            deploy,
         )
         self.assertIn(
             'WORKER_SERVICE="${WORKER_SERVICE:-hiddenoasis-staff-integration-worker.service}"',
-            source,
+            deploy,
         )
-        self.assertIn('systemctl start "$WORKER_SERVICE"', source)
-        self.assertIn('verify_service_active "$WORKER_SERVICE"', source)
-        self.assertNotIn("hidden-oasis-payroll-api", source)
-        self.assertNotIn("hidden-oasis-payroll-web", source)
-        self.assertNotIn("/etc/hidden-oasis-payroll/app.env", source)
+        self.assertIn('bash "$APP_ROOT/scripts/activate_staged_release.sh"', deploy)
+        self.assertIn('systemctl start "$WORKER_SERVICE"', activator)
+        self.assertIn('systemctl is-active --quiet "$WORKER_SERVICE"', activator)
+        self.assertNotIn("hidden-oasis-payroll-api", deploy)
+        self.assertNotIn("hidden-oasis-payroll-web", deploy)
+        self.assertNotIn("/etc/hidden-oasis-payroll/app.env", deploy)
 
     def test_deploy_script_stages_atomic_runtime_release(self) -> None:
-        source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
+        deploy = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
+        activator = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
         self.assertIn(
             'RUNTIME_BASE="${RUNTIME_BASE:-/opt/hiddenoasis/staff-payroll}"',
-            source,
+            deploy,
         )
-        self.assertIn('RELEASE_DIR="$RELEASES_DIR/$CURRENT_COMMIT"', source)
-        self.assertIn('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"', source)
-        self.assertIn("restoring previous runtime release", source)
-        self.assertIn('mkdir -p "$RELEASE_DIR/data"', source)
-        self.assertIn('chmod 0750 "$RELEASE_DIR/data"', source)
-        self.assertNotIn("git reset --hard", source)
+        self.assertIn('RELEASE_DIR="$RELEASES_DIR/$CURRENT_COMMIT"', deploy)
+        self.assertIn('mkdir -p "$RELEASE_DIR/data"', deploy)
+        self.assertIn('chmod 0750 "$RELEASE_DIR/data"', deploy)
+        self.assertIn('bash "$APP_ROOT/scripts/activate_staged_release.sh"', deploy)
+        self.assertNotIn('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"', deploy)
+        self.assertIn('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"', activator)
+        self.assertIn('mv -Tf "$RUNTIME_BASE/.current.rollback" "$CURRENT_LINK"', activator)
+        self.assertNotIn("git reset --hard", deploy)
 
     def test_deploy_script_verifies_listener_and_runtime_user(self) -> None:
         source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
@@ -123,17 +128,19 @@ class ServiceUnitContractTests(unittest.TestCase):
         self.assertIn('systemctl show "$API_SERVICE" -p User --value', source)
         self.assertIn('systemctl show "$WORKER_SERVICE" -p User --value', source)
 
-    def test_deploy_script_fully_quiesces_runtime_and_creates_web_cache(self) -> None:
-        source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
-        self.assertIn("quiesce_runtime()", source)
-        self.assertIn("wait_port_stably_free()", source)
-        self.assertIn('systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE"', source)
-        self.assertIn('systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE"', source)
-        self.assertGreaterEqual(source.count("quiesce_runtime"), 3)
-        self.assertIn("wait_port_stably_free 3001", source)
-        self.assertIn("wait_port_stably_free 8001", source)
-        self.assertIn(".next/cache", source)
-        self.assertIn('systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"', source)
+    def test_deploy_script_delegates_quiescence_and_creates_web_cache(self) -> None:
+        deploy = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
+        activator = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
+        self.assertIn('bash "$APP_ROOT/scripts/activate_staged_release.sh"', deploy)
+        self.assertIn(".next/cache", deploy)
+        self.assertNotIn("quiesce_runtime()", deploy)
+        self.assertIn("quiesce_old_runtime()", activator)
+        self.assertIn("wait_port_stably_free()", activator)
+        self.assertIn('systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE"', activator)
+        self.assertIn('systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE"', activator)
+        self.assertIn("wait_port_stably_free 3001", activator)
+        self.assertIn("wait_port_stably_free 8001", activator)
+        self.assertIn('systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE"', activator)
 
     def test_prepare_script_creates_external_state_paths_without_restart(self) -> None:
         source = Path("scripts/prepare_nonroot_runtime.sh").read_text(encoding="utf-8")
