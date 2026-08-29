@@ -45,7 +45,7 @@ export function ConfirmActionModal({
       closeLabel={`Cancel ${title.toLowerCase()}`}
       footer={(
         <div className="action-row">
-          <button className="button ghost" disabled={busy} onClick={onClose} type="button">Cancel</button>
+          <button className="button ghost" disabled={busy} onClick={onClose} type="button" autoFocus={!requiresTypedConfirmation}>Cancel</button>
           <button
             className={danger ? "button danger" : "button"}
             disabled={!canConfirm}
@@ -66,6 +66,7 @@ export function ConfirmActionModal({
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             placeholder={confirmationText}
+            spellCheck={false}
           />
         </label>
       ) : null}
