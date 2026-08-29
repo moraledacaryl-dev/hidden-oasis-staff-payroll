@@ -68,7 +68,7 @@ export function AppDrawer({ open, eyebrow, title, description, children, footer,
   if (!open) return null;
   return (
     <div className="app-surface-backdrop app-drawer-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }} role="presentation">
-      <section aria-modal="true" className="app-surface app-drawer" role="dialog">
+      <section aria-label={title} aria-modal="true" className="app-surface app-drawer" role="dialog">
         <SurfaceHeader closeLabel={closeLabel} description={description} eyebrow={eyebrow} onClose={onClose} title={title} />
         <div className="app-surface-body">{children}</div>
         {footer ? <footer className="app-surface-footer">{footer}</footer> : null}
@@ -82,7 +82,7 @@ export function AppModal({ open, eyebrow, title, description, children, footer, 
   if (!open) return null;
   return (
     <div className="app-surface-backdrop app-modal-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }} role="presentation">
-      <section aria-modal="true" className="app-surface app-modal" role="dialog">
+      <section aria-label={title} aria-modal="true" className="app-surface app-modal" role="dialog">
         <SurfaceHeader closeLabel={closeLabel} description={description} eyebrow={eyebrow} onClose={onClose} title={title} />
         <div className="app-surface-body">{children}</div>
         {footer ? <footer className="app-surface-footer">{footer}</footer> : null}
