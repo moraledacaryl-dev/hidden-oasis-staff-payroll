@@ -41,6 +41,14 @@ class P2AccessibilityContractTests(unittest.TestCase):
         self.assertIn("document.querySelectorAll('[data-schedule-cell]')", source)
         self.assertNotIn("data-drop-enabled", source)
 
+    def test_shared_page_grid_track_is_shrinkable(self) -> None:
+        layout = Path("apps/web/app/layout.tsx").read_text(encoding="utf-8")
+        source = Path("apps/web/app/responsive-grid-track.css").read_text(encoding="utf-8")
+
+        self.assertIn('import "./responsive-grid-track.css";', layout)
+        self.assertIn(".page", source)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", source)
+
     def test_schedule_mobile_shell_can_shrink_inside_viewport(self) -> None:
         source = Path("apps/web/app/schedule/page.module.css").read_text(encoding="utf-8")
 
