@@ -59,9 +59,28 @@ wait_port_stably_free() {
   return 1
 }
 
+wait_service_inactive() {
+  local service="$1"
+  for _ in $(seq 1 15); do
+    if ! systemctl is-active --quiet "$service"; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Fatal: $service did not remain inactive during quiescence" >&2
+  systemctl status "$service" --no-pager -l >&2 || true
+  return 1
+}
+
 mask_web_runtime() {
-  systemctl mask --runtime "$WEB_SERVICE" >/dev/null
+  # --now stops the loaded unit at the same boundary where the runtime mask is
+  # installed, preventing an already queued Restart=on-failure job from racing
+  # a separate stop-then-mask sequence.
+  systemctl mask --runtime --now "$WEB_SERVICE" >/dev/null
   WEB_RUNTIME_MASKED=1
+  systemctl daemon-reload >/dev/null
+  systemctl reset-failed "$WEB_SERVICE" >/dev/null 2>&1 || true
+  wait_service_inactive "$WEB_SERVICE"
 }
 
 unmask_web_runtime() {
@@ -73,17 +92,19 @@ unmask_web_runtime() {
 
 quiesce_old_runtime() {
   echo "Stopping old runtime before changing current release..."
-  systemctl stop "$WORKER_SERVICE" || true
-  systemctl stop "$WEB_SERVICE" || true
-  systemctl stop "$API_SERVICE" || true
-  # Fence the web unit while legacy Next descendants/listeners are removed so a
-  # queued Restart=on-failure cannot recreate a listener during the cutover.
+  # Fence web first. The previous stop -> mask ordering allowed RestartSec=3
+  # to queue a new web process between those two operations.
   mask_web_runtime
+  systemctl stop "$WORKER_SERVICE" || true
+  systemctl stop "$API_SERVICE" || true
   systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE" >/dev/null 2>&1 || true
   systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE" >/dev/null 2>&1 || true
+  systemctl reset-failed "$WEB_SERVICE" >/dev/null 2>&1 || true
+  wait_service_inactive "$WEB_SERVICE"
   kill_listener 3001
   kill_listener 8001
   wait_port_stably_free 3001
+  wait_service_inactive "$WEB_SERVICE"
   wait_port_stably_free 8001
 }
 
@@ -111,6 +132,24 @@ wait_runtime_ready() {
     fi
     sleep 1
   done
+  return 1
+}
+
+restore_preswitch_runtime() {
+  echo "Pre-switch quiescence failed; restoring untouched current runtime." >&2
+  unmask_web_runtime
+  systemctl daemon-reload || true
+  systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
+  systemctl start "$API_SERVICE" || true
+  systemctl start "$WEB_SERVICE" || true
+  systemctl start "$WORKER_SERVICE" || true
+  if wait_runtime_ready; then
+    echo "Pre-switch runtime readiness restored."
+    return 0
+  fi
+  echo "ERROR: failed to restore runtime after pre-switch quiescence failure." >&2
+  systemctl status "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" --no-pager -l >&2 || true
+  ss -ltnp | grep -E ':8001|:3001' >&2 || true
   return 1
 }
 
@@ -169,7 +208,11 @@ fi
 
 # Critical ordering invariant: the old runtime must be stopped and both ports
 # proven stable-free before the current symlink can point at the new release.
-quiesce_old_runtime
+if ! quiesce_old_runtime; then
+  restore_preswitch_runtime || true
+  [[ -n "$WEB_UNIT_BACKUP" ]] && rm -f "$WEB_UNIT_BACKUP" || true
+  exit 1
+fi
 
 mkdir -p "$RUNTIME_BASE"
 ln -sfn "$RELEASE_DIR" "$RUNTIME_BASE/.current.new"
