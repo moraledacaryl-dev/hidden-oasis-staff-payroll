@@ -18,6 +18,7 @@ RELEASE_DIR="$RUNTIME_BASE/releases/$SHA"
 PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
 WEB_UNIT_BACKUP=""
 ACTIVATED=0
+WEB_RUNTIME_MASKED=0
 
 listener_pid() {
   local port="$1"
@@ -58,11 +59,26 @@ wait_port_stably_free() {
   return 1
 }
 
+mask_web_runtime() {
+  systemctl mask --runtime "$WEB_SERVICE" >/dev/null
+  WEB_RUNTIME_MASKED=1
+}
+
+unmask_web_runtime() {
+  if [[ "$WEB_RUNTIME_MASKED" == "1" ]]; then
+    systemctl unmask --runtime "$WEB_SERVICE" >/dev/null || true
+    WEB_RUNTIME_MASKED=0
+  fi
+}
+
 quiesce_old_runtime() {
   echo "Stopping old runtime before changing current release..."
   systemctl stop "$WORKER_SERVICE" || true
   systemctl stop "$WEB_SERVICE" || true
   systemctl stop "$API_SERVICE" || true
+  # Fence the web unit while legacy Next descendants/listeners are removed so a
+  # queued Restart=on-failure cannot recreate a listener during the cutover.
+  mask_web_runtime
   systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE" >/dev/null 2>&1 || true
   systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE" >/dev/null 2>&1 || true
   kill_listener 3001
@@ -115,6 +131,7 @@ rollback() {
   if [[ -n "$WEB_UNIT_BACKUP" && -f "$WEB_UNIT_BACKUP" ]]; then
     install -m 0644 "$WEB_UNIT_BACKUP" "$WEB_UNIT_PATH"
   fi
+  unmask_web_runtime
   systemctl daemon-reload || true
   systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
   systemctl start "$API_SERVICE" || true
@@ -165,10 +182,19 @@ ACTIVATED=1
 if ! install -m 0644 "$APP_ROOT/deployment/$WEB_SERVICE" "$WEB_UNIT_PATH"; then
   rollback 1
 fi
+unmask_web_runtime
 if ! systemctl daemon-reload; then
   rollback 1
 fi
 systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
+
+# Re-fence port 3001 immediately before starting the standalone unit. This
+# catches any delayed legacy Next process that survived the first quiescence.
+kill_listener 3001
+if ! wait_port_stably_free 3001; then
+  rollback 1
+fi
+
 if ! systemctl start "$API_SERVICE"; then
   rollback 1
 fi
