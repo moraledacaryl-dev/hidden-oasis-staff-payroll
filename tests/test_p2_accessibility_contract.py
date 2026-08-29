@@ -41,6 +41,28 @@ class P2AccessibilityContractTests(unittest.TestCase):
         self.assertIn("document.querySelectorAll('[data-schedule-cell]')", source)
         self.assertNotIn("data-drop-enabled", source)
 
+    def test_schedule_mobile_shell_can_shrink_inside_viewport(self) -> None:
+        source = Path("apps/web/app/schedule/page.module.css").read_text(encoding="utf-8")
+
+        self.assertIn(".page{width:100%;max-width:100%;min-width:0", source)
+        self.assertIn(".pageHeading{", source)
+        self.assertIn("min-width:0;max-width:100%", source)
+        self.assertIn(".headingActions{", source)
+        self.assertIn(".kpiGrid{", source)
+        self.assertIn("grid-template-columns:minmax(0,1fr)", source)
+        self.assertIn("overflow-wrap:anywhere", source)
+
+    def test_staff_portal_mobile_shell_can_shrink_inside_viewport(self) -> None:
+        source = Path("apps/web/app/staff-portal.css").read_text(encoding="utf-8")
+
+        self.assertIn(".staff-portal{width:100%;max-width:100%;min-width:0", source)
+        self.assertIn(".staff-hero{", source)
+        self.assertIn(".staff-hero>div{min-width:0;max-width:100%}", source)
+        self.assertIn(".staff-summary{display:grid;width:100%;max-width:100%;min-width:0", source)
+        self.assertIn(".staff-summary-card{min-width:0;max-width:100%", source)
+        self.assertIn("grid-template-columns:minmax(0,1fr)", source)
+        self.assertIn("overflow-wrap:anywhere", source)
+
 
 if __name__ == "__main__":
     unittest.main()
