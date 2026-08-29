@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AppModal } from "@/components/AppSurface";
 
 export function MarkPaidButton({ runId }: { runId: number }) {
   const router = useRouter();
@@ -10,6 +11,12 @@ export function MarkPaidButton({ runId }: { runId: number }) {
   const [reference, setReference] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+
+  function close() {
+    if (busy) return;
+    setOpen(false);
+    setConfirmation("");
+  }
 
   async function submit() {
     setBusy(true);
@@ -26,6 +33,7 @@ export function MarkPaidButton({ runId }: { runId: number }) {
       return;
     }
     setOpen(false);
+    setConfirmation("");
     setMessage("Run marked paid.");
     router.refresh();
   }
@@ -34,28 +42,28 @@ export function MarkPaidButton({ runId }: { runId: number }) {
     <div className="action-row">
       <button className="button" type="button" onClick={() => setOpen(true)}>Mark paid</button>
       {message ? <span className="muted">{message}</span> : null}
-      {open ? (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal-panel compact-modal">
-            <div className="panel-title">
-              <div>
-                <span className="eyebrow">Owner confirmation</span>
-                <h2>Mark payroll run paid</h2>
-              </div>
-              <button className="button small ghost" type="button" onClick={() => setOpen(false)}>Close</button>
-            </div>
-            <p className="muted">Paid runs stay locked. Use corrections for later changes.</p>
-            <div className="form-grid" style={{ marginTop: 12 }}>
-              <label>Payment reference<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Optional" /></label>
-              <label>Type MARK PAID<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="MARK PAID" /></label>
-            </div>
-            <div className="action-row" style={{ marginTop: 12 }}>
-              <button className="primary-button" type="button" disabled={busy || confirmation !== "MARK PAID"} onClick={submit}>{busy ? "Saving..." : "Confirm paid"}</button>
-              {message ? <span className="muted">{message}</span> : null}
-            </div>
+      <AppModal
+        open={open}
+        eyebrow="Owner confirmation"
+        title="Mark payroll run paid"
+        description="Paid runs stay locked. Use corrections for later changes."
+        onClose={close}
+        closeLabel="Close Mark payroll run paid"
+        footer={(
+          <div className="action-row">
+            <button className="button ghost" type="button" disabled={busy} onClick={close} autoFocus>Cancel</button>
+            <button className="button danger" type="button" disabled={busy || confirmation !== "MARK PAID"} onClick={submit}>
+              {busy ? "Saving..." : "Confirm paid"}
+            </button>
           </div>
+        )}
+      >
+        <div className="form-grid">
+          <label>Payment reference<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Optional" /></label>
+          <label>Type MARK PAID<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="MARK PAID" autoComplete="off" spellCheck={false} /></label>
         </div>
-      ) : null}
+        {message ? <p className="muted">{message}</p> : null}
+      </AppModal>
     </div>
   );
 }
