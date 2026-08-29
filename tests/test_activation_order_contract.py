@@ -35,6 +35,33 @@ class ActivationOrderContractTests(unittest.TestCase):
         self.assertIn("ss -ltnp", rollback)
         self.assertNotIn("Rollback HTTP health restored.", rollback)
 
+    def test_post_switch_commands_explicitly_rollback_on_failure(self) -> None:
+        source = Path("scripts/activate_staged_release.sh").read_text(encoding="utf-8")
+
+        switch = source.index('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"')
+        post_switch = source[switch:]
+
+        self.assertIn(
+            'if ! install -m 0644 "$APP_ROOT/deployment/$WEB_SERVICE" "$WEB_UNIT_PATH"; then\n  rollback 1\nfi',
+            post_switch,
+        )
+        self.assertIn(
+            'if ! systemctl daemon-reload; then\n  rollback 1\nfi',
+            post_switch,
+        )
+        self.assertIn(
+            'if ! systemctl start "$API_SERVICE"; then\n  rollback 1\nfi',
+            post_switch,
+        )
+        self.assertIn(
+            'if ! systemctl start "$WEB_SERVICE"; then\n  rollback 1\nfi',
+            post_switch,
+        )
+        self.assertIn(
+            'if ! systemctl start "$WORKER_SERVICE"; then\n  rollback 1\nfi',
+            post_switch,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
