@@ -149,7 +149,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
               <tr key={user.id}>
                 <td>{user.display_name}</td>
                 <td>
-                  <select defaultValue={user.role_key} disabled={busy === user.id} onChange={(event) => setRoleForUser(user.id, event.target.value)}>
+                  <select aria-label={`Role for ${user.display_name}`} defaultValue={user.role_key} disabled={busy === user.id} onChange={(event) => setRoleForUser(user.id, event.target.value)}>
                     <option value="staff">Staff</option>
                     <option value="supervisor">General Manager</option>
                     <option value="payroll">Payroll</option>
@@ -157,7 +157,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
                   </select>
                 </td>
                 <td>
-                  <select defaultValue={user.employee_id || ""} disabled={busy === user.id} onChange={(event) => setEmployee(user.id, event.target.value)}>
+                  <select aria-label={`Employee linked to ${user.display_name}`} defaultValue={user.employee_id || ""} disabled={busy === user.id} onChange={(event) => setEmployee(user.id, event.target.value)}>
                     <option value="">Not linked</option>
                     {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}
                   </select>
