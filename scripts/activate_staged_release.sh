@@ -7,6 +7,7 @@ CURRENT_LINK="$RUNTIME_BASE/current"
 API_SERVICE="${API_SERVICE:-staff-payroll-api.service}"
 WEB_SERVICE="${WEB_SERVICE:-staff-payroll-web.service}"
 WORKER_SERVICE="${WORKER_SERVICE:-hiddenoasis-staff-integration-worker.service}"
+LEGACY_API_SERVICE="${LEGACY_API_SERVICE:-hidden-oasis-payroll-api.service}"
 LEGACY_WEB_SERVICE="${LEGACY_WEB_SERVICE:-hidden-oasis-payroll-web.service}"
 WEB_UNIT_PATH="/etc/systemd/system/$WEB_SERVICE"
 API_HEALTH_URL="${API_HEALTH_URL:-http://127.0.0.1:8001/health}"
@@ -73,24 +74,33 @@ wait_service_inactive() {
   return 1
 }
 
-legacy_web_unit_exists() {
-  [[ "$(systemctl show "$LEGACY_WEB_SERVICE" -p LoadState --value 2>/dev/null || true)" != "not-found" ]]
+legacy_unit_exists() {
+  local service="$1"
+  [[ "$(systemctl show "$service" -p LoadState --value 2>/dev/null || true)" != "not-found" ]]
+}
+
+fence_legacy_runtime() {
+  local service="$1" role="$2"
+  legacy_unit_exists "$service" || return 0
+
+  echo "Retiring deprecated $role unit: $service"
+  # The pre-hardening root-owned units are independent supervisors. Killing a
+  # child listener is insufficient because Restart= can immediately recreate
+  # it. Disable them persistently, runtime-mask queued restarts, then kill the
+  # complete cgroup and prove the unit is inactive before touching current.
+  systemctl disable --now "$service" >/dev/null 2>&1 || true
+  systemctl mask --runtime --now "$service" >/dev/null 2>&1 || true
+  systemctl kill --kill-who=all --signal=SIGKILL "$service" >/dev/null 2>&1 || true
+  systemctl reset-failed "$service" >/dev/null 2>&1 || true
+  wait_service_inactive "$service"
+}
+
+fence_legacy_api_runtime() {
+  fence_legacy_runtime "$LEGACY_API_SERVICE" "API"
 }
 
 fence_legacy_web_runtime() {
-  legacy_web_unit_exists || return 0
-
-  echo "Retiring deprecated web unit: $LEGACY_WEB_SERVICE"
-  # Production evidence showed this legacy root-owned npm/next service owning
-  # port 3001 from /system.slice/hidden-oasis-payroll-web.service while the
-  # canonical non-root staff-payroll-web.service crash-looped on EADDRINUSE.
-  # Disable it persistently so it cannot return after reboot, and runtime-mask
-  # it during the cutover so queued restart jobs cannot recreate the listener.
-  systemctl disable --now "$LEGACY_WEB_SERVICE" >/dev/null 2>&1 || true
-  systemctl mask --runtime --now "$LEGACY_WEB_SERVICE" >/dev/null 2>&1 || true
-  systemctl kill --kill-who=all --signal=SIGKILL "$LEGACY_WEB_SERVICE" >/dev/null 2>&1 || true
-  systemctl reset-failed "$LEGACY_WEB_SERVICE" >/dev/null 2>&1 || true
-  wait_service_inactive "$LEGACY_WEB_SERVICE"
+  fence_legacy_runtime "$LEGACY_WEB_SERVICE" "web"
 }
 
 mask_web_runtime() {
@@ -113,9 +123,11 @@ unmask_web_runtime() {
 
 quiesce_old_runtime() {
   echo "Stopping old runtime before changing current release..."
-  # Fence any deprecated root-owned web service first; it is an independent
-  # systemd unit and cannot be controlled by masking staff-payroll-web.service.
+  # Fence both deprecated root-owned supervisors first. Production evidence
+  # found hidden-oasis-payroll-web.service owning 3001 and
+  # hidden-oasis-payroll-api.service auto-restarting against 8001.
   fence_legacy_web_runtime
+  fence_legacy_api_runtime
   # Fence canonical web next. The previous stop -> mask ordering allowed
   # RestartSec=3 to queue a new web process between those two operations.
   mask_web_runtime
@@ -126,12 +138,14 @@ quiesce_old_runtime() {
   systemctl reset-failed "$WEB_SERVICE" >/dev/null 2>&1 || true
   wait_service_inactive "$WEB_SERVICE"
   wait_service_inactive "$LEGACY_WEB_SERVICE" || true
+  wait_service_inactive "$LEGACY_API_SERVICE" || true
   kill_listener 3001
   kill_listener 8001
   wait_port_stably_free 3001
   wait_service_inactive "$WEB_SERVICE"
   wait_service_inactive "$LEGACY_WEB_SERVICE" || true
   wait_port_stably_free 8001
+  wait_service_inactive "$LEGACY_API_SERVICE" || true
 }
 
 runtime_ready() {
@@ -139,7 +153,10 @@ runtime_ready() {
   systemctl is-active --quiet "$API_SERVICE" || return 1
   systemctl is-active --quiet "$WEB_SERVICE" || return 1
   systemctl is-active --quiet "$WORKER_SERVICE" || return 1
-  if legacy_web_unit_exists && systemctl is-active --quiet "$LEGACY_WEB_SERVICE"; then
+  if legacy_unit_exists "$LEGACY_WEB_SERVICE" && systemctl is-active --quiet "$LEGACY_WEB_SERVICE"; then
+    return 1
+  fi
+  if legacy_unit_exists "$LEGACY_API_SERVICE" && systemctl is-active --quiet "$LEGACY_API_SERVICE"; then
     return 1
   fi
   api_pid="$(systemctl show "$API_SERVICE" -p MainPID --value)"
@@ -189,6 +206,7 @@ rollback() {
   systemctl kill --kill-who=all --signal=SIGKILL "$WEB_SERVICE" >/dev/null 2>&1 || true
   systemctl kill --kill-who=all --signal=SIGKILL "$API_SERVICE" >/dev/null 2>&1 || true
   fence_legacy_web_runtime || true
+  fence_legacy_api_runtime || true
   kill_listener 3001 || true
   kill_listener 8001 || true
   wait_port_stably_free 3001 || true
@@ -261,11 +279,16 @@ if ! systemctl daemon-reload; then
 fi
 systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
 
-# Re-fence port 3001 immediately before starting the standalone unit. This
-# catches any delayed legacy Next process that survived the first quiescence.
+# Re-fence both deprecated supervisors immediately before starting canonical
+# services, then prove both ports stable-free. This catches delayed restart jobs.
 fence_legacy_web_runtime || rollback 1
+fence_legacy_api_runtime || rollback 1
 kill_listener 3001
+kill_listener 8001
 if ! wait_port_stably_free 3001; then
+  rollback 1
+fi
+if ! wait_port_stably_free 8001; then
   rollback 1
 fi
 
@@ -288,8 +311,12 @@ fi
 WEB_EXEC="$(systemctl show "$WEB_SERVICE" -p ExecStart --value)"
 [[ "$WEB_EXEC" == *".next/standalone/server.js"* ]] || rollback 1
 
-if legacy_web_unit_exists && systemctl is-active --quiet "$LEGACY_WEB_SERVICE"; then
+if legacy_unit_exists "$LEGACY_WEB_SERVICE" && systemctl is-active --quiet "$LEGACY_WEB_SERVICE"; then
   echo "Fatal: deprecated web service is active after activation: $LEGACY_WEB_SERVICE" >&2
+  rollback 1
+fi
+if legacy_unit_exists "$LEGACY_API_SERVICE" && systemctl is-active --quiet "$LEGACY_API_SERVICE"; then
+  echo "Fatal: deprecated API service is active after activation: $LEGACY_API_SERVICE" >&2
   rollback 1
 fi
 
