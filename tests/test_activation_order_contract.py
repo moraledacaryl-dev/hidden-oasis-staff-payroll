@@ -86,6 +86,18 @@ class ActivationOrderContractTests(unittest.TestCase):
         rollback = source[rollback_start:rollback_end]
         self.assertIn("unmask_web_runtime", rollback)
 
+    def test_production_deploy_delegates_cutover_to_canonical_activator(self) -> None:
+        source = Path("scripts/deploy_production.sh").read_text(encoding="utf-8")
+
+        self.assertIn('bash "$APP_ROOT/scripts/activate_staged_release.sh"', source)
+        self.assertNotIn('mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"', source)
+        self.assertNotIn('ln -sfn "$RELEASE_DIR" "$RUNTIME_BASE/.current.new"', source)
+        self.assertNotIn("quiesce_runtime() {", source)
+        self.assertIn('[[ "$(readlink -f "$CURRENT_LINK")" == "$RELEASE_DIR" ]]', source)
+        self.assertIn('[[ "$(cat "$DEPLOY_STATE_FILE")" == "$CURRENT_COMMIT" ]]', source)
+        self.assertIn('verify_listener_owner "$API_SERVICE" 8001', source)
+        self.assertIn('verify_listener_owner "$WEB_SERVICE" 3001', source)
+
 
 if __name__ == "__main__":
     unittest.main()
