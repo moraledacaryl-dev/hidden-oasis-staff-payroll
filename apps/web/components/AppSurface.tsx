@@ -24,6 +24,9 @@ const FOCUSABLE_SELECTOR = [
 ].join(",");
 
 function useSurfaceLifecycle(open: boolean, onClose: () => void, surfaceRef: RefObject<HTMLElement | null>) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -54,7 +57,7 @@ function useSurfaceLifecycle(open: boolean, onClose: () => void, surfaceRef: Ref
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -93,7 +96,7 @@ function useSurfaceLifecycle(open: boolean, onClose: () => void, surfaceRef: Ref
       document.removeEventListener("keydown", onKeyDown);
       previousFocus?.focus();
     };
-  }, [open, onClose, surfaceRef]);
+  }, [open, surfaceRef]);
 }
 
 function SurfaceHeader({ eyebrow, title, description, onClose, closeLabel = "Close", titleId, descriptionId }: Pick<SurfaceProps, "eyebrow" | "title" | "description" | "onClose" | "closeLabel"> & { titleId: string; descriptionId: string }) {
