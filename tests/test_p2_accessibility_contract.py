@@ -60,6 +60,16 @@ class P2AccessibilityContractTests(unittest.TestCase):
         self.assertIn("grid-template-columns:minmax(0,1fr)", source)
         self.assertIn("overflow-wrap:anywhere", source)
 
+    def test_schedule_mobile_publication_control_uses_full_shrinkable_row(self) -> None:
+        source = Path("apps/web/app/schedule/page.module.css").read_text(encoding="utf-8")
+
+        self.assertIn(".controlsCard{min-width:0;max-width:100%", source)
+        self.assertIn(".controlsHead{", source)
+        self.assertIn(".controlsHead>*{min-width:0;max-width:100%}", source)
+        self.assertIn("grid-template-columns:minmax(0,1fr) minmax(0,1fr)", source)
+        self.assertIn(".publishInline{grid-column:1/-1;width:100%}", source)
+        self.assertIn(".publishInline :global(.card){width:100%}", source)
+
     def test_staff_portal_mobile_shell_can_shrink_inside_viewport(self) -> None:
         source = Path("apps/web/app/staff-portal.css").read_text(encoding="utf-8")
 
