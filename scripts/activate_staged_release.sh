@@ -159,12 +159,25 @@ ln -sfn "$RELEASE_DIR" "$RUNTIME_BASE/.current.new"
 mv -Tf "$RUNTIME_BASE/.current.new" "$CURRENT_LINK"
 ACTIVATED=1
 
-install -m 0644 "$APP_ROOT/deployment/$WEB_SERVICE" "$WEB_UNIT_PATH"
-systemctl daemon-reload
+# Every failure after the current symlink moves must explicitly enter rollback.
+# Do not rely on `set -e`: a failed systemctl/install command would otherwise
+# terminate the script and strand production in a partially activated state.
+if ! install -m 0644 "$APP_ROOT/deployment/$WEB_SERVICE" "$WEB_UNIT_PATH"; then
+  rollback 1
+fi
+if ! systemctl daemon-reload; then
+  rollback 1
+fi
 systemctl reset-failed "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" || true
-systemctl start "$API_SERVICE"
-systemctl start "$WEB_SERVICE"
-systemctl start "$WORKER_SERVICE"
+if ! systemctl start "$API_SERVICE"; then
+  rollback 1
+fi
+if ! systemctl start "$WEB_SERVICE"; then
+  rollback 1
+fi
+if ! systemctl start "$WORKER_SERVICE"; then
+  rollback 1
+fi
 
 if ! wait_runtime_ready; then
   systemctl status "$API_SERVICE" "$WEB_SERVICE" "$WORKER_SERVICE" --no-pager -l >&2 || true
