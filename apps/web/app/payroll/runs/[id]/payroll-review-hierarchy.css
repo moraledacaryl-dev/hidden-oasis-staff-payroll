@@ -1,0 +1,44 @@
+.payroll-revision-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.payroll-revision-toggle > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.payroll-revision-toggle > span:last-child {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.payroll-revision-body {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 720px) {
+  .payroll-revision-toggle {
+    align-items: flex-start;
+  }
+}
