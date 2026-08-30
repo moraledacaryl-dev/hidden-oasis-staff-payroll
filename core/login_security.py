@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from .db import fetchone, now_iso
+from .observability import parse_timestamp_utc, utc_now, utc_storage_iso
 
 
 def normalized_identifier(value: str) -> str:
@@ -32,10 +33,10 @@ def lock_remaining_seconds(
     if not row or not row.get("locked_until"):
         return 0
     try:
-        locked_until = datetime.fromisoformat(str(row["locked_until"]))
+        locked_until = parse_timestamp_utc(str(row["locked_until"]))
     except ValueError:
         return 0
-    return max(0, int((locked_until - datetime.now()).total_seconds()))
+    return max(0, int((locked_until - utc_now()).total_seconds()))
 
 
 def record_login_failure(
@@ -52,7 +53,7 @@ def record_login_failure(
     failed_count = int((row or {}).get("failed_count") or 0) + 1
     lock_seconds = _lock_seconds(failed_count)
     locked_until = (
-        (datetime.now() + timedelta(seconds=lock_seconds)).replace(microsecond=0).isoformat(sep=" ")
+        utc_storage_iso(utc_now() + timedelta(seconds=lock_seconds))
         if lock_seconds
         else None
     )

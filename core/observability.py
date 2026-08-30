@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+MANILA_TZ = ZoneInfo("Asia/Manila")
 
 
 def utc_now() -> datetime:
@@ -12,8 +14,16 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def utc_storage_iso(value: datetime | None = None) -> str:
+    """Serialize an instant for SQLite text storage with an explicit UTC offset."""
+    current = value or utc_now()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(timezone.utc).replace(microsecond=0).isoformat(sep=" ")
+
+
 def utc_iso(value: datetime | None = None) -> str:
-    """Serialize an instant in a stable UTC ISO-8601 representation."""
+    """Serialize an instant in a stable UTC ISO-8601 API representation."""
     current = value or utc_now()
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
@@ -35,6 +45,19 @@ def parse_timestamp_utc(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def manila_now(value: datetime | None = None) -> datetime:
+    """Return an aware Asia/Manila datetime for business-calendar decisions."""
+    current = value or utc_now()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(MANILA_TZ)
+
+
+def manila_today(value: datetime | None = None) -> date:
+    """Return the Hidden Oasis business date in Asia/Manila."""
+    return manila_now(value).date()
 
 
 def normalize_request_id(value: str | None) -> str:
