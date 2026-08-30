@@ -39,57 +39,27 @@ type PayrollItem = {
   warnings?: string | null;
 };
 
-type WarningSummary = {
-  label: string;
-  count: number;
-};
+type WarningSummary = { label: string; count: number };
 
 function summarizeWarnings(warnings: string[]): WarningSummary[] {
   const groups = new Map<string, WarningSummary>();
-
   for (const warning of warnings) {
     const lower = warning.toLowerCase();
     let key = "other";
     let label = "Other payroll review notes";
-
-    if (lower.includes("unapproved outside-schedule time")) {
-      key = "outside-schedule";
-      label = "Outside-schedule time not approved as OT";
-    } else if (lower.includes("inside-schedule hours beyond 8")) {
-      key = "inside-schedule-ot";
-      label = "Inside-schedule excess hours paid as OT";
-    } else if (lower.includes("missing time-in")) {
-      key = "missing-time-in";
-      label = "Missing time-in";
-    } else if (lower.includes("missing time-out")) {
-      key = "missing-time-out";
-      label = "Missing time-out";
-    } else if (lower.includes("no schedule found")) {
-      key = "missing-schedule";
-      label = "Attendance log has no matching schedule";
-    }
-
+    if (lower.includes("unapproved outside-schedule time")) { key = "outside-schedule"; label = "Outside-schedule time not approved as OT"; }
+    else if (lower.includes("inside-schedule hours beyond 8")) { key = "inside-schedule-ot"; label = "Inside-schedule excess hours paid as OT"; }
+    else if (lower.includes("missing time-in")) { key = "missing-time-in"; label = "Missing time-in"; }
+    else if (lower.includes("missing time-out")) { key = "missing-time-out"; label = "Missing time-out"; }
+    else if (lower.includes("no schedule found")) { key = "missing-schedule"; label = "Attendance log has no matching schedule"; }
     const existing = groups.get(key);
     if (existing) existing.count += 1;
     else groups.set(key, { label, count: 1 });
   }
-
   return Array.from(groups.values());
 }
 
-export function EmployeePayrollCard({
-  runId,
-  item,
-  editable,
-  open,
-  onOpenChange,
-}: {
-  runId: number;
-  item: PayrollItem;
-  editable: boolean;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+export function EmployeePayrollCard({ runId, item, editable, open, onOpenChange }: { runId: number; item: PayrollItem; editable: boolean; open: boolean; onOpenChange: (open: boolean) => void }) {
   const government = Number(item.sss_ee || 0) + Number(item.philhealth_ee || 0) + Number(item.pagibig_ee || 0) + Number(item.tax || 0);
   const warnings = String(item.warnings || "").split("\n").map((line) => line.trim()).filter(Boolean);
   const warningSummary = summarizeWarnings(warnings);
@@ -100,10 +70,7 @@ export function EmployeePayrollCard({
       <div className="employee-payroll-summary">
         <button className="employee-payroll-toggle" type="button" onClick={() => onOpenChange(!open)} aria-expanded={open}>
           <span className="employee-payroll-avatar">{initials}</span>
-          <span className="employee-payroll-person">
-            <strong>{item.employee_name}</strong>
-            <small>{item.employee_code || "No code"} · {item.department || "Unassigned"}</small>
-          </span>
+          <span className="employee-payroll-person"><strong>{item.employee_name}</strong><small>{item.employee_code || "No code"} · {item.department || "Unassigned"}</small></span>
           <span className="employee-payroll-metric"><small>Gross</small><strong>{peso(item.gross_pay)}</strong></span>
           <span className="employee-payroll-metric"><small>Deductions</small><strong>{peso(item.total_deductions)}</strong></span>
           <span className="employee-payroll-net"><small>Net pay</small><strong>{peso(item.net_pay)}</strong></span>
@@ -149,25 +116,14 @@ export function EmployeePayrollCard({
           {warnings.length ? (
             <div className="employee-payroll-warnings">
               <strong>Review required · {warnings.length} item{warnings.length === 1 ? "" : "s"}</strong>
-              <div style={{ display: "grid", gap: 4, marginTop: 8 }}>
-                {warningSummary.map((summary) => (
-                  <p key={summary.label} style={{ margin: 0 }}>
-                    <strong>{summary.count}</strong> {summary.label}
-                  </p>
-                ))}
-              </div>
-              <details style={{ marginTop: 10 }}>
-                <summary style={{ cursor: "pointer", fontWeight: 750 }}>View dated details</summary>
-                <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 8, paddingRight: 6 }}>
-                  {warnings.map((warning, index) => <p key={`${item.id}-warning-${index}`}>{warning}</p>)}
-                </div>
-              </details>
+              <div style={{ display: "grid", gap: 4, marginTop: 8 }}>{warningSummary.map((summary) => <p key={summary.label} style={{ margin: 0 }}><strong>{summary.count}</strong> {summary.label}</p>)}</div>
+              <details style={{ marginTop: 10 }}><summary style={{ cursor: "pointer", fontWeight: 750 }}>View dated details</summary><div style={{ maxHeight: 220, overflowY: "auto", marginTop: 8, paddingRight: 6 }}>{warnings.map((warning, index) => <p key={`${item.id}-warning-${index}`}>{warning}</p>)}</div></details>
             </div>
           ) : null}
 
           <div className="employee-payroll-adjustments">
-            <div><h3>Final adjustments</h3><p className="muted">Adjustments apply only to {item.employee_name}. The payslip preview updates after saving.</p></div>
-            <PayrollAdjustmentEditor runId={runId} employeeId={item.employee_id} employeeName={item.employee_name} disabled={!editable} />
+            <div><h3>Final adjustments</h3><p className="muted">Open one adjustment type, preview its net-pay effect, then save the employee&apos;s complete adjustment state.</p></div>
+            <PayrollAdjustmentEditor runId={runId} employeeId={item.employee_id} employeeName={item.employee_name} currentNetPay={Number(item.net_pay || 0)} disabled={!editable} />
           </div>
         </div>
       ) : null}

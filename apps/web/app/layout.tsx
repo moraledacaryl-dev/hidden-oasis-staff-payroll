@@ -20,6 +20,7 @@ import "./staff-portal.css";
 import "./pass7-integration.css";
 import "./responsive-grid-track.css";
 import "./p2-mobile-records.css";
+import "./payroll/runs/[id]/payroll-review-hierarchy.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",
