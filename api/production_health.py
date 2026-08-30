@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from api.payroll_drafts import must_be_payroll_user
@@ -14,6 +13,7 @@ from api.security import current_user_from_token, require_api_key
 from core.audit import log_audit
 from core.backups import BackupVerificationError, backup_path, create_backup_package, list_backups, verify_backup
 from core.db import DB_PATH, fetchone, get_conn
+from core.observability import normalize_request_id, parse_timestamp_utc, utc_iso, utc_now
 
 router = APIRouter(prefix="/api/v1")
 
@@ -52,9 +52,24 @@ def database_checks(conn) -> dict[str, Any]:
     return {"integrity": integrity, "writable": write_ok, "migration_version": int((migration or {}).get("version") or 0)}
 
 
+def backup_age_hours(created_at: str) -> float:
+    created = parse_timestamp_utc(created_at)
+    return round(max(0.0, (utc_now() - created).total_seconds()) / 3600, 1)
+
+
 @router.get("/production/health")
-def production_health(authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
+def production_health(
+    response: Response,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    x_request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> dict[str, Any]:
     user = must_be_payroll_user(authorization, x_api_key)
+    request_id = normalize_request_id(x_request_id)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["X-Request-ID"] = request_id
+
     db_path = Path(os.getenv("STAFF_PAYROLL_DB_PATH", str(DB_PATH))).expanduser()
     backup_dir = Path(os.getenv("STAFF_PAYROLL_BACKUP_DIR", "backups")).expanduser()
     backups = list_backups()
@@ -62,19 +77,18 @@ def production_health(authorization: str | None = Header(default=None, alias="Au
     try:
         checks = database_checks(conn)
         latest_backup = backups[0] if backups else None
-        backup_age_hours = None
-        if latest_backup:
-            created = datetime.fromisoformat(str(latest_backup["created_at"]))
-            backup_age_hours = round((datetime.now() - created).total_seconds() / 3600, 1)
+        age_hours = backup_age_hours(str(latest_backup["created_at"])) if latest_backup else None
         return {
             "ok": checks["integrity"].lower() == "ok" and checks["writable"],
+            "checked_at": utc_iso(),
+            "request_id": request_id,
             "checked_by": user.get("display_name"),
             "database_path": str(db_path),
             "database_exists": db_path.exists(),
             "backup_dir": str(backup_dir),
             "backup_count": len(backups),
             "latest_backup": latest_backup,
-            "backup_age_hours": backup_age_hours,
+            "backup_age_hours": age_hours,
             "backup_encryption_configured": bool(os.getenv("STAFF_PAYROLL_BACKUP_KEY")),
             "offsite_backup_configured": bool(os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR")),
             "database_checks": checks,
