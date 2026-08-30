@@ -1,28 +1,6 @@
 .editor {
   display: grid;
-  gap: 18px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
   gap: 16px;
-  align-items: flex-start;
-}
-
-.headerCopy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.headerCopy h3 {
-  font-size: 1.2rem;
 }
 
 .helper {
@@ -31,11 +9,64 @@
   line-height: 1.4;
 }
 
-.grid {
+.modeTabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  align-items: start;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.modeTabs button {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.modeTabs button:hover,
+.modeTabs button:focus-visible {
+  color: var(--text);
+}
+
+.modeTabs .activeMode {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.impact {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.impact > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.impact span {
+  color: var(--muted);
+  font-size: 0.69rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.impact strong {
+  font-size: 1rem;
 }
 
 .section {
@@ -44,7 +75,7 @@
   min-width: 0;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--surface-soft);
 }
 
@@ -74,7 +105,6 @@
   font-size: 0.72rem;
   font-weight: 820;
   text-transform: uppercase;
-  letter-spacing: 0;
 }
 
 .balanceRow {
@@ -95,7 +125,7 @@
   justify-content: flex-end;
   gap: 8px;
   align-items: center;
-  padding-top: 2px;
+  width: 100%;
 }
 
 .error {
@@ -108,28 +138,27 @@
   line-height: 1.4;
 }
 
-@media (max-width: 1050px) {
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 720px) {
-  .editor {
-    padding: 14px;
-  }
-
-  .header {
-    display: grid;
-  }
-
-  .grid {
+  .modeTabs,
+  .impact {
     grid-template-columns: 1fr;
+  }
+
+  .modeTabs {
+    padding: 4px;
+  }
+
+  .modeTabs button {
+    text-align: left;
+  }
+
+  .section {
+    padding: 13px;
   }
 
   .actions {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   .actions > * {
