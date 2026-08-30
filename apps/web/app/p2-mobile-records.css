@@ -1,0 +1,173 @@
+/* P2 mobile record treatment for identity-critical and financial tables. */
+
+@media (max-width: 720px) {
+  .user-table {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .user-table table,
+  .user-table tbody,
+  .user-table tr,
+  .user-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .user-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .user-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .user-table tr {
+    overflow: hidden;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .user-table td {
+    display: grid;
+    grid-template-columns: minmax(92px, .72fr) minmax(0, 1.28fr);
+    gap: 10px;
+    align-items: center;
+    padding: 9px 0;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    white-space: normal;
+  }
+
+  .user-table td:last-child {
+    display: block;
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .user-table td::before {
+    color: var(--muted);
+    font-size: .68rem;
+    font-weight: 850;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .user-table td:nth-child(1)::before { content: "User"; }
+  .user-table td:nth-child(2)::before { content: "Role"; }
+  .user-table td:nth-child(3)::before { content: "Employee"; }
+  .user-table td:nth-child(4)::before { content: "Active"; }
+  .user-table td:nth-child(5)::before { content: "Password"; }
+  .user-table td:nth-child(6)::before { content: "MFA"; }
+  .user-table td:nth-child(7)::before { content: "Last login"; }
+  .user-table td:nth-child(8)::before {
+    content: "Actions";
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .user-table td select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .user-table .action-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .user-table .action-row .button {
+    width: 100%;
+  }
+
+  .cash-advance-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .cash-advance-table,
+  .cash-advance-table tbody,
+  .cash-advance-table tr,
+  .cash-advance-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .cash-advance-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .cash-advance-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .cash-advance-table tr {
+    padding: 12px 13px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface);
+  }
+
+  .cash-advance-table td,
+  .cash-advance-table td:first-child {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(92px, .72fr) minmax(0, 1.28fr);
+    gap: 10px;
+    align-items: baseline;
+    padding: 7px 0;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    white-space: normal;
+  }
+
+  .cash-advance-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .cash-advance-table td::before {
+    color: var(--muted);
+    font-size: .66rem;
+    font-weight: 850;
+    letter-spacing: .055em;
+    text-transform: uppercase;
+  }
+
+  .cash-advance-table td:nth-child(1)::before { content: "Employee"; }
+  .cash-advance-table td:nth-child(2)::before { content: "Advance date"; }
+  .cash-advance-table td:nth-child(3)::before { content: "Cash advance"; }
+  .cash-advance-table td:nth-child(4)::before { content: "Balance before"; }
+  .cash-advance-table td:nth-child(5)::before { content: "Expected"; }
+  .cash-advance-table td:nth-child(6)::before { content: "Applied"; }
+  .cash-advance-table td:nth-child(7)::before { content: "Balance after"; }
+  .cash-advance-table td:nth-child(8)::before { content: "Status"; }
+
+  .cash-advance-table .amount {
+    text-align: left;
+  }
+}
