@@ -153,9 +153,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
         ) : undefined}
       >
         {loading ? <p className={styles.helper}>Loading advances and adjustments…</p> : !serverEditable ? (
-          <div className={styles.editor}>
-            <p className={styles.helper}>This paid-payroll revision is locked. Only the calculated employee difference can be settled.</p>
-          </div>
+          <div className={styles.editor}><p className={styles.helper}>This paid-payroll revision is locked. Only the calculated employee difference can be settled.</p></div>
         ) : (
           <div className={styles.editor}>
             <div className={styles.modeTabs} role="tablist" aria-label="Adjustment type">
@@ -175,16 +173,16 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
                 <div className={styles.sectionTitle}><strong>Cash advance repayment</strong><span>Select the exact advance and amount to deduct in this payroll.</span></div>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Cash advance</span>
-                  <select value={selectedAdvanceId || ""} onChange={(event) => chooseAdvance(event.target.value)}>
+                  <select name="cash_advance_id" value={selectedAdvanceId || ""} onChange={(event) => chooseAdvance(event.target.value)}>
                     <option value="">No cash advance deduction</option>
                     {advances.map((advance) => <option key={advance.id} value={advance.id}>#{advance.id} · {advance.advance_date} · Available {peso(advance.available_balance)}</option>)}
                   </select>
                 </label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Deduction this cutoff</span><input type="number" min="0" max={selectedAdvance?.available_balance ?? 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Deduction this cutoff</span><input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance ?? 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
                 {selectedAdvance ? <>
                   <div className={styles.balanceRow}><span>Suggested deduction</span><strong>{peso(suggestedCash)}</strong></div>
                   <div className={styles.balanceRow}><span>Available balance</span><strong>{peso(selectedAdvance.available_balance)}</strong></div>
-                  <label className={styles.field}><span className={styles.fieldLabel}>Reason {cashNeedsReason ? "(required)" : "(optional)"}</span><input value={cashNote} onChange={(event) => setCashNote(event.target.value)} required={cashNeedsReason} placeholder={cashNeedsReason ? "Why this differs from the configured suggestion" : "Optional note"} /></label>
+                  <label className={styles.field}><span className={styles.fieldLabel}>Reason {cashNeedsReason ? "(required)" : "(optional)"}</span><input name="cash_advance_note" value={cashNote} onChange={(event) => setCashNote(event.target.value)} required={cashNeedsReason} placeholder={cashNeedsReason ? "Why this differs from the configured suggestion" : "Optional note"} /></label>
                 </> : advances.length ? <p className={styles.helper}>Choose an advance to apply it to this payroll.</p> : <p className={styles.helper}>No available cash advances found for this employee.</p>}
               </section>
             ) : null}
@@ -192,16 +190,16 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
             {mode === "earning" ? (
               <section className={styles.section} role="tabpanel">
                 <div className={styles.sectionTitle}><strong>Additional earning</strong><span>Bonus, allowance, or one-time correction.</span></div>
-                <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input type="number" min="0" step="0.01" value={additionalEarning} onChange={(event) => setAdditionalEarning(Number(event.target.value || 0))} /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Reason</span><input value={additionalEarningNote} onChange={(event) => setAdditionalEarningNote(event.target.value)} placeholder="Required whenever amount is nonzero" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="additional_earning" type="number" min="0" step="0.01" value={additionalEarning} onChange={(event) => setAdditionalEarning(Number(event.target.value || 0))} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Reason</span><input name="additional_earning_note" value={additionalEarningNote} onChange={(event) => setAdditionalEarningNote(event.target.value)} placeholder="Required whenever amount is nonzero" /></label>
               </section>
             ) : null}
 
             {mode === "deduction" ? (
               <section className={styles.section} role="tabpanel">
                 <div className={styles.sectionTitle}><strong>Other deduction</strong><span>Uniform, damage, or another approved deduction.</span></div>
-                <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input type="number" min="0" step="0.01" value={otherDeduction} onChange={(event) => setOtherDeduction(Number(event.target.value || 0))} /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Reason</span><input value={otherDeductionNote} onChange={(event) => setOtherDeductionNote(event.target.value)} placeholder="Required whenever amount is nonzero" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="other_deduction" type="number" min="0" step="0.01" value={otherDeduction} onChange={(event) => setOtherDeduction(Number(event.target.value || 0))} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Reason</span><input name="other_deduction_note" value={otherDeductionNote} onChange={(event) => setOtherDeductionNote(event.target.value)} placeholder="Required whenever amount is nonzero" /></label>
               </section>
             ) : null}
 
