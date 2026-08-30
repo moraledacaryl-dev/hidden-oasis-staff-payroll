@@ -39,15 +39,15 @@ def test_cash_advance_audit_becomes_labeled_mobile_records():
     assert 'className="cash-advance-table-wrap"' in payroll
 
 
-def test_attendance_compliance_is_card_readable_and_history_has_scroll_hint():
+def test_attendance_tables_have_explicit_mobile_scroll_affordance():
     css = read("apps/web/app/attendance/page.module.css")
     page = read("apps/web/app/attendance/page.tsx")
 
-    assert ".tableWrap thead" in css
-    assert 'content:"Employee"' in css
-    assert 'content:"Handbook action"' in css
-    assert 'content:"Memo"' in css
+    assert ".tableWrap table{min-width:1180px}" in css
+    assert ".tableWrap,.page :global(.table-wrap){position:relative;overflow-x:auto" in css
+    assert "overscroll-behavior-inline:contain" in css
+    assert "scrollbar-gutter:stable" in css
+    assert ".tableWrap::before,.page :global(.table-wrap)::before" in css
     assert 'Swipe or scroll horizontally to view all columns' in css
-    assert ':global(.table-wrap)::before' in css
     assert 'className="compliance-table"' in page
     assert 'title="Memo history"' in page
