@@ -65,7 +65,10 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
     setBusy(false);
     setLoading(true);
     setBundle(emptyBundle());
-    setTab(initialTab);
+    // Existing shift cards are primarily used to record or correct attendance.
+    // Open directly on that shift's Actual tab so split shifts never feel like
+    // one employee-day record. New shifts still start on the Scheduled tab.
+    setTab(shift?.id && shift.id > 0 ? "actual" : initialTab);
     setMessage("");
     setClearOpen(false);
     setClearReason("");
@@ -248,8 +251,11 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
 
   const actualAbsenceType = String(bundle.actual?.absence_type || "").toLowerCase();
   const actualExceptionDefault = actualAbsenceType.includes("unexcused") ? "Unexcused" : actualAbsenceType.includes("excused") ? "Excused" : "";
+  const shiftLabel = currentShift ? `${currentShift.start_time}–${currentShift.end_time}${currentShift.is_overnight ? " +1" : ""}` : null;
   const title = selectedEmployee?.full_name || currentShift?.employee_name || (currentShift ? "Schedule day" : "Add shift");
-  const description = currentShift ? `${formatDate(shiftDate)} · Edit the planned day and actual attendance without changing saved payroll snapshots.` : "Choose a person and date, then define the planned day state.";
+  const description = currentShift
+    ? `${formatDate(shiftDate)} · ${shiftLabel} · Actual attendance is stored for this specific shift only.`
+    : "Choose a person and date, then define the planned day state.";
 
   const footer = (
     <>
@@ -271,9 +277,10 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
           <div><span>Employee</span><strong>{selectedEmployee?.full_name || currentShift?.employee_name || "Not selected"}</strong></div>
           <div><span>Employee code</span><strong>{selectedEmployee?.employee_code || "—"}</strong></div>
           <div><span>Date</span><strong>{formatDate(shiftDate)}</strong></div>
+          {shiftLabel ? <div><span>Scheduled shift</span><strong>{shiftLabel}</strong></div> : null}
         </SurfaceContext>
 
-        {loading ? <div className="app-surface-notice info" role="status"><strong>Loading this employee day…</strong><span>The drawer will update with the selected cell before editing is enabled.</span></div> : null}
+        {loading ? <div className="app-surface-notice info" role="status"><strong>Loading this employee day…</strong><span>The drawer will update with the selected shift before editing is enabled.</span></div> : null}
         {lockedSnapshot ? <div className="app-surface-notice warning"><strong>Saved payroll snapshot</strong><span>Payroll run #{bundle.paid_run?.id} remains unchanged until a revised run is saved.</span></div> : null}
         {bundle.legacy_read_only ? <div className="app-surface-notice"><strong>Legacy read-only record</strong><span>This historical row is retained for audit and cannot be changed.</span></div> : null}
         {hasLeave ? <div className="app-surface-notice info"><strong>Leave is active for this day</strong><span>Clear the day before switching back to a shift or actual attendance.</span></div> : null}
@@ -311,17 +318,18 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
           </form> : null}
         </SurfaceSection>
 
-        {!hasLeave && currentShift ? <SurfaceSection number="2" title="Actual attendance" description="Operational corrections remain separate from the published schedule.">
-          <div className="app-segmented-control compact"><button className={tab === "actual" ? "active" : ""} disabled={loading} onClick={() => setTab("actual")} type="button">Edit actual attendance</button></div>
-          {tab === "actual" ? <form action={saveActual} className="app-surface-form" ref={formRef}>
-            <label>Actual in<input name="actual_in" type="time" defaultValue={bundle.actual?.actual_in || ""} disabled={readOnly || loading} /></label>
-            <label>Actual out<input name="actual_out" type="time" defaultValue={bundle.actual?.actual_out || ""} disabled={readOnly || loading} /></label>
-            <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Needs Review"} disabled={readOnly || loading}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
-            <label>Exception classification<select name="actual_exception_status" defaultValue={actualExceptionDefault} disabled={readOnly || loading}><option value="">None / not applicable</option><option value="Excused">Excused</option><option value="Unexcused">Unexcused</option></select></label>
-            <label>Approved OT<input name="approved_ot_hours" type="number" min="0" step="0.25" defaultValue={bundle.actual?.approved_ot_hours ?? 0} disabled={readOnly || loading} /></label>
-            <label>Evidence / photo reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} disabled={readOnly || loading} /></label>
-            <label className="full">Admin note<textarea name="notes" rows={3} defaultValue={bundle.actual?.notes || ""} disabled={readOnly || loading} /></label>
-          </form> : <div className="app-state-preview"><strong>{bundle.actual?.actual_in || bundle.actual?.actual_out ? `${bundle.actual?.actual_in || "—"}–${bundle.actual?.actual_out || "—"}` : "No actual attendance recorded"}</strong><p>{bundle.actual?.attendance_status || "Actual attendance can be added or corrected here."}</p></div>}
+        {!hasLeave && currentShift ? <SurfaceSection number="2" title={`Actual attendance · ${shiftLabel}`} description="This actual in/out is linked only to this scheduled shift. Other shifts on the same date are recorded separately.">
+          <div className="app-segmented-control compact"><button className={tab === "actual" ? "active" : ""} disabled={loading} onClick={() => setTab("actual")} type="button">Edit this shift actual</button></div>
+          {loading && tab === "actual" ? <div className="app-state-preview"><strong>Loading actual attendance…</strong><p>Waiting for the record linked to this scheduled shift.</p></div> : null}
+          {!loading && tab === "actual" ? <form action={saveActual} className="app-surface-form" key={bundle.actual?.id ?? `new-actual-${currentShift.id}`} ref={formRef}>
+            <label>Actual in<input name="actual_in" type="time" defaultValue={bundle.actual?.actual_in || ""} disabled={readOnly} /></label>
+            <label>Actual out<input name="actual_out" type="time" defaultValue={bundle.actual?.actual_out || ""} disabled={readOnly} /></label>
+            <label>Status<select name="attendance_status" defaultValue={bundle.actual?.attendance_status || "Needs Review"} disabled={readOnly}>{attendanceStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+            <label>Exception classification<select name="actual_exception_status" defaultValue={actualExceptionDefault} disabled={readOnly}><option value="">None / not applicable</option><option value="Excused">Excused</option><option value="Unexcused">Unexcused</option></select></label>
+            <label>Approved OT<input name="approved_ot_hours" type="number" min="0" step="0.25" defaultValue={bundle.actual?.approved_ot_hours ?? 0} disabled={readOnly} /></label>
+            <label>Evidence / photo reference<input name="evidence_ref" defaultValue={bundle.actual?.evidence_ref || ""} disabled={readOnly} /></label>
+            <label className="full">Admin note<textarea name="notes" rows={3} defaultValue={bundle.actual?.notes || ""} disabled={readOnly} /></label>
+          </form> : tab !== "actual" ? <div className="app-state-preview"><strong>{bundle.actual?.actual_in || bundle.actual?.actual_out ? `${bundle.actual?.actual_in || "—"}–${bundle.actual?.actual_out || "—"}` : "No actual attendance recorded for this shift"}</strong><p>{bundle.actual?.attendance_status || "Open Edit this shift actual to add or correct attendance."}</p></div> : null}
         </SurfaceSection> : null}
 
         {message ? <div className="app-surface-notice" role="status"><span>{message}</span></div> : null}
