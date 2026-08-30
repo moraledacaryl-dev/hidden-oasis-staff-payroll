@@ -39,10 +39,15 @@ class RuntimeGuardSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "independent values"):
                 validate_runtime_environment()
 
-    def test_privileged_mfa_must_be_enabled_in_production(self) -> None:
+    def test_privileged_mfa_may_be_optional_in_production(self) -> None:
         env = {**GOOD, "STAFF_PAYROLL_REQUIRE_PRIVILEGED_MFA": "false"}
         with patch.dict(os.environ, env, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "must be true in production"):
+            validate_runtime_environment()
+
+    def test_invalid_privileged_mfa_value_is_rejected(self) -> None:
+        env = {**GOOD, "STAFF_PAYROLL_REQUIRE_PRIVILEGED_MFA": "sometimes"}
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "must be true or false"):
                 validate_runtime_environment()
 
     def test_whitespace_secret_is_rejected(self) -> None:
