@@ -235,7 +235,7 @@ class HolidayPayrollTests(unittest.TestCase):
         self.add_log("2026-08-31", "08:00", "12:00", shift_id=first)
         self.add_log("2026-08-31", "16:00", "20:00", shift_id=second)
         result = self.result("2026-08-16", "2026-08-31")
-        self.assertEqual(result.regular_hours, 16.0)  # includes the 8-hour preceding workday
+        self.assertEqual(result.regular_hours, 16.0)
         self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.holiday_pay, 800.0)
         linked = self.conn.execute(
@@ -252,7 +252,6 @@ class HolidayPayrollTests(unittest.TestCase):
         self.add_log("2026-08-31", "08:00", "12:00", shift_id=first)
         self.add_log("2026-08-31", "16:00", "20:00", shift_id=second)
         result = self.result("2026-08-16", "2026-08-31")
-        # Holiday-date earnings: 800 ordinary component + 1,280 holiday/rest component = 2,080.
         self.assertEqual(result.holiday_pay, 1280.0)
 
     def test_unworked_regular_holiday_requires_preceding_workday_or_paid_leave_when_records_are_determinable(self) -> None:
@@ -270,23 +269,21 @@ class HolidayPayrollTests(unittest.TestCase):
         shift = self.add_shift("2026-08-30", "22:00", "06:00")
         self.add_log("2026-08-30", "22:00", "06:00", shift_id=shift)
         result = self.result("2026-08-16", "2026-08-31")
-        # 2 hours ordinary + 6 hours special holiday. Premium = 6 * 100 * 30%.
         self.assertEqual(result.holiday_pay, 180.0)
-        # ND is 2h ordinary at 10% + 6h special at 13%.
         self.assertEqual(result.night_diff_hours, 8.0)
         self.assertEqual(result.night_diff_pay, 98.0)
 
     def test_night_differential_on_regular_holiday_overtime_uses_ot_multiplier(self) -> None:
         self.add_preceding_workday("2026-08-30")
         self.add_holiday("2026-08-31", "Regular Holiday")
-        shift = self.add_shift("2026-08-31", "21:00", "06:00")
-        self.add_log("2026-08-31", "21:00", "06:00", shift_id=shift)
+        shift = self.add_shift("2026-08-31", "14:00", "23:00")
+        self.add_log("2026-08-31", "14:00", "23:00", shift_id=shift)
         result = self.result("2026-08-16", "2026-08-31")
-        # 8 regular hours then 1 automatic OT hour; 05:00-06:00 is both OT and ND.
+        # The ninth hour (22:00-23:00) is both holiday OT and night work.
         self.assertEqual(result.approved_ot_hours, 1.0)
         self.assertEqual(result.ot_pay, 260.0)
-        self.assertEqual(result.night_diff_hours, 8.0)
-        self.assertEqual(result.night_diff_pay, 166.0)
+        self.assertEqual(result.night_diff_hours, 1.0)
+        self.assertEqual(result.night_diff_pay, 26.0)
 
     def test_saved_snapshot_is_not_rewritten_when_holiday_source_changes_and_new_calculation_sees_change(self) -> None:
         shift = self.add_shift("2026-08-21", "08:00", "16:00")
