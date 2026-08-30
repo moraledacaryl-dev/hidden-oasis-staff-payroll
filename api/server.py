@@ -184,8 +184,8 @@ def _include_router_filtered(
 
 SCHEDULES_EXCLUDED_ROUTES = {
     (f"{API_PREFIX}/schedules/day/leave", "POST"),
-    (f"{API_PREFIX}/schedules/shifts/{shift_id}/delete", "POST"),
-    (f"{API_PREFIX}/schedules/shifts/{shift_id}/move", "POST"),
+    (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/delete", "POST"),
+    (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/move", "POST"),
     (f"{API_PREFIX}/schedules/week", "GET"),
 }
 
