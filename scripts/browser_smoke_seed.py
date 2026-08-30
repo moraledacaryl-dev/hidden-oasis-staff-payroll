@@ -5,8 +5,9 @@ import json
 import os
 import sys
 import time
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -14,6 +15,12 @@ if str(ROOT) not in sys.path:
 
 from api.main import SESSION_TTL_SECONDS, sign_payload
 from core.db import get_conn, init_db, now_iso
+
+MANILA = ZoneInfo("Asia/Manila")
+
+
+def manila_today():
+    return datetime.now(MANILA).date()
 
 
 def main() -> int:
@@ -91,7 +98,8 @@ def main() -> int:
             }[role]
             user_ids[role_key] = user_id
 
-        week_start = date.today() - timedelta(days=date.today().weekday())
+        today = manila_today()
+        week_start = today - timedelta(days=today.weekday())
         monday = week_start.isoformat()
         tuesday = (week_start + timedelta(days=1)).isoformat()
         conn.executemany(

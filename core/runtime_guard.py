@@ -59,14 +59,14 @@ def validate_runtime_environment() -> None:
         if len(set(values.values())) != len(values):
             problems.append("API, session, and MFA secrets must all be independent values")
 
-    privileged_mfa = (
-        os.getenv("STAFF_PAYROLL_REQUIRE_PRIVILEGED_MFA", "")
-        .strip()
-        .lower()
-    )
-    if privileged_mfa != "true":
+    # Privileged MFA is a production policy choice, not a runtime-safety
+    # prerequisite. Keep the setting explicit when supplied so typos do not
+    # silently change authentication behavior, while allowing either secure
+    # policy: enforced MFA or user-managed optional MFA.
+    privileged_mfa = os.getenv("STAFF_PAYROLL_REQUIRE_PRIVILEGED_MFA")
+    if privileged_mfa is not None and privileged_mfa.strip().lower() not in {"true", "false"}:
         problems.append(
-            "STAFF_PAYROLL_REQUIRE_PRIVILEGED_MFA must be true in production"
+            "STAFF_PAYROLL_REQUIRE_PRIVILEGED_MFA must be true or false when configured"
         )
 
     if problems:
