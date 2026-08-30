@@ -41,6 +41,13 @@ class P2AccessibilityContractTests(unittest.TestCase):
         self.assertIn("document.querySelectorAll('[data-schedule-cell]')", source)
         self.assertNotIn("data-drop-enabled", source)
 
+    def test_browser_smoke_seed_uses_manila_business_week(self) -> None:
+        source = Path("scripts/browser_smoke_seed.py").read_text(encoding="utf-8")
+
+        self.assertIn('ZoneInfo("Asia/Manila")', source)
+        self.assertIn("today = manila_today()", source)
+        self.assertNotIn("date.today()", source)
+
     def test_shared_page_grid_track_is_shrinkable(self) -> None:
         layout = Path("apps/web/app/layout.tsx").read_text(encoding="utf-8")
         source = Path("apps/web/app/responsive-grid-track.css").read_text(encoding="utf-8")
