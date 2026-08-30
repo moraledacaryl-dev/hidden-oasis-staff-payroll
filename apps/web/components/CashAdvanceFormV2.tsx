@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AppDrawer } from "@/components/AppSurface";
 
 type Employee = { id: number; full_name: string };
 type Advance = {
@@ -55,7 +56,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
       setMessage(data.detail || "Cash advance was not saved.");
       return;
     }
-    setOpen(false);
+    if (item) setOpen(false);
     router.refresh();
   }
 
@@ -83,88 +84,99 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
     router.refresh();
   }
 
-  if (!open) return <button className="button small" type="button" onClick={() => setOpen(true)}>Edit details</button>;
+  const renderForm = () => (
+    <form action={submit} className={`cash-edit-panel${item ? " is-editing" : ""}`}>
+      {item ? <input type="hidden" name="employee_id" value={item.employee_id || ""} /> : null}
 
-  return (
-    <>
-      <form action={submit} className={`cash-edit-panel${item ? " is-editing" : ""}`}>
-        {item ? <input type="hidden" name="employee_id" value={item.employee_id || ""} /> : null}
-
+      {!item ? (
         <div className="cash-edit-header">
           <div>
-            <span className="cash-edit-eyebrow">{item ? "Edit cash advance" : "New cash advance"}</span>
-            <h3>{item ? "Update advance details" : "Add advance"}</h3>
-            {item ? <p>Change repayment settings and internal details. Balance corrections and lifecycle changes use separate controlled actions.</p> : null}
-          </div>
-          {item ? <button className="cash-edit-close" type="button" aria-label="Close" onClick={() => setOpen(false)}>×</button> : null}
-        </div>
-
-        <div className="cash-edit-grid">
-          <label className="cash-edit-field">
-            <span>Employee</span>
-            <select name={item ? undefined : "employee_id"} defaultValue={item?.employee_id || ""} required disabled={Boolean(item)}>
-              <option value="">Select employee</option>
-              {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}
-            </select>
-          </label>
-
-          <label className="cash-edit-field"><span>Advance date</span><input name="advance_date" type="date" defaultValue={(item?.advance_date || "").slice(0, 10)} required /></label>
-
-          <label className="cash-edit-field cash-edit-field-emphasis">
-            <span>{item ? "Balance basis" : "Original amount"}</span>
-            <input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value || 0))} disabled={Boolean(item)} required />
-            {item ? <small>Read-only here. Owners must use the separate Correct balance basis action.</small> : null}
-          </label>
-
-          <label className="cash-edit-field">
-            <span>Repayment method</span>
-            <select name="repayment_method" value={method} onChange={(event) => setMethod(event.target.value)}>
-              <option>Payroll deduction</option>
-              <option>Manual repayment</option>
-            </select>
-          </label>
-
-          {method === "Payroll deduction" ? (
-            <label className="cash-edit-field"><span>Suggested deduction</span><input name="deduction_per_payroll" type="number" min="0" step="0.01" defaultValue={item?.deduction_per_payroll ?? 0} /><small>Can still be changed during payroll review.</small></label>
-          ) : <input type="hidden" name="deduction_per_payroll" value="0" />}
-
-          <label className="cash-edit-field"><span>Approved by</span><input name="approved_by" defaultValue={item?.approved_by || ""} placeholder="General Manager or owner" /></label>
-          <label className="cash-edit-field cash-edit-span-2"><span>Reason</span><input name="reason" defaultValue={item?.reason || ""} placeholder="Purpose of the advance" /></label>
-          <label className="cash-edit-field cash-edit-span-2"><span>Notes</span><textarea name="notes" defaultValue={item?.notes || ""} rows={3} placeholder="Optional internal note" /></label>
-        </div>
-
-        {item && (canApprove || canReject || canCancel) ? (
-          <section className="cash-lifecycle-card">
-            <div><span>Lifecycle</span><strong>Current state: {canonicalStatus}</strong></div>
-            {(canReject || canCancel) ? <label className="cash-edit-field"><span>Reason for reject/cancel</span><input value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder="Required for reject or cancel" /></label> : null}
-            <div className="cash-lifecycle-actions">
-              {canApprove ? <button className="button" type="button" disabled={busy} onClick={() => void lifecycle("approve")}>Approve</button> : null}
-              {canReject ? <button className="button ghost" type="button" disabled={busy} onClick={() => void lifecycle("reject")}>Reject</button> : null}
-              {canCancel ? <button className="button ghost" type="button" disabled={busy} onClick={() => void lifecycle("cancel")}>Cancel advance</button> : null}
-            </div>
-          </section>
-        ) : null}
-
-        <div className="cash-edit-actions">
-          {message ? <p>{message}</p> : <span />}
-          <div>
-            {item ? <button className="button ghost" type="button" onClick={() => setOpen(false)}>Close</button> : null}
-            <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save details" : "Add cash advance"}</button>
+            <span className="cash-edit-eyebrow">New cash advance</span>
+            <h3>Add advance</h3>
           </div>
         </div>
-      </form>
+      ) : null}
 
+      <div className="cash-edit-grid">
+        <label className="cash-edit-field">
+          <span>Employee</span>
+          <select name={item ? undefined : "employee_id"} defaultValue={item?.employee_id || ""} required disabled={Boolean(item)}>
+            <option value="">Select employee</option>
+            {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}
+          </select>
+        </label>
+
+        <label className="cash-edit-field"><span>Advance date</span><input name="advance_date" type="date" defaultValue={(item?.advance_date || "").slice(0, 10)} required /></label>
+
+        <label className="cash-edit-field cash-edit-field-emphasis">
+          <span>{item ? "Balance basis" : "Original amount"}</span>
+          <input type="number" min="0.01" step="0.01" value={amount || ""} onChange={(event) => setAmount(Number(event.target.value || 0))} disabled={Boolean(item)} required />
+          {item ? <small>Read-only here. Owners must use the separate Correct balance basis action.</small> : null}
+        </label>
+
+        <label className="cash-edit-field">
+          <span>Repayment method</span>
+          <select name="repayment_method" value={method} onChange={(event) => setMethod(event.target.value)}>
+            <option>Payroll deduction</option>
+            <option>Manual repayment</option>
+          </select>
+        </label>
+
+        {method === "Payroll deduction" ? (
+          <label className="cash-edit-field"><span>Suggested deduction</span><input name="deduction_per_payroll" type="number" min="0" step="0.01" defaultValue={item?.deduction_per_payroll ?? 0} /><small>Can still be changed during payroll review.</small></label>
+        ) : <input type="hidden" name="deduction_per_payroll" value="0" />}
+
+        <label className="cash-edit-field"><span>Approved by</span><input name="approved_by" defaultValue={item?.approved_by || ""} placeholder="General Manager or owner" /></label>
+        <label className="cash-edit-field cash-edit-span-2"><span>Reason</span><input name="reason" defaultValue={item?.reason || ""} placeholder="Purpose of the advance" /></label>
+        <label className="cash-edit-field cash-edit-span-2"><span>Notes</span><textarea name="notes" defaultValue={item?.notes || ""} rows={3} placeholder="Optional internal note" /></label>
+      </div>
+
+      {item && (canApprove || canReject || canCancel) ? (
+        <section className="cash-lifecycle-card">
+          <div><span>Lifecycle</span><strong>Current state: {canonicalStatus}</strong></div>
+          {(canReject || canCancel) ? <label className="cash-edit-field"><span>Reason for reject/cancel</span><input value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder="Required for reject or cancel" /></label> : null}
+          <div className="cash-lifecycle-actions">
+            {canApprove ? <button className="button" type="button" disabled={busy} onClick={() => void lifecycle("approve")}>Approve</button> : null}
+            {canReject ? <button className="button ghost" type="button" disabled={busy} onClick={() => void lifecycle("reject")}>Reject</button> : null}
+            {canCancel ? <button className="button ghost" type="button" disabled={busy} onClick={() => void lifecycle("cancel")}>Cancel advance</button> : null}
+          </div>
+        </section>
+      ) : null}
+
+      <div className="cash-edit-actions">
+        {message ? <p role="status">{message}</p> : <span />}
+        <div>
+          {item ? <button className="button ghost" type="button" disabled={busy} onClick={() => setOpen(false)}>Close</button> : null}
+          <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save details" : "Add cash advance"}</button>
+        </div>
+      </div>
+    </form>
+  );
+
+  if (!item) return renderForm();
+  if (!open) return <button className="button small" type="button" onClick={() => { setMessage(""); setOpen(true); }}>Edit details</button>;
+
+  return (
+    <AppDrawer
+      open={open}
+      eyebrow="Cash advance"
+      title="Update advance details"
+      description="Change repayment settings and internal details. Balance corrections and lifecycle changes remain separate controlled actions."
+      onClose={() => { if (!busy) setOpen(false); }}
+      closeLabel="Close cash advance editor"
+    >
+      {renderForm()}
       <style jsx>{`
         .cash-edit-panel{display:grid;gap:18px;width:100%;padding:18px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:var(--shadow)}
+        .cash-edit-panel.is-editing{padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
         .cash-edit-header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
-        .cash-edit-header h3{margin:2px 0 4px;font-size:1.05rem}.cash-edit-header p{margin:0;color:var(--muted);font-size:.82rem}.cash-edit-eyebrow{color:var(--accent);font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
-        .cash-edit-close{width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:var(--surface-soft);color:var(--muted);font-size:1.2rem;line-height:1;cursor:pointer}
+        .cash-edit-header h3{margin:2px 0 4px;font-size:1.05rem}.cash-edit-eyebrow{color:var(--accent);font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
         .cash-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}.cash-edit-field{display:grid;gap:6px;min-width:0}.cash-edit-field>span{color:var(--muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.cash-edit-field input,.cash-edit-field select,.cash-edit-field textarea{width:100%;min-width:0}.cash-edit-field textarea{resize:vertical}.cash-edit-field small{color:var(--muted);font-size:.74rem;line-height:1.35}.cash-edit-span-2{grid-column:1/-1}
         .cash-edit-field-emphasis{padding:12px;border:1px solid var(--accent-soft);border-radius:8px;background:var(--accent-soft)}.cash-edit-field-emphasis input{background:var(--surface)}
         .cash-lifecycle-card{display:grid;gap:12px;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft)}.cash-lifecycle-card>div:first-child{display:flex;justify-content:space-between;gap:12px}.cash-lifecycle-card>div:first-child span{color:var(--muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.cash-lifecycle-actions{display:flex;gap:8px;flex-wrap:wrap}
         .cash-edit-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:14px;border-top:1px solid var(--line)}.cash-edit-actions>p{margin:0;color:var(--danger);font-size:.8rem;font-weight:700}.cash-edit-actions>div{display:flex;gap:8px;margin-left:auto}
-        @media(max-width:720px){.cash-edit-panel{padding:14px}.cash-edit-grid{grid-template-columns:1fr}.cash-edit-span-2{grid-column:1}.cash-edit-actions{display:grid}.cash-edit-actions>div{width:100%;margin-left:0}.cash-edit-actions button{flex:1}.cash-lifecycle-card>div:first-child{display:grid}}
+        @media(max-width:720px){.cash-edit-panel{padding:14px}.cash-edit-panel.is-editing{padding:0}.cash-edit-grid{grid-template-columns:1fr}.cash-edit-span-2{grid-column:1}.cash-edit-actions{display:grid}.cash-edit-actions>div{width:100%;margin-left:0}.cash-edit-actions button{flex:1}.cash-lifecycle-card>div:first-child{display:grid}}
       `}</style>
-    </>
+    </AppDrawer>
   );
 }
