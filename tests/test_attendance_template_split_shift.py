@@ -150,6 +150,87 @@ class AttendanceTemplateSplitShiftTests(unittest.TestCase):
             [self.shift_one, self.shift_two],
         )
 
+    def test_single_continuous_biometric_span_segments_across_touching_overnight_shifts(self) -> None:
+        conn = get_conn(self.db_path)
+        try:
+            conn.execute(
+                "UPDATE scheduled_shifts SET start_time='12:00', end_time='21:00' WHERE id=?",
+                (self.shift_one,),
+            )
+            conn.execute(
+                "UPDATE scheduled_shifts SET start_time='21:00', end_time='07:00' WHERE id=?",
+                (self.shift_two,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        result = self.call_import(
+            [
+                AttendanceTemplateRow(
+                    work_date="2026-08-31",
+                    biometric_id="BIO-SPLIT",
+                    time_in="11:55 AM",
+                    time_out="7:05 AM",
+                    time_out_date="2026-09-01",
+                    attendance_status="ON-TIME",
+                )
+            ]
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["summary"]["rows"], 1)
+        self.assertEqual(result["summary"]["imported"], 2)
+        self.assertEqual(result["summary"]["shift_linked"], 2)
+        self.assertEqual(result["summary"]["segments_generated"], 2)
+        self.assertEqual(result["items"][0]["shift_match_mode"], "continuous_split_segmented")
+        self.assertEqual(result["items"][0]["segments_generated"], 2)
+
+        conn = get_conn(self.db_path)
+        try:
+            rows = fetchall(
+                conn,
+                """
+                SELECT scheduled_shift_id, actual_in, actual_out, notes
+                FROM time_logs
+                WHERE employee_id=? AND work_date='2026-08-31'
+                ORDER BY scheduled_shift_id
+                """,
+                (self.employee_id,),
+            )
+        finally:
+            conn.close()
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(
+            [(row["scheduled_shift_id"], row["actual_in"], row["actual_out"]) for row in rows],
+            [
+                (self.shift_one, "11:55", "21:00"),
+                (self.shift_two, "21:00", "07:05"),
+            ],
+        )
+        self.assertTrue(all("shift_match=continuous_split_segmented" in row["notes"] for row in rows))
+
+    def test_single_span_across_gapped_shifts_remains_ambiguous(self) -> None:
+        result = self.call_import(
+            [
+                AttendanceTemplateRow(
+                    work_date="2026-08-31",
+                    biometric_id="BIO-SPLIT",
+                    time_in="8:02 AM",
+                    time_out="8:03 PM",
+                    time_out_date="2026-08-31",
+                    attendance_status="ON-TIME",
+                )
+            ],
+            dry_run=True,
+        )
+
+        self.assertEqual(result["summary"]["shift_linked"], 0)
+        self.assertEqual(result["summary"]["needs_review"], 1)
+        self.assertEqual(result["items"][0]["shift_match_mode"], "ambiguous_split_shift")
+        self.assertIn("continuous biometric interval", result["items"][0]["issues"][-1])
+
     def test_ambiguous_split_shift_upload_is_not_guessed(self) -> None:
         result = self.call_import(
             [
@@ -168,7 +249,7 @@ class AttendanceTemplateSplitShiftTests(unittest.TestCase):
         self.assertEqual(result["summary"]["shift_linked"], 0)
         self.assertEqual(result["summary"]["needs_review"], 1)
         self.assertEqual(result["items"][0]["shift_match_mode"], "ambiguous_split_shift")
-        self.assertIn("exactly one attendance row per shift", result["items"][0]["issues"][-1])
+        self.assertIn("continuous biometric interval", result["items"][0]["issues"][-1])
 
 
 if __name__ == "__main__":
