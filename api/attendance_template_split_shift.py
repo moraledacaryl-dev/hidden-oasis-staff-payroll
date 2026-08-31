@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -18,15 +19,98 @@ from core.db import DB_PATH, fetchall, get_conn, now_iso
 router = APIRouter(prefix="/api/v1")
 
 
-def _link_split_shift_rows(conn, rows: list[dict[str, Any]]) -> None:
-    """Attach import rows to exact scheduled shifts without guessing ambiguous cases.
+def _clock_datetime(day: str, clock: str, *, next_day_if_needed_from: datetime | None = None) -> datetime:
+    value = datetime.fromisoformat(f"{day}T{clock}")
+    if next_day_if_needed_from is not None and value <= next_day_if_needed_from:
+        value += timedelta(days=1)
+    return value
 
-    The biometric/template format has no shift-id column. For an employee-day with
-    multiple scheduled shifts, a safe deterministic mapping exists when the upload
-    contains exactly one timed attendance row per scheduled shift. In that case we
-    pair rows and shifts in chronological start-time order. Otherwise rows remain
-    unlinked and are forced to Needs Review rather than silently contaminating a
-    different shift's payroll calculation.
+
+def _shift_interval(work_date: str, shift: dict[str, Any]) -> tuple[datetime, datetime]:
+    start = _clock_datetime(work_date, str(shift["start_time"]))
+    end = _clock_datetime(work_date, str(shift["end_time"]), next_day_if_needed_from=start)
+    return start, end
+
+
+def _actual_interval(row: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    actual_in = str(row.get("actual_in") or "").strip()
+    actual_out = str(row.get("actual_out") or "").strip()
+    work_date = str(row.get("work_date") or "").strip()
+    if not actual_in or not actual_out or not work_date:
+        return None
+
+    start = _clock_datetime(work_date, actual_in)
+    out_date = str(row.get("time_out_date") or work_date).strip() or work_date
+    end = _clock_datetime(out_date, actual_out)
+    if end <= start:
+        end += timedelta(days=1)
+    return start, end
+
+
+def _segment_continuous_row_across_shifts(
+    row: dict[str, Any],
+    shifts: list[dict[str, Any]],
+    work_date: str,
+) -> list[dict[str, Any]] | None:
+    """Split one continuous biometric span across touching scheduled shifts.
+
+    This is intentionally conservative. We segment only when every scheduled shift
+    touches the next shift exactly and the uploaded actual interval crosses every
+    internal boundary. That proves the single biometric interval covers the whole
+    split-duty chain without inventing attendance inside an unscheduled gap.
+    """
+
+    interval = _actual_interval(row)
+    if interval is None or len(shifts) < 2:
+        return None
+    actual_start, actual_end = interval
+
+    shift_intervals = [_shift_interval(work_date, shift) for shift in shifts]
+    for index in range(len(shift_intervals) - 1):
+        if shift_intervals[index][1] != shift_intervals[index + 1][0]:
+            return None
+
+    boundaries = [shift_intervals[index][1] for index in range(len(shift_intervals) - 1)]
+    if any(not (actual_start < boundary < actual_end) for boundary in boundaries):
+        return None
+
+    # The outer biometric interval must overlap the first and last scheduled shifts.
+    if actual_start >= shift_intervals[0][1] or actual_end <= shift_intervals[-1][0]:
+        return None
+
+    segments: list[dict[str, Any]] = []
+    for index, shift in enumerate(shifts):
+        segment = dict(row)
+        segment_start = actual_start if index == 0 else shift_intervals[index][0]
+        segment_end = actual_end if index == len(shifts) - 1 else shift_intervals[index][1]
+        segment["actual_in"] = segment_start.strftime("%H:%M")
+        segment["actual_out"] = segment_end.strftime("%H:%M")
+        segment["scheduled_shift_id"] = int(shift["id"])
+        segment["shift_match_mode"] = "continuous_split_segmented"
+        segment["segment_index"] = index + 1
+        segment["segment_count"] = len(shifts)
+        notes = str(segment.get("notes") or "").strip()
+        marker = (
+            f"continuous biometric span segmented {index + 1}/{len(shifts)} "
+            f"for shift_id={int(shift['id'])}"
+        )
+        segment["notes"] = f"{notes} | {marker}".strip(" |")
+        segments.append(segment)
+
+    row["scheduled_shift_id"] = None
+    row["shift_match_mode"] = "continuous_split_segmented"
+    row["segments_generated"] = len(segments)
+    return segments
+
+
+def _link_split_shift_rows(conn, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach import rows to exact scheduled shifts without unsafe guessing.
+
+    Supported deterministic shapes are:
+    1. one attendance row for one scheduled shift;
+    2. one distinct attendance row per same-day shift, paired chronologically;
+    3. one continuous biometric interval spanning multiple *touching* shifts,
+       segmented at the scheduled internal boundaries.
     """
 
     groups: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
@@ -35,6 +119,8 @@ def _link_split_shift_rows(conn, rows: list[dict[str, Any]]) -> None:
         work_date = row.get("work_date")
         if employee_id and work_date:
             groups[(int(employee_id), str(work_date))].append(row)
+
+    output_rows: list[dict[str, Any]] = []
 
     for (employee_id, work_date), group_rows in groups.items():
         shifts = fetchall(
@@ -53,11 +139,13 @@ def _link_split_shift_rows(conn, rows: list[dict[str, Any]]) -> None:
             row["shift_match_mode"] = "unlinked"
 
         if not shifts:
+            output_rows.extend(group_rows)
             continue
 
         if len(shifts) == 1 and len(group_rows) == 1:
             group_rows[0]["scheduled_shift_id"] = int(shifts[0]["id"])
             group_rows[0]["shift_match_mode"] = "single_shift"
+            output_rows.extend(group_rows)
             continue
 
         timed_rows = [row for row in group_rows if row.get("actual_in")]
@@ -74,11 +162,18 @@ def _link_split_shift_rows(conn, rows: list[dict[str, Any]]) -> None:
             for row, shift in zip(ordered_rows, shifts, strict=True):
                 row["scheduled_shift_id"] = int(shift["id"])
                 row["shift_match_mode"] = "ordered_split_shift"
+            output_rows.extend(group_rows)
             continue
+
+        if len(group_rows) == 1:
+            segmented = _segment_continuous_row_across_shifts(group_rows[0], shifts, work_date)
+            if segmented:
+                output_rows.extend(segmented)
+                continue
 
         message = (
             f"Employee has {len(shifts)} scheduled shifts on {work_date}. "
-            "Provide exactly one attendance row per shift with a distinct time_in so each log can be linked safely."
+            "Provide one row per shift, or one continuous biometric interval that crosses every boundary between contiguous shifts."
         )
         for row in group_rows:
             issues = list(row.get("issues") or [])
@@ -88,6 +183,9 @@ def _link_split_shift_rows(conn, rows: list[dict[str, Any]]) -> None:
             row["needs_review"] = 1
             row["attendance_status"] = "Needs Review"
             row["shift_match_mode"] = "ambiguous_split_shift"
+        output_rows.extend(group_rows)
+
+    return output_rows
 
 
 @router.post("/attendance/template-import-v2")
@@ -108,11 +206,11 @@ def import_attendance_template_v2(
             validate_template_row(row, by_code, by_name, index + 2)
             for index, row in enumerate(payload.rows)
         ]
-        importable_rows = [
+        source_importable_rows = [
             row for row in validated if row["employee_id"] and row["work_date"]
         ]
 
-        _link_split_shift_rows(conn, importable_rows)
+        importable_rows = _link_split_shift_rows(conn, source_importable_rows)
 
         success_rows = [
             row for row in validated if row["employee_id"] and row["work_date"] and not row["issues"]
@@ -141,7 +239,7 @@ def import_attendance_template_v2(
                     len(validated),
                     len(importable_rows),
                     len(error_rows),
-                    "Attendance template upload with split-shift linkage.",
+                    "Attendance template upload with exact split-shift linkage and continuous-span segmentation.",
                 ),
             )
             batch_id = int(batch.lastrowid)
@@ -212,6 +310,7 @@ def import_attendance_template_v2(
                 "errors": len(error_rows),
                 "imported": 0 if payload.dry_run else len(importable_rows),
                 "shift_linked": sum(1 for row in importable_rows if row.get("scheduled_shift_id")),
+                "segments_generated": sum(1 for row in importable_rows if row.get("shift_match_mode") == "continuous_split_segmented"),
             },
             "items": validated,
             "mode": "attendance_template_preview_v2" if payload.dry_run else "attendance_template_imported_v2",
