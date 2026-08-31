@@ -47,7 +47,7 @@ export async function importAttendanceTemplate(
   dryRun: boolean,
   fileName?: string,
 ) {
-  const response = await fetch(`${apiBaseUrl()}/api/v1/attendance/template-import`, {
+  const response = await fetch(`${apiBaseUrl()}/api/v1/attendance/template-import-v2`, {
     method: "POST",
     headers: await backendHeaders(true),
     body: JSON.stringify({ rows, dry_run: dryRun, file_name: fileName || "attendance-upload-template.csv" }),
