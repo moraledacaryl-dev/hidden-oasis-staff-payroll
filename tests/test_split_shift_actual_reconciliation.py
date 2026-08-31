@@ -108,3 +108,54 @@ def test_links_only_the_remaining_unmatched_shift_when_other_shift_is_already_li
     assert conn.execute(
         "SELECT scheduled_shift_id FROM time_logs WHERE id=302"
     ).fetchone()[0] == 32
+
+
+def test_detaches_orphaned_shift_ids_then_relinks_to_current_split_shifts():
+    conn = build_conn()
+    conn.executemany(
+        "INSERT INTO scheduled_shifts(id,employee_id,shift_date,start_time,end_time) VALUES(?,?,?,?,?)",
+        [
+            (41, 10, "2026-08-30", "08:00", "12:00"),
+            (42, 10, "2026-08-30", "13:00", "17:00"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO time_logs(id,scheduled_shift_id,employee_id,work_date,actual_in,actual_out,attendance_status,notes) VALUES(?,?,?,?,?,?,?,?)",
+        [
+            (401, 9001, 10, "2026-08-30", "08:03", "12:01", "Approved", "old first"),
+            (402, 9002, 10, "2026-08-30", "13:04", "17:02", "Approved", "old second"),
+        ],
+    )
+
+    result = reconcile_unlinked_split_shift_logs(conn)
+    rows = conn.execute(
+        "SELECT id,scheduled_shift_id,notes FROM time_logs ORDER BY id"
+    ).fetchall()
+
+    assert result["stale_links_detached"] == 2
+    assert result["logs_linked"] == 2
+    assert [(row["id"], row["scheduled_shift_id"]) for row in rows] == [(401, 41), (402, 42)]
+    assert all("shift_match=stale_link_detached" in row["notes"] for row in rows)
+    assert all("shift_match=deterministic_reconciliation" in row["notes"] for row in rows)
+    assert conn.execute(
+        "SELECT COUNT(*) FROM schedule_change_logs WHERE change_type='detach_stale_split_shift_actual'"
+    ).fetchone()[0] == 2
+
+
+def test_detaches_employee_date_mismatch_before_safe_relink():
+    conn = build_conn()
+    conn.execute(
+        "INSERT INTO scheduled_shifts(id,employee_id,shift_date,start_time,end_time) VALUES(?,?,?,?,?)",
+        (51, 11, "2026-08-30", "08:00", "17:00"),
+    )
+    conn.execute(
+        "INSERT INTO time_logs(id,scheduled_shift_id,employee_id,work_date,actual_in,actual_out,attendance_status) VALUES(?,?,?,?,?,?,?)",
+        (501, 51, 12, "2026-08-31", "08:00", "17:00", "Approved"),
+    )
+
+    result = reconcile_unlinked_split_shift_logs(conn)
+    row = conn.execute("SELECT scheduled_shift_id FROM time_logs WHERE id=501").fetchone()
+
+    assert result["stale_links_detached"] == 1
+    assert result["logs_linked"] == 0
+    assert row["scheduled_shift_id"] is None
