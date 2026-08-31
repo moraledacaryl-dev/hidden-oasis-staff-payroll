@@ -8,11 +8,12 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .db import DB_PATH
+from .observability import utc_iso, utc_now
 from .offsite_backups import copy_offsite
 
 
@@ -77,6 +78,10 @@ def _apply_retention(directory: Path) -> None:
         old.unlink(missing_ok=True)
 
 
+def _mtime_iso(path: Path) -> str:
+    return utc_iso(datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc))
+
+
 def create_backup(db_path: Path | str = DB_PATH) -> dict[str, Any]:
     source = Path(db_path).expanduser()
     if not source.exists():
@@ -84,7 +89,7 @@ def create_backup(db_path: Path | str = DB_PATH) -> dict[str, Any]:
 
     directory = backup_directory()
     directory.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = utc_now().strftime("%Y%m%d-%H%M%S-%f")
     secret = os.getenv("STAFF_PAYROLL_BACKUP_KEY", "").strip()
     suffix = ".sqlite.fernet" if secret else ".sqlite"
     target = directory / f"staff-payroll-{timestamp}{suffix}"
@@ -107,7 +112,7 @@ def create_backup(db_path: Path | str = DB_PATH) -> dict[str, Any]:
         "bytes": target.stat().st_size,
         "encrypted": bool(secret),
         "offsite_path": offsite_path,
-        "created_at": datetime.fromtimestamp(target.stat().st_mtime).replace(microsecond=0).isoformat(sep=" "),
+        "created_at": _mtime_iso(target),
     }
 
 
@@ -169,7 +174,7 @@ def create_backup_package(db_path: Path | str = DB_PATH) -> dict[str, Any]:
 
     directory = backup_directory()
     directory.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = utc_now().strftime("%Y%m%d-%H%M%S-%f")
     secret = os.getenv("STAFF_PAYROLL_BACKUP_KEY", "").strip()
     package_target = directory / f"staff-payroll-package-{timestamp}.zip"
     target = directory / f"staff-payroll-package-{timestamp}.zip.fernet" if secret else package_target
@@ -179,7 +184,7 @@ def create_backup_package(db_path: Path | str = DB_PATH) -> dict[str, Any]:
         _plain_backup(source, plain)
         attachments, missing = _referenced_attachment_paths(source)
         manifest = {
-            "generated_at": datetime.now().replace(microsecond=0).isoformat(sep=" "),
+            "generated_at": utc_iso(),
             "db_name": source.name,
             "database_archive_path": "database/staff-payroll.sqlite",
             "attachment_count": len(attachments),
@@ -208,7 +213,7 @@ def create_backup_package(db_path: Path | str = DB_PATH) -> dict[str, Any]:
         "offsite_path": offsite_path,
         "attachment_count": len(attachments),
         "missing_attachment_paths": missing,
-        "created_at": datetime.fromtimestamp(target.stat().st_mtime).replace(microsecond=0).isoformat(sep=" "),
+        "created_at": _mtime_iso(target),
     }
 
 
@@ -277,7 +282,7 @@ def list_backups() -> list[dict[str, Any]]:
             "name": path.name,
             "bytes": path.stat().st_size,
             "encrypted": path.name.endswith(".fernet"),
-            "created_at": datetime.fromtimestamp(path.stat().st_mtime).replace(microsecond=0).isoformat(sep=" "),
+            "created_at": _mtime_iso(path),
         }
         for path in sorted(_backup_candidates(directory), key=lambda item: item.stat().st_mtime, reverse=True)
     ]

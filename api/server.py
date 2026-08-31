@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, FastAPI
 
+import api.main as core_main_module
 from api.attendance_compliance import router as attendance_compliance_router
 from api.attendance_template_import import router as attendance_template_import_router
 from api.cash_advance_corrections import router as cash_advance_corrections_router
@@ -58,9 +59,17 @@ from api.users import router as users_router
 from core.db import get_conn, init_db
 from core.integration_compat import ensure_legacy_integration_writer_compatibility
 from core.integration_outbox import ensure_integration_schema
+from core.observability import utc_storage_iso
 from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 from core.quality import build_payroll_preflight_checks, summarize_checks
 from core.runtime_guard import validate_runtime_environment
+
+# api.main retains a compatibility-local now_iso helper. The canonical
+# production entrypoint binds it to the central aware UTC serializer before
+# build_core_app() installs request handlers, preserving old imports while
+# eliminating local-time writes. This compatibility binding is intentionally
+# removed when api/main.py is decomposed in the schema-consolidation pass.
+core_main_module.now_iso = utc_storage_iso
 
 
 def initialize_runtime() -> None:

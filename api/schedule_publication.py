@@ -7,7 +7,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from api.security import current_user_from_token, require_api_key
-from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.db import DB_PATH, fetchall, fetchone, get_conn, now_iso
 
 router = APIRouter(prefix="/api/v1")
 
@@ -167,6 +167,7 @@ def has_pending_changes(conn, week_start: str) -> bool:
 
 def replace_snapshot(conn, week_start: str) -> None:
     conn.execute("DELETE FROM schedule_publication_shifts WHERE week_start=?", (week_start,))
+    published_at = now_iso()
     for row in current_week_shifts(conn, week_start):
         conn.execute(
             """
@@ -174,7 +175,7 @@ def replace_snapshot(conn, week_start: str) -> None:
                 week_start, source_shift_id, employee_id, shift_date, start_time,
                 end_time, position, department, break_minutes, status, notes, source,
                 published_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 week_start,
@@ -189,6 +190,7 @@ def replace_snapshot(conn, week_start: str) -> None:
                 row.get("status"),
                 row.get("notes"),
                 row.get("source"),
+                published_at,
             ),
         )
 
@@ -255,15 +257,16 @@ def publish_schedule(week_start: str, payload: PublishSchedulePayload, authoriza
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
+        published_at = now_iso()
         conn.execute(
             """
             INSERT INTO schedule_publications(week_start, status, published_by, published_at, notes)
-            VALUES (?, 'Published', ?, CURRENT_TIMESTAMP, ?)
+            VALUES (?, 'Published', ?, ?, ?)
             ON CONFLICT(week_start)
             DO UPDATE SET status='Published', published_by=excluded.published_by,
-                          published_at=CURRENT_TIMESTAMP, notes=excluded.notes
+                          published_at=excluded.published_at, notes=excluded.notes
             """,
-            (week_start, user.get("display_name"), payload.notes),
+            (week_start, user.get("display_name"), published_at, payload.notes),
         )
         replace_snapshot(conn, week_start)
         conn.execute("DELETE FROM schedule_acknowledgements WHERE week_start=?", (week_start,))
