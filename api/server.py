@@ -54,6 +54,7 @@ from api.schedules import ensure_schema as ensure_schedule_schema
 from api.schedules import router as schedules_router
 from api.security import ROLE_OWNER, ROLE_PAYROLL, require_api_key, require_roles
 from api.sil_leave import router as sil_leave_router
+from api.split_shift_actual_reconciliation import reconcile_unlinked_split_shift_logs
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
 from api.users import router as users_router
@@ -83,6 +84,7 @@ def initialize_runtime() -> None:
         ensure_workflow_schema(conn)
         ensure_integration_schema(conn)
         ensure_legacy_integration_writer_compatibility(conn)
+        reconcile_unlinked_split_shift_logs(conn)
         conn.commit()
     finally:
         conn.close()
