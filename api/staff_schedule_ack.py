@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from api.schedule_publication import ensure_schema as ensure_publication_schema
 from api.security import current_user_from_token
 from api.staff_self_service import employee_for_user, require_staff_user
-from core.db import DB_PATH, fetchone, get_conn
+from core.db import DB_PATH, fetchone, get_conn, now_iso
 
 router = APIRouter()
 
@@ -37,20 +37,22 @@ def acknowledge_my_schedule(
         if not publication:
             raise HTTPException(status_code=404, detail="Published schedule week not found.")
 
+        acknowledged_at = now_iso()
         conn.execute(
             """
             INSERT INTO schedule_acknowledgements(
                 week_start, employee_id, acknowledged_by, acknowledged_at, notes
-            ) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(week_start, employee_id)
             DO UPDATE SET acknowledged_by=excluded.acknowledged_by,
-                          acknowledged_at=CURRENT_TIMESTAMP,
+                          acknowledged_at=excluded.acknowledged_at,
                           notes=excluded.notes
             """,
             (
                 week_start,
                 int(employee["id"]),
                 employee.get("full_name") or user.get("display_name"),
+                acknowledged_at,
                 payload.notes,
             ),
         )

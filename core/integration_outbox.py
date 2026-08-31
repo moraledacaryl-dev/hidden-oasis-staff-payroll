@@ -6,11 +6,12 @@ import socket
 import sqlite3
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from core.db import fetchall, fetchone, now_iso
 from core.money import money_or_zero
+from core.observability import utc_now, utc_storage_iso
 
 STATUS_PENDING = "Pending"
 STATUS_PROCESSING = "Processing"
@@ -441,7 +442,7 @@ def process_claimed_event(conn: sqlite3.Connection, row: dict[str, Any], *, time
         error = f"{destination} destination is not configured"
         conn.execute(
             "UPDATE integration_outbox SET status='Retry',attempt_count=?,last_attempt_at=?,last_error=?,locked_at=NULL,locked_by=NULL,next_attempt_at=?,updated_at=? WHERE id=?",
-            (attempt, now, error, (datetime.now() + timedelta(hours=1)).replace(microsecond=0).isoformat(sep=" "), now, event_id),
+            (attempt, now, error, utc_storage_iso(utc_now() + timedelta(hours=1)), now, event_id),
         )
         conn.commit()
         return {"id": event_id, "status": "Retry", "error": error}
@@ -475,7 +476,7 @@ def process_claimed_event(conn: sqlite3.Connection, row: dict[str, Any], *, time
         status_code = None
     dead = (not retryable) or attempt >= max_attempts
     next_status = STATUS_DEAD_LETTER if dead else STATUS_RETRY
-    next_at = None if dead else (datetime.now() + timedelta(seconds=_backoff_seconds(attempt))).replace(microsecond=0).isoformat(sep=" ")
+    next_at = None if dead else utc_storage_iso(utc_now() + timedelta(seconds=_backoff_seconds(attempt)))
     conn.execute(
         "UPDATE integration_outbox SET status=?,attempt_count=?,last_attempt_at=?,last_error=?,next_attempt_at=?,dead_letter_at=?,locked_at=NULL,locked_by=NULL,updated_at=? WHERE id=?",
         (next_status, attempt, now, error, next_at, now if dead else None, now, event_id),

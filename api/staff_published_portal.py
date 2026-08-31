@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -13,7 +13,8 @@ from api.security import current_user_from_token
 from api.staff_schedule_ack import router as staff_schedule_ack_router
 from api.staff_self_service import employee_for_user, my_self_service, require_staff_user
 from core.audit import log_audit
-from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.db import DB_PATH, fetchall, fetchone, get_conn, now_iso
+from core.observability import business_today
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(staff_schedule_ack_router)
@@ -96,7 +97,8 @@ def published_self_service(
                 }
             )
 
-        year = date.today().year
+        today = business_today()
+        year = today.year
         leave = fetchall(
             conn,
             """SELECT lt.id AS leave_type_id, lt.name AS leave_type_name,
@@ -190,10 +192,10 @@ def published_self_service(
             JOIN employees e ON e.id=s.employee_id
             WHERE s.employee_id<>?
               AND lower(COALESCE(s.department,''))=?
-              AND date(s.shift_date)>=date('now','localtime')
+              AND date(s.shift_date)>=date(?)
             ORDER BY date(s.shift_date), s.start_time, e.full_name
             """,
-            (employee_id, department),
+            (employee_id, department, today.isoformat()),
         ) if employee_id and department else []
 
         data["schedule"] = schedule
@@ -289,7 +291,7 @@ def submit_leave_request(
                 days,
                 int(leave_type.get("paid") or 0),
                 payload.reason.strip(),
-                datetime.now().replace(microsecond=0).isoformat(sep=" "),
+                now_iso(),
             ),
         )
         request_id = int(cursor.lastrowid)
@@ -342,7 +344,7 @@ def withdraw_leave_request(
             """,
             (
                 user.get("display_name"),
-                datetime.now().replace(microsecond=0).isoformat(sep=" "),
+                now_iso(),
                 request_id,
             ),
         )

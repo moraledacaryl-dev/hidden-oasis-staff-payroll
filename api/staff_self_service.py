@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 from api.security import current_user_from_token, require_api_key
 from api.schedule_change_log import log_schedule_change
 from api.upload_validation import MAX_UPLOAD_BYTES, validate_upload_bytes
-from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.db import DB_PATH, fetchall, fetchone, get_conn, now_iso
+from core.observability import business_today
 
 router = APIRouter(prefix="/api/v1")
 UPLOAD_DIR = Path(os.getenv("STAFF_UPLOAD_DIR", "data/staff_uploads"))
@@ -36,10 +37,6 @@ class ShiftChangeDecisionPayload(BaseModel):
     employee_notified: bool = False
     coverage_confirmed: bool = False
     apply_change: bool = True
-
-
-def now_iso() -> str:
-    return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
 
 def ensure_schema(conn) -> None:
@@ -145,7 +142,7 @@ def request_row(conn, request_id: int) -> dict[str, Any] | None:
 
 
 def schedule_items(conn, employee_id: int) -> list[dict[str, Any]]:
-    today = date.today()
+    today = business_today()
     start = (today - timedelta(days=7)).isoformat()
     end = (today + timedelta(days=35)).isoformat()
     return fetchall(
@@ -302,7 +299,7 @@ def submit_shift_change_request(
             ),
         )
         request_id = int(cursor.lastrowid)
-        request_no = f"SCR-{datetime.now():%Y%m%d}-{request_id:05d}"
+        request_no = f"SCR-{business_today():%Y%m%d}-{request_id:05d}"
         conn.execute("UPDATE shift_change_requests SET request_no=? WHERE id=?", (request_no, request_id))
         audit(conn, request_id, "Submitted", int(user["id"]), employee_id, payload.reason.strip())
         conn.commit()
