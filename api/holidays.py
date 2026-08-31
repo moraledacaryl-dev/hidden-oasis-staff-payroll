@@ -10,6 +10,7 @@ from api.main import configured_db_path
 from api.security import require_api_key, require_roles
 from core.audit import log_audit
 from core.db import fetchall, fetchone, get_conn, now_iso
+from core.holiday_payroll import canonical_holiday_type
 
 router = APIRouter(prefix="/api/v1/holidays", dependencies=[Depends(require_api_key)])
 
@@ -26,11 +27,12 @@ class HolidayPayload(BaseModel):
 
 
 def _row(row: dict[str, Any]) -> dict[str, Any]:
+    raw_type = str(row["holiday_type"])
     return {
         "id": int(row["id"]),
         "holiday_date": str(row["holiday_date"]),
         "name": str(row["name"]),
-        "holiday_type": str(row["holiday_type"]),
+        "holiday_type": canonical_holiday_type(raw_type) or raw_type,
         "active": bool(row["active"]),
         "notes": row.get("notes"),
         "created_at": row.get("created_at"),
