@@ -93,7 +93,31 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   function applyDrop(operation: "move" | "copy") { if (!dropPrompt || dropPrompt.issues.some((issue) => issue.tone === "error")) return; const pending = dropPrompt; const before = localShifts; const optimisticId = operation === "copy" ? -Date.now() : pending.source.id; const optimisticShift = { ...pending.source, id: optimisticId, shift_date: pending.targetDay, employee_id: pending.targetEmployeeId, employee_name: pending.targetEmployeeName, source: "planned", movable: true }; setDropPrompt(null); setSelectedShiftId(null); setLocalShifts((current) => operation === "move" ? current.map((item) => item.id === pending.source.id ? optimisticShift : item) : [...current, optimisticShift]); startTransition(async () => { const result = operation === "move" ? await moveScheduledShift(pending.source.id, pending.targetDay, pending.targetEmployeeId) : await copyScheduledShift(pending.source.id, pending.targetDay, pending.targetEmployeeId); if (!result?.ok) { setLocalShifts(before); setMessage(result?.message || `Could not ${operation} shift. Changes were rolled back.`); return; } setMessage(operation === "move" ? "Shift moved." : "Shift copied."); router.refresh(); }); }
   function setRestDay(employeeId: number, workDate: string, active: boolean) { startTransition(async () => { setMessage(""); const response = await fetch("/api/schedule/rest-days", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ employee_id: employeeId, work_date: workDate, active }) }); const data = await response.json().catch(() => ({})); if (!response.ok || !data.ok) { setMessage(typeof data.detail === "string" ? data.detail : data.message || "Rest day was not saved."); return; } setRestDays((current) => active ? [...current.filter((item) => !(item.employee_id === employeeId && item.work_date === workDate)), data.item] : current.filter((item) => !(item.employee_id === employeeId && item.work_date === workDate))); setMessage(active ? "Rest day marked." : "Rest day cleared."); router.refresh(); }); }
   function clearDay() { if (!clearPrompt) return; const { employeeId, workDate } = clearPrompt; setClearPrompt(null); startTransition(async () => { setMessage(""); const response = await fetch("/api/schedule/day", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ section: "reset", employee_id: employeeId, work_date: workDate }) }); const data = await response.json().catch(() => ({})); if (!response.ok || !data.ok) { setMessage(typeof data.detail === "string" ? data.detail : data.message || "Day was not cleared."); return; } setLeaveStatuses((current) => current.filter((item) => !(item.employee_id === employeeId && item.work_date === workDate))); setRestDays((current) => current.filter((item) => !(item.employee_id === employeeId && item.work_date === workDate))); setMessage("Day cleared."); router.refresh(); await loadDayStates(); }); }
-  function handleEditorSaved(data: ScheduleDayBundle) { const previous = editor?.shift; setLocalShifts((current) => { if (data.shift) { const withoutSaved = current.filter((item) => item.id !== data.shift?.id && (!previous?.id || item.id !== previous.id)); return [...withoutSaved, data.shift]; } if (data.leave && previous?.id) return current.filter((item) => item.id !== previous.id); return current; }); void loadDayStates(); }
+  function handleEditorSaved(data: ScheduleDayBundle) {
+    const previous = editor?.shift;
+    setLocalShifts((current) => {
+      if (data.shift) {
+        const savedShift: ScheduleShift = data.actual
+          ? {
+              ...data.shift,
+              actual_in: data.actual.actual_in || null,
+              actual_out: data.actual.actual_out || null,
+              actual_status: data.actual.attendance_status || null,
+              actual_source: "manual",
+              actual_notes: data.actual.notes || null,
+              is_absent: data.actual.is_absent || 0,
+              absence_type: data.actual.absence_type || null,
+              approved_ot_hours: data.actual.approved_ot_hours || 0,
+            }
+          : data.shift;
+        const withoutSaved = current.filter((item) => item.id !== savedShift.id && (!previous?.id || item.id !== previous.id));
+        return [...withoutSaved, savedShift];
+      }
+      if (data.leave && previous?.id) return current.filter((item) => item.id !== previous.id);
+      return current;
+    });
+    void loadDayStates();
+  }
 
   return <>
     {(isPending || message) ? <div className={styles.boardHint}>{isPending ? "Saving…" : message}</div> : null}
