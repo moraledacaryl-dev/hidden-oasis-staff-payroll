@@ -238,7 +238,84 @@ def validate_template_row(row: AttendanceTemplateRow, by_code: dict[str, dict[st
         "needs_review": 1 if needs_review else 0,
         "issues": issues,
         "notes": build_notes(row, time_out_date, work_date, issues),
+        "scheduled_shift_id": None,
     }
+
+
+def time_minutes(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        hour, minute = [int(part) for part in value[:5].split(":")]
+    except (TypeError, ValueError):
+        return None
+    return hour * 60 + minute
+
+
+def shift_contains_actual_in(start_time: str, end_time: str, actual_in: str) -> bool:
+    start = time_minutes(start_time)
+    end = time_minutes(end_time)
+    actual = time_minutes(actual_in)
+    if start is None or end is None or actual is None:
+        return False
+    if end > start:
+        return start <= actual < end
+    # For an overnight shift, work_date is the shift start date. A same-day
+    # biometric time-in therefore belongs to the evening side of the interval.
+    return actual >= start
+
+
+def resolve_scheduled_shift(conn, row: dict[str, Any]) -> tuple[int | None, str | None]:
+    employee_id = row.get("employee_id")
+    work_date = row.get("work_date")
+    if not employee_id or not work_date:
+        return None, None
+
+    shifts = fetchall(
+        conn,
+        """
+        SELECT id, start_time, end_time
+        FROM scheduled_shifts
+        WHERE employee_id=? AND date(shift_date)=date(?)
+        ORDER BY start_time, id
+        """,
+        (employee_id, work_date),
+    )
+    if not shifts:
+        return None, None
+    if len(shifts) == 1:
+        return int(shifts[0]["id"]), None
+
+    actual_in = row.get("actual_in")
+    if not actual_in:
+        return None, "Multiple scheduled shifts exist; a time_in is required to assign this attendance row to one exact shift."
+
+    matches = [
+        shift
+        for shift in shifts
+        if shift_contains_actual_in(str(shift["start_time"]), str(shift["end_time"]), str(actual_in))
+    ]
+    if len(matches) == 1:
+        return int(matches[0]["id"]), None
+
+    return None, "Multiple scheduled shifts exist and time_in does not identify exactly one shift. Assign or correct the row before payroll."
+
+
+def attach_shift_assignments(conn, validated: list[dict[str, Any]]) -> None:
+    assigned_in_batch: set[int] = set()
+    for row in validated:
+        shift_id, issue = resolve_scheduled_shift(conn, row)
+        if shift_id is not None and shift_id in assigned_in_batch:
+            shift_id = None
+            issue = "More than one uploaded row maps to the same scheduled shift. Correct the times before payroll."
+        if shift_id is not None:
+            assigned_in_batch.add(shift_id)
+        row["scheduled_shift_id"] = shift_id
+        if issue:
+            row["issues"].append(issue)
+            row["needs_review"] = 1
+            row["attendance_status"] = "Needs Review"
+            row["notes"] = (row["notes"] + " | " if row["notes"] else "") + "Import flags: " + issue
 
 
 @router.get("/attendance/template.csv")
@@ -290,6 +367,8 @@ def import_attendance_template(
             validate_template_row(row, by_code, by_name, index + 2)
             for index, row in enumerate(payload.rows)
         ]
+        attach_shift_assignments(conn, validated)
+
         success_rows = [row for row in validated if row["employee_id"] and row["work_date"] and not row["issues"]]
         review_rows = [row for row in validated if row["employee_id"] and row["work_date"] and row["issues"]]
         error_rows = [row for row in validated if not row["employee_id"] or not row["work_date"]]
@@ -313,26 +392,32 @@ def import_attendance_template(
                 ),
             )
             batch_id = int(batch.lastrowid)
-            for row in importable_rows:
-                if payload.replace_template_rows:
+
+            if payload.replace_template_rows:
+                replace_keys = sorted({(int(row["employee_id"]), str(row["work_date"])) for row in importable_rows})
+                for employee_id, work_date in replace_keys:
                     conn.execute(
                         """
                         DELETE FROM time_logs
                         WHERE employee_id=? AND work_date=? AND source IN ('template_upload', 'attendance_template')
                         """,
-                        (row["employee_id"], row["work_date"]),
+                        (employee_id, work_date),
                     )
+
+            for row in importable_rows:
                 now = now_iso()
                 conn.execute(
                     """
                     INSERT INTO time_logs(
-                        employee_id, work_date, actual_in, actual_out, source, verification_type,
-                        device_employee_code, is_absent, approved_ot_hours, ot_status,
-                        reviewed_by, reviewed_at, attendance_status, notes, created_at, updated_at
+                        scheduled_shift_id, employee_id, work_date, actual_in, actual_out,
+                        source, verification_type, device_employee_code, is_absent,
+                        approved_ot_hours, ot_status, reviewed_by, reviewed_at,
+                        attendance_status, notes, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, 'template_upload', 'Template Upload', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, 'template_upload', 'Template Upload', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        row["scheduled_shift_id"],
                         row["employee_id"],
                         row["work_date"],
                         row["actual_in"],
