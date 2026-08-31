@@ -3,11 +3,20 @@ from __future__ import annotations
 from typing import Any
 
 from core.db import fetchall, fetchone, get_setting
+from core.holiday_payroll import apply_holiday_payroll_adjustment
 from core.payroll_leave_days import paid_leave_days_for_cutoff
 
 
 def _active_employee(conn: Any, employee_id: int) -> dict[str, Any] | None:
     return fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,))
+
+
+def _table_exists(conn: Any, table: str) -> bool:
+    row = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    return bool(row and int(row[0] or 0))
 
 
 def _is_credit_balance_warning(message: str) -> bool:
@@ -148,13 +157,22 @@ def _recompute_statutory_and_net(conn: Any, result: Any, emp: dict[str, Any], pe
 
 
 def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start: str, period_end: str) -> Any:
-    """Correct payroll output when approved paid leave uses fractional stored days."""
+    """Apply holiday correctness and fractional paid-leave corrections to a fresh calculation."""
     employee_id = int(result.employee_id)
     emp = _active_employee(conn, employee_id)
     if not emp:
         return result
 
     result.warnings = _preview_warnings(result.warnings)
+    holiday_changed = False
+    if _table_exists(conn, "time_logs") and _table_exists(conn, "holidays"):
+        holiday_changed = apply_holiday_payroll_adjustment(
+            conn,
+            result,
+            emp,
+            period_start,
+            period_end,
+        )
     corrected_days = _correct_paid_leave_days(conn, employee_id, period_start, period_end)
     standard_paid_hours = float(get_setting(conn, "standard_daily_paid_hours", "8") or 8)
     hourly_rate = float(emp.get("hourly_rate") or 0)
@@ -167,7 +185,7 @@ def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start:
         result.warnings.append(
             f"Paid leave was prorated from {old_days:g} to {corrected_days:g} day(s) for this cutoff."
         )
-    if abs(old_pay - result.paid_leave_pay) > 0.004:
+    if holiday_changed or abs(old_pay - result.paid_leave_pay) > 0.004:
         _recompute_statutory_and_net(conn, result, emp, period_start)
     return result
 
@@ -324,7 +342,13 @@ def apply_preview_schedule_leave_adjustment(conn: Any, result: Any, period_start
 def compute_payroll_preview_with_schedule_leave(conn: Any, period_start: str, period_end: str) -> list[Any]:
     from core.payroll_engine import compute_payroll
 
+    corrected = apply_fractional_paid_leave_adjustments(
+        conn,
+        compute_payroll(conn, period_start, period_end),
+        period_start,
+        period_end,
+    )
     return [
         apply_preview_schedule_leave_adjustment(conn, result, period_start, period_end)
-        for result in compute_payroll(conn, period_start, period_end)
+        for result in corrected
     ]

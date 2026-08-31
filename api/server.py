@@ -12,6 +12,7 @@ from api.cash_advance_corrections import router as cash_advance_corrections_rout
 from api.cash_advances import router as cash_advances_router
 from api.cash_repayments import router as cash_repayments_router
 from api.employees import router as employees_router
+from api.holidays import router as holidays_router
 from api.hr_records import router as hr_records_router
 from api.impersonation import router as impersonation_router
 from api.integrations import router as integrations_router
@@ -210,6 +211,7 @@ ROUTERS = (
     sil_leave_router,
     users_router,
     employees_router,
+    holidays_router,
     integrations_router,
     schedule_publication_router,
     schedule_canonical_runtime_router,

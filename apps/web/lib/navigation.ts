@@ -43,6 +43,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { href: "/cutoff", label: "Cutoff Control", roles: ["owner", "payroll", "supervisor"] },
       { href: "/payroll", label: "Payroll Preview", roles: ["owner", "payroll"] },
+      { href: "/payroll/holidays", label: "Holiday Calendar", roles: ["owner", "payroll"] },
       { href: "/payroll/runs", label: "Payroll Runs", roles: ["owner", "payroll"] },
       { href: "/payslips", label: "Payslip Distribution", roles: ["owner", "payroll", "supervisor"] },
       { href: "/reports/operations", label: "Reports", roles: ["supervisor"] },

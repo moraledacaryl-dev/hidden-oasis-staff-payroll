@@ -44,6 +44,7 @@ const icons: Record<string, LucideIcon> = {
   "/cash-advances": HandCoins,
   "/cutoff": ClipboardCheck,
   "/payroll": Banknote,
+  "/payroll/holidays": CalendarDays,
   "/payroll/runs": History,
   "/payslips": ReceiptText,
   "/reports/operations": ListChecks,

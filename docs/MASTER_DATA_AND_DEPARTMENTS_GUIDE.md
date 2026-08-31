@@ -1,23 +1,12 @@
 # Master Data and Departments Guide
 
-Use master data imports for employee setup whenever possible. Do not manually add every employee if you already have a complete list.
+> Current UI note: the older **Data Import / Templates** workspace described by earlier versions of this guide is not present in the current application navigation. Do not look for a generic “Data Upload” screen. Attendance files are handled through **Operations → Attendance Upload**. Date-specific payroll holidays are managed through **Payroll → Holiday Calendar** using the controlled **Regular Holiday** and **Special Non-Working Day** classifications.
 
-## Upload order
+Historical template imports may still exist in old data or operational records, but they are not the current user-facing workflow and should not be treated as a discoverable application feature.
 
-1. Download the Required Templates workbook in **Data Import / Templates**.
-2. Fill the **Employees** sheet first.
-3. Fill optional master/setup sheets, if needed:
-   - LeaveTypes
-   - LeaveEntitlements
-   - AppUsers
-   - Holidays
-   - FreelanceRates
-4. Upload the filled workbook in **Data Import / Templates > Import filled template**.
-5. Then upload schedules and time logs using the Schedules and TimeLogs sheets.
+## Employee master data
 
-## Employees sheet minimum columns
-
-Required practical minimum:
+Employee records should use one stable `employee_code` per person. When importing or synchronizing employee master data through an approved administrative process, use these practical minimum fields:
 
 ```text
 employee_code
@@ -28,7 +17,7 @@ employment_type
 status
 ```
 
-Recommended columns:
+Recommended fields:
 
 ```text
 hourly_rate
@@ -48,7 +37,23 @@ emergency_contact
 notes
 ```
 
-The importer matches existing employees using `employee_code`. Re-uploading the same employee code updates the employee instead of creating another employee.
+## Holiday configuration
+
+Configure payroll holidays in **Payroll → Holiday Calendar** before previewing or creating payroll for the affected period.
+
+Each holiday record has:
+
+- date
+- holiday name
+- controlled classification: **Regular Holiday** or **Special Non-Working Day**
+- active/inactive status
+- optional notes
+
+Inactive holiday records remain visible for auditability but do not affect new payroll calculations. Saved payroll snapshots are not silently rewritten when a holiday source record changes; use the existing controlled recalculation/revision workflow when a source correction must be reflected in payroll.
+
+## Attendance upload
+
+The current upload entry point is **Operations → Attendance Upload**. It is specifically for attendance/time-log workflows and should not be described as a generic master-data or holiday importer.
 
 ## Department rules
 
