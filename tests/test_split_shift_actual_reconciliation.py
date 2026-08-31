@@ -110,6 +110,67 @@ def test_links_only_the_remaining_unmatched_shift_when_other_shift_is_already_li
     ).fetchone()[0] == 32
 
 
+def test_backfills_one_existing_overnight_biometric_span_into_touching_split_shifts():
+    conn = build_conn()
+    conn.executemany(
+        "INSERT INTO scheduled_shifts(id,employee_id,shift_date,start_time,end_time) VALUES(?,?,?,?,?)",
+        [
+            (61, 13, "2026-08-17", "12:00", "21:00"),
+            (62, 13, "2026-08-17", "21:00", "07:00"),
+        ],
+    )
+    conn.execute(
+        "INSERT INTO time_logs(id,employee_id,work_date,actual_in,actual_out,attendance_status,notes) VALUES(?,?,?,?,?,?,?)",
+        (601, 13, "2026-08-17", "11:55", "07:05", "Needs Review", "Biometric Import"),
+    )
+
+    result = reconcile_unlinked_split_shift_logs(conn, changed_by="test")
+    rows = conn.execute(
+        "SELECT id,scheduled_shift_id,actual_in,actual_out,attendance_status,notes FROM time_logs ORDER BY scheduled_shift_id"
+    ).fetchall()
+
+    assert result["logs_linked"] == 2
+    assert result["continuous_segments_created"] == 2
+    assert len(rows) == 2
+    assert [
+        (row["scheduled_shift_id"], row["actual_in"], row["actual_out"])
+        for row in rows
+    ] == [
+        (61, "11:55", "21:00"),
+        (62, "21:00", "07:05"),
+    ]
+    assert all(row["attendance_status"] == "Needs Review" for row in rows)
+    assert all("shift_match=continuous_split_segmented" in row["notes"] for row in rows)
+    assert conn.execute(
+        "SELECT COUNT(*) FROM schedule_change_logs WHERE change_type='segment_continuous_split_shift_actual'"
+    ).fetchone()[0] == 2
+
+
+def test_existing_continuous_span_is_not_segmented_across_schedule_gap():
+    conn = build_conn()
+    conn.executemany(
+        "INSERT INTO scheduled_shifts(id,employee_id,shift_date,start_time,end_time) VALUES(?,?,?,?,?)",
+        [
+            (71, 14, "2026-08-17", "08:00", "12:00"),
+            (72, 14, "2026-08-17", "13:00", "17:00"),
+        ],
+    )
+    conn.execute(
+        "INSERT INTO time_logs(id,employee_id,work_date,actual_in,actual_out,attendance_status) VALUES(?,?,?,?,?,?)",
+        (701, 14, "2026-08-17", "07:55", "17:05", "Approved"),
+    )
+
+    result = reconcile_unlinked_split_shift_logs(conn)
+    rows = conn.execute(
+        "SELECT scheduled_shift_id,actual_in,actual_out FROM time_logs"
+    ).fetchall()
+
+    assert result["continuous_segments_created"] == 0
+    assert result["logs_linked"] == 0
+    assert len(rows) == 1
+    assert rows[0]["scheduled_shift_id"] is None
+
+
 def test_detaches_orphaned_shift_ids_then_relinks_to_current_split_shifts():
     conn = build_conn()
     conn.executemany(
