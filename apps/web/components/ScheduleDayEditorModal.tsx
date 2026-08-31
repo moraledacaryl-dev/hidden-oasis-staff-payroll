@@ -76,10 +76,17 @@ export function ScheduleDayEditorModal({ open, day, shift, initialEmployeeId = n
     setEmployeeId(selectedEmployeeId ? String(selectedEmployeeId) : "");
     setShiftDate(selectedDay);
 
+    // A create operation must not hydrate from an existing employee-day shift.
+    // Existing shifts are opened with their exact shift_id; new split shifts
+    // intentionally start from a clean form and are validated again on save.
+    if (!shift?.id && selectedEmployeeId) {
+      setLoading(false);
+      return () => controller.abort();
+    }
+
     const params = new URLSearchParams();
     params.set("shift_date", selectedDay);
     if (shift?.id) params.set("shift_id", String(shift.id));
-    else if (selectedEmployeeId) params.set("employee_id", String(selectedEmployeeId));
 
     if (!shift?.id && !selectedEmployeeId) {
       setLoading(false);
