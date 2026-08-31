@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Header, Query
 
 from api.security import current_user_from_token, require_api_key
+from api.split_shift_actual_reconciliation import reconcile_unlinked_split_shift_logs
 from core.db import DB_PATH, fetchall, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -30,10 +31,20 @@ def schedule_actuals_week(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    require_schedule_viewer(authorization, x_api_key)
+    user = require_schedule_viewer(authorization, x_api_key)
     start, end = week_bounds(week_start)
     conn = get_conn(DB_PATH)
     try:
+        # Attendance rows can predate creation of a second same-day shift. Link
+        # those existing rows only when the remaining mapping is provably
+        # one-to-one; ambiguous groups remain untouched and visible for review.
+        reconciliation = reconcile_unlinked_split_shift_logs(
+            conn,
+            changed_by=user.get("display_name") or "schedule-viewer",
+        )
+        if reconciliation["logs_linked"]:
+            conn.commit()
+
         rows = fetchall(
             conn,
             """
@@ -64,6 +75,13 @@ def schedule_actuals_week(
             """,
             (start, end),
         )
-        return {"ok": True, "week_start": start, "week_end": end, "items": rows, "mode": "actual_attendance_by_week"}
+        return {
+            "ok": True,
+            "week_start": start,
+            "week_end": end,
+            "items": rows,
+            "mode": "actual_attendance_by_week",
+            "reconciliation": reconciliation,
+        }
     finally:
         conn.close()
