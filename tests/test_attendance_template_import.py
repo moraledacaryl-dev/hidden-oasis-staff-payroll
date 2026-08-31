@@ -10,7 +10,7 @@ from api.attendance_template_import import (
     AttendanceTemplateRow,
     import_attendance_template,
 )
-from core.db import fetchone, get_conn, init_db, now_iso
+from core.db import fetchall, fetchone, get_conn, init_db, now_iso
 
 
 class AttendanceTemplateImportTests(unittest.TestCase):
@@ -44,6 +44,53 @@ class AttendanceTemplateImportTests(unittest.TestCase):
             patch("api.attendance_template_import.require_attendance_importer", return_value=self.actor),
         ):
             return import_attendance_template(payload, authorization=None, x_api_key=None)
+
+    def add_split_shifts(self, work_date: str = "2026-06-16") -> tuple[int, int]:
+        conn = get_conn(self.db_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scheduled_shifts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    employee_id INTEGER,
+                    shift_date TEXT NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT NOT NULL,
+                    position TEXT NOT NULL DEFAULT 'Other',
+                    department TEXT,
+                    break_minutes INTEGER NOT NULL DEFAULT 60,
+                    status TEXT NOT NULL DEFAULT 'Draft',
+                    notes TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            first = int(
+                conn.execute(
+                    """
+                    INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time)
+                    VALUES (?, ?, '06:00', '14:00')
+                    """,
+                    (self.employee_id, work_date),
+                ).lastrowid
+            )
+            second = int(
+                conn.execute(
+                    """
+                    INSERT INTO scheduled_shifts(employee_id, shift_date, start_time, end_time)
+                    VALUES (?, ?, '14:00', '22:00')
+                    """,
+                    (self.employee_id, work_date),
+                ).lastrowid
+            )
+            columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(time_logs)").fetchall()}
+            if "scheduled_shift_id" not in columns:
+                conn.execute("ALTER TABLE time_logs ADD COLUMN scheduled_shift_id INTEGER")
+            conn.commit()
+            return first, second
+        finally:
+            conn.close()
 
     def test_preview_accepts_clean_overnight_template_row(self) -> None:
         result = self.call_import(
@@ -126,6 +173,102 @@ class AttendanceTemplateImportTests(unittest.TestCase):
         self.assertEqual(row["actual_out"], "15:01")
         self.assertEqual(row["source"], "template_upload")
         self.assertEqual(row["attendance_status"], "ON-TIME")
+
+    def test_split_shift_import_preserves_two_rows_and_links_each_exact_shift(self) -> None:
+        first_shift_id, second_shift_id = self.add_split_shifts()
+        payload = AttendanceTemplateImportPayload(
+            dry_run=False,
+            file_name="split-shifts.csv",
+            replace_template_rows=True,
+            rows=[
+                AttendanceTemplateRow(
+                    work_date="2026-06-16",
+                    biometric_id="BIO-1",
+                    time_in="6:05 AM",
+                    time_out="1:55 PM",
+                    attendance_status="ON-TIME",
+                ),
+                AttendanceTemplateRow(
+                    work_date="2026-06-16",
+                    biometric_id="BIO-1",
+                    time_in="2:05 PM",
+                    time_out="9:55 PM",
+                    attendance_status="ON-TIME",
+                ),
+            ],
+        )
+
+        result = self.call_import(payload)
+        self.assertEqual(result["summary"]["imported"], 2)
+        self.assertEqual(result["summary"]["ready"], 2)
+        self.assertEqual(
+            [item["scheduled_shift_id"] for item in result["items"]],
+            [first_shift_id, second_shift_id],
+        )
+
+        conn = get_conn(self.db_path)
+        try:
+            rows = fetchall(
+                conn,
+                """
+                SELECT scheduled_shift_id, actual_in, actual_out
+                FROM time_logs
+                WHERE employee_id=? AND work_date=? AND source='template_upload'
+                ORDER BY actual_in
+                """,
+                (self.employee_id, "2026-06-16"),
+            )
+        finally:
+            conn.close()
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(
+            [row["scheduled_shift_id"] for row in rows],
+            [first_shift_id, second_shift_id],
+        )
+        self.assertEqual([row["actual_in"] for row in rows], ["06:05", "14:05"])
+
+        # Replacing the same uploaded employee/date must replace the batch as a
+        # set, not delete the first split-shift row while inserting the second.
+        second_result = self.call_import(payload)
+        self.assertEqual(second_result["summary"]["imported"], 2)
+        conn = get_conn(self.db_path)
+        try:
+            count = int(
+                fetchone(
+                    conn,
+                    """
+                    SELECT COUNT(*) AS total
+                    FROM time_logs
+                    WHERE employee_id=? AND work_date=? AND source='template_upload'
+                    """,
+                    (self.employee_id, "2026-06-16"),
+                )["total"]
+            )
+        finally:
+            conn.close()
+        self.assertEqual(count, 2)
+
+    def test_split_shift_preview_refuses_ambiguous_assignment(self) -> None:
+        self.add_split_shifts()
+        result = self.call_import(
+            AttendanceTemplateImportPayload(
+                dry_run=True,
+                rows=[
+                    AttendanceTemplateRow(
+                        work_date="2026-06-16",
+                        biometric_id="BIO-1",
+                        time_in="11:30 PM",
+                        time_out="11:45 PM",
+                        attendance_status="ON-TIME",
+                    )
+                ],
+            )
+        )
+
+        self.assertEqual(result["summary"]["needs_review"], 1)
+        self.assertIsNone(result["items"][0]["scheduled_shift_id"])
+        self.assertIn("does not identify exactly one shift", result["items"][0]["issues"][-1])
 
 
 if __name__ == "__main__":
