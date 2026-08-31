@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, FastAPI
 import api.main as core_main_module
 from api.attendance_compliance import router as attendance_compliance_router
 from api.attendance_template_import import router as attendance_template_import_router
+from api.attendance_template_split_shift import router as attendance_template_split_shift_router
 from api.cash_advance_corrections import router as cash_advance_corrections_router
 from api.cash_advances import router as cash_advances_router
 from api.cash_repayments import router as cash_repayments_router
@@ -227,6 +228,7 @@ ROUTERS = (
     staff_published_portal_router,
     attendance_compliance_router,
     attendance_template_import_router,
+    attendance_template_split_shift_router,
     cash_advances_router,
     cash_repayments_router,
     cash_advance_corrections_router,
