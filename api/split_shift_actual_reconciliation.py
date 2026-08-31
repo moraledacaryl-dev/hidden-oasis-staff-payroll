@@ -146,7 +146,10 @@ def reconcile_unlinked_split_shift_logs(
             """,
             (group_employee_id, group_work_date),
         )
-        if not shifts:
+        # Single-shift days already have a safe display fallback. Do not assign
+        # a detached orphan automatically because it may belong to a deleted
+        # historical shift rather than the one remaining current shift.
+        if len(shifts) < 2:
             skipped += 1
             continue
 
