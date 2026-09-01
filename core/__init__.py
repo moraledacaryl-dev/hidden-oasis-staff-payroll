@@ -9,3 +9,10 @@ from . import db as _db
 from .observability import utc_storage_iso
 
 _db.now_iso = utc_storage_iso
+
+# PR #54 introduced the correct independent scheduled-shift payroll policy, but
+# legacy callers still import core.payroll_engine.compute_payroll directly.
+# Bind that public compute path to the policy once at package initialization.
+from .default_payroll_policy import install as _install_default_payroll_policy
+
+_install_default_payroll_policy()
