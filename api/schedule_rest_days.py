@@ -117,6 +117,24 @@ def save_rest_day(
             (payload.employee_id, work_date),
         )
         before = dict(existing) if existing else None
+        stale_actuals = []
+        if payload.active:
+            stale_actuals = fetchall(
+                conn,
+                """
+                SELECT * FROM time_logs
+                WHERE employee_id=? AND date(work_date)=date(?)
+                  AND COALESCE(attendance_status, '') != 'Rejected'
+                  AND (
+                    NULLIF(TRIM(COALESCE(actual_in, '')), '') IS NOT NULL
+                    OR NULLIF(TRIM(COALESCE(actual_out, '')), '') IS NOT NULL
+                    OR COALESCE(is_absent, 0) != 0
+                    OR COALESCE(approved_ot_hours, 0) != 0
+                  )
+                ORDER BY id
+                """,
+                (payload.employee_id, work_date),
+            )
         stamp = now_iso()
         conn.execute(
             """
@@ -157,6 +175,31 @@ def save_rest_day(
             after=dict(after) if after else None,
             changed_by=user.get("display_name"),
         )
+
+        # A Rest Day is an explicit employee-day lifecycle decision. Any old
+        # imported/manual actuals for that day must not survive as payroll-visible
+        # work. Preserve the audit trail in schedule_change_logs, then remove the
+        # stale rows so neither payroll nor later reconciliation can resurrect them.
+        if payload.active and stale_actuals:
+            conn.execute(
+                "DELETE FROM time_logs WHERE employee_id=? AND date(work_date)=date(?)",
+                (payload.employee_id, work_date),
+            )
+            for stale in stale_actuals:
+                log_schedule_change(
+                    conn,
+                    change_type="clear_actual_for_rest_day",
+                    entity_type="time_log",
+                    entity_id=int(stale["id"]),
+                    employee_id=payload.employee_id,
+                    work_date=work_date,
+                    before=dict(stale),
+                    after=None,
+                    changed_by=user.get("display_name"),
+                    reason_category="rest_day",
+                    reason_note="Attendance cleared because employee-day was marked Rest Day.",
+                )
+
         conn.commit()
         return {
             "ok": True,
@@ -164,6 +207,9 @@ def save_rest_day(
             "message": "Rest day marked." if payload.active else "Rest day cleared.",
         }
     except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
         conn.rollback()
         raise
     finally:
