@@ -4,8 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
-from api.cash_advance_service import ensure_schema as ensure_cash_schema, recalculate_balance
-from api.payroll_adjustment_events import append_adjustment_event, ensure_adjustment_event_schema
+from api.cash_advance_service import recalculate_balance
+from api.payroll_adjustment_events import append_adjustment_event
 from api.payroll_adjustments import (
     AdjustmentPayload,
     _clean_note,
@@ -67,7 +67,6 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
           AND pia.payroll_run_id<>?
           AND COALESCE(pia.cash_advance_amount,0)>0
           AND COALESCE(pr.status,'')='Draft'
-          AND COALESCE(pr.superseded_by_run_id,0)=0
         """,
         (employee_id, run_id),
     ) or {}
@@ -190,8 +189,6 @@ def get_adjustments(
             period_end=str(run.get("period_end") or ""),
             amount=cash,
         )
-        # New edits are employee-level FIFO plans. Preserve the legacy exact id
-        # only as read-only provenance; the editor intentionally does not reuse it.
         adjustment["legacy_cash_advance_id"] = adjustment.get("cash_advance_id")
         adjustment["cash_advance_id"] = None
 
