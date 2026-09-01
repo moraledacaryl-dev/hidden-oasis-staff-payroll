@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.security import current_user_from_token, require_api_key
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from api.payroll_adjustments import ensure_schema as ensure_adjustment_schema
 from api.payroll_drafts import totals
 from api.payroll_review import PAYROLL_ITEM_FIELDS, _leave_summaries
 
@@ -91,14 +92,21 @@ def payslip_run_detail(run_id: int, authorization: str | None = Header(default=N
     conn = get_conn(DB_PATH)
     try:
         ensure_distribution_schema(conn)
+        ensure_adjustment_schema(conn)
         run = get_visible_run(conn, run_id)
         items = fetchall(
             conn,
             """
             SELECT pi.*, e.full_name AS employee_name, e.employee_code, e.department, e.position,
+                   pia.additional_earning AS manual_earning_amount,
+                   pia.additional_earning_note AS manual_earning_label,
+                   pia.other_deduction AS manual_deduction_amount,
+                   pia.other_deduction_note AS manual_deduction_label,
                    pdl.distributed_at, pdl.distributed_by, pdl.method AS distribution_method, pdl.notes AS distribution_notes
             FROM payroll_items pi
             JOIN employees e ON e.id=pi.employee_id
+            LEFT JOIN payroll_item_adjustments pia
+              ON pia.payroll_run_id=pi.payroll_run_id AND pia.employee_id=pi.employee_id
             LEFT JOIN payslip_distribution_logs pdl ON pdl.payroll_run_id=pi.payroll_run_id AND pdl.employee_id=pi.employee_id
             WHERE pi.payroll_run_id=?
             ORDER BY e.department, e.full_name
@@ -114,6 +122,10 @@ def payslip_run_detail(run_id: int, authorization: str | None = Header(default=N
             row["department"] = item.get("department") or "Unassigned"
             row["position"] = item.get("position")
             row["payroll_run_id"] = run_id
+            row["manual_earning_amount"] = round(float(item.get("manual_earning_amount") or 0), 2)
+            row["manual_earning_label"] = str(item.get("manual_earning_label") or "").strip() or None
+            row["manual_deduction_amount"] = round(float(item.get("manual_deduction_amount") or 0), 2)
+            row["manual_deduction_label"] = str(item.get("manual_deduction_label") or "").strip() or None
             row["leave_summary"] = _leave_summaries(conn, int(item.get("employee_id") or 0), str(run.get("period_start")), str(run.get("period_end")))
             row["distribution"] = {
                 "distributed": bool(item.get("distributed_at")),
