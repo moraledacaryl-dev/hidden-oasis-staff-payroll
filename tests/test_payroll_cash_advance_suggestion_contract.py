@@ -29,6 +29,11 @@ class PayrollCashAdvanceSuggestionContractTests(unittest.TestCase):
         self.assertIn("Number(current.cash_advance_amount ?? 0)", self.editor)
         self.assertNotIn("Number(current.cash_advance_amount || 0)", self.editor)
 
+    def test_saved_cash_deduction_can_be_cleared_when_available_balance_is_zero(self) -> None:
+        self.assertNotIn("disabled={cashTotalAvailable <= 0}", self.editor)
+        self.assertIn("cashTotalAvailable <= 0 && savedCash > 0", self.editor)
+        self.assertIn("reduce this saved deduction to ₱0", self.editor)
+
     def test_aggregate_suggestion_and_allocation_are_centavo_rounded_and_capped(self) -> None:
         self.assertIn("function roundMoney(value: number): number", self.editor)
         self.assertIn("const available = Math.max(0, roundMoney(Number(advance.available_balance ?? 0)))", self.editor)
