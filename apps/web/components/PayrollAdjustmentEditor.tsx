@@ -7,10 +7,13 @@ import styles from "./PayrollAdjustmentEditor.module.css";
 
 type CashAdvance = {
   id: number;
-  advance_date: string;
-  amount: number;
+  advance_date?: string | null;
+  request_date?: string | null;
+  amount?: number;
   available_balance: number;
   deduction_per_payroll?: number | null;
+  repayment_per_cutoff?: number | null;
+  custom_next_deduction?: number | null;
   reason?: string | null;
 };
 type Adjustment = {
@@ -18,10 +21,16 @@ type Adjustment = {
   additional_earning_note?: string | null;
   other_deduction?: number;
   other_deduction_note?: string | null;
-  cash_advance_id?: number | null;
   cash_advance_amount?: number;
   cash_advance_note?: string | null;
   version?: number;
+};
+type Allocation = {
+  cash_advance_id: number;
+  advance_date?: string | null;
+  amount: number;
+  available_balance: number;
+  reason?: string | null;
 };
 type AdjustmentMode = "cash" | "earning" | "deduction";
 
@@ -33,10 +42,24 @@ function roundMoney(value: number): number {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
-function clampCashAmount(advance: CashAdvance, value: number): number {
-  const available = Math.max(0, roundMoney(Number(advance.available_balance ?? 0)));
-  const requested = Math.max(0, roundMoney(Number(value ?? 0)));
-  return Math.min(available, requested);
+function allocateCash(advances: CashAdvance[], value: number): Allocation[] {
+  let remaining = Math.max(0, roundMoney(value));
+  const result: Allocation[] = [];
+  for (const advance of advances) {
+    if (remaining <= 0) break;
+    const available = Math.max(0, roundMoney(Number(advance.available_balance ?? 0)));
+    if (available <= 0) continue;
+    const amount = Math.min(remaining, available);
+    result.push({
+      cash_advance_id: advance.id,
+      advance_date: advance.advance_date || advance.request_date,
+      amount: roundMoney(amount),
+      available_balance: available,
+      reason: advance.reason,
+    });
+    remaining = roundMoney(remaining - amount);
+  }
+  return result;
 }
 
 export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, currentNetPay = 0, disabled = false }: { runId: number; employeeId: number; employeeName: string; currentNetPay?: number; disabled?: boolean }) {
@@ -48,18 +71,19 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
   const [message, setMessage] = useState("");
   const [advances, setAdvances] = useState<CashAdvance[]>([]);
   const [adjustment, setAdjustment] = useState<Adjustment>({});
-  const [selectedAdvanceId, setSelectedAdvanceId] = useState<number | null>(null);
   const [cashAmount, setCashAmount] = useState(0);
   const [cashNote, setCashNote] = useState("");
+  const [cashTotalAvailable, setCashTotalAvailable] = useState(0);
+  const [cashSuggested, setCashSuggested] = useState(0);
+  const [reservedElsewhere, setReservedElsewhere] = useState(0);
   const [additionalEarning, setAdditionalEarning] = useState(0);
   const [additionalEarningNote, setAdditionalEarningNote] = useState("");
   const [otherDeduction, setOtherDeduction] = useState(0);
   const [otherDeductionNote, setOtherDeductionNote] = useState("");
   const [serverEditable, setServerEditable] = useState(true);
 
-  const selectedAdvance = useMemo(() => advances.find((item) => item.id === selectedAdvanceId), [advances, selectedAdvanceId]);
-  const suggestedCash = selectedAdvance ? clampCashAmount(selectedAdvance, Number(selectedAdvance.deduction_per_payroll ?? 0)) : 0;
-  const cashNeedsReason = Boolean(selectedAdvanceId) && cashAmount > 0 && roundMoney(cashAmount) !== roundMoney(suggestedCash);
+  const allocations = useMemo(() => allocateCash(advances, cashAmount), [advances, cashAmount]);
+  const cashNeedsReason = cashAmount > 0 && Math.abs(roundMoney(cashAmount) - roundMoney(cashSuggested)) >= 0.005;
   const savedAdditional = Number(adjustment.additional_earning ?? 0);
   const savedOtherDeduction = Number(adjustment.other_deduction ?? 0);
   const savedCash = Number(adjustment.cash_advance_amount ?? 0);
@@ -79,9 +103,11 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
     const current = data.adjustment || {};
     setAdvances(data.cash_advances || []);
     setAdjustment(current);
-    setSelectedAdvanceId(current.cash_advance_id != null ? Number(current.cash_advance_id) : null);
     setCashAmount(Number(current.cash_advance_amount ?? 0));
     setCashNote(String(current.cash_advance_note || ""));
+    setCashTotalAvailable(Number(data.cash_advance_total_available ?? 0));
+    setCashSuggested(Number(data.cash_advance_suggested ?? 0));
+    setReservedElsewhere(Number(data.cash_advance_reserved_elsewhere ?? 0));
     setAdditionalEarning(Number(current.additional_earning ?? 0));
     setAdditionalEarningNote(String(current.additional_earning_note || ""));
     setOtherDeduction(Number(current.other_deduction ?? 0));
@@ -90,21 +116,6 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
   }, [employeeId, runId]);
 
   useEffect(() => { if (open) void load(); }, [load, open]);
-
-  function chooseAdvance(value: string) {
-    const id = value ? Number(value) : null;
-    setSelectedAdvanceId(id);
-    const item = advances.find((advance) => advance.id === id);
-    if (!item) {
-      setCashAmount(0);
-      setCashNote("");
-      return;
-    }
-    const saved = Number(adjustment.cash_advance_id) === id ? Number(adjustment.cash_advance_amount ?? 0) : null;
-    const suggested = Number(item.deduction_per_payroll ?? 0);
-    setCashAmount(clampCashAmount(item, saved ?? suggested));
-    setCashNote(Number(adjustment.cash_advance_id) === id ? String(adjustment.cash_advance_note || "") : "");
-  }
 
   async function submit() {
     setBusy(true);
@@ -117,7 +128,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
         additional_earning_note: additionalEarningNote.trim() || null,
         other_deduction: otherDeduction,
         other_deduction_note: otherDeductionNote.trim() || null,
-        cash_advance_id: selectedAdvanceId,
+        cash_advance_id: null,
         cash_advance_amount: cashAmount,
         cash_advance_note: cashNote.trim() || null,
         expected_version: Number(adjustment.version ?? 0),
@@ -170,20 +181,32 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
 
             {mode === "cash" ? (
               <section className={styles.section} role="tabpanel">
-                <div className={styles.sectionTitle}><strong>Cash advance repayment</strong><span>Select the exact advance and amount to deduct in this payroll.</span></div>
+                <div className={styles.sectionTitle}>
+                  <strong>Cash advance repayment</strong>
+                  <span>Enter one deduction for this employee. It is automatically applied to eligible advances oldest first, so one payroll deduction can pay across several advances.</span>
+                </div>
+                <div className={styles.balanceRow}><span>Total available balance</span><strong>{peso(cashTotalAvailable)}</strong></div>
+                <div className={styles.balanceRow}><span>Configured total this cutoff</span><strong>{peso(cashSuggested)}</strong></div>
+                {reservedElsewhere > 0 ? <div className={styles.balanceRow}><span>Reserved by other draft payrolls</span><strong>{peso(reservedElsewhere)}</strong></div> : null}
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Cash advance</span>
-                  <select name="cash_advance_id" value={selectedAdvanceId || ""} onChange={(event) => chooseAdvance(event.target.value)}>
-                    <option value="">No cash advance deduction</option>
-                    {advances.map((advance) => <option key={advance.id} value={advance.id}>#{advance.id} · {advance.advance_date} · Available {peso(advance.available_balance)}</option>)}
-                  </select>
+                  <span className={styles.fieldLabel}>Deduction this cutoff</span>
+                  <input name="cash_advance_amount" type="number" min="0" max={cashTotalAvailable} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={cashTotalAvailable <= 0} />
                 </label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Deduction this cutoff</span><input name="cash_advance_amount" type="number" min="0" max={selectedAdvance?.available_balance ?? 0} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={!selectedAdvanceId} /></label>
-                {selectedAdvance ? <>
-                  <div className={styles.balanceRow}><span>Suggested deduction</span><strong>{peso(suggestedCash)}</strong></div>
-                  <div className={styles.balanceRow}><span>Available balance</span><strong>{peso(selectedAdvance.available_balance)}</strong></div>
-                  <label className={styles.field}><span className={styles.fieldLabel}>Reason {cashNeedsReason ? "(required)" : "(optional)"}</span><input name="cash_advance_note" value={cashNote} onChange={(event) => setCashNote(event.target.value)} required={cashNeedsReason} placeholder={cashNeedsReason ? "Why this differs from the configured suggestion" : "Optional note"} /></label>
-                </> : advances.length ? <p className={styles.helper}>Choose an advance to apply it to this payroll.</p> : <p className={styles.helper}>No available cash advances found for this employee.</p>}
+                {cashAmount > 0 ? (
+                  <div className={styles.section}>
+                    <div className={styles.sectionTitle}><strong>How this deduction will be applied</strong><span>Oldest eligible advance first.</span></div>
+                    {allocations.map((allocation) => (
+                      <div className={styles.balanceRow} key={allocation.cash_advance_id}>
+                        <span>#{allocation.cash_advance_id} · {allocation.advance_date || "Undated"}{allocation.reason ? ` · ${allocation.reason}` : ""}</span>
+                        <strong>{peso(allocation.amount)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : advances.length ? <p className={styles.helper}>No deduction is selected for this cutoff.</p> : <p className={styles.helper}>No eligible payroll-deduction cash advances are available for this employee.</p>}
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Reason {cashNeedsReason ? "(required)" : "(optional)"}</span>
+                  <input name="cash_advance_note" value={cashNote} onChange={(event) => setCashNote(event.target.value)} required={cashNeedsReason} placeholder={cashNeedsReason ? "Why this differs from the configured total" : "Optional note"} />
+                </label>
               </section>
             ) : null}
 
