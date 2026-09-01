@@ -1,0 +1,1 @@
+Production audit on 2026-09-01 showed repeated update_actual events against unlinked time_log 1577 while current split shifts 1198 and 1298 existed. This proves the employee-day history writer was dispatching instead of the shift-aware writer.
