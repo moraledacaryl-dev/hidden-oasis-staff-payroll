@@ -38,20 +38,28 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.conn.close()
 
-    def add_shift(self, day: str, start: str, end: str) -> int:
+    def add_shift(self, day: str, start: str, end: str, *, break_minutes: int = 0) -> int:
         cursor = self.conn.execute(
             """
             INSERT INTO scheduled_shifts(
                 employee_id,shift_date,start_time,end_time,position,department,
                 break_minutes,status,source
-            ) VALUES(?,?,?,?,?,'Operations',0,'Approved','planned')
+            ) VALUES(?,?,?,?,?,'Operations',?,'Approved','planned')
             """,
-            (self.employee_id, day, start, end, "Staff"),
+            (self.employee_id, day, start, end, "Staff", break_minutes),
         )
         self.conn.commit()
         return int(cursor.lastrowid)
 
-    def add_log(self, day: str, actual_in: str, actual_out: str, shift_id: int) -> None:
+    def add_log(
+        self,
+        day: str,
+        actual_in: str,
+        actual_out: str,
+        shift_id: int,
+        *,
+        approved_ot_hours: float = 0.0,
+    ) -> None:
         stamp = now_iso()
         self.conn.execute(
             """
@@ -59,9 +67,18 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
                 employee_id,work_date,actual_in,actual_out,source,verification_type,
                 is_absent,approved_ot_hours,ot_status,attendance_status,
                 scheduled_shift_id,created_at,updated_at
-            ) VALUES(?,?,?,?, 'manual','Manual',0,0,'Approved','Reviewed',?,?,?)
+            ) VALUES(?,?,?,?, 'manual','Manual',0,?,'Approved','Reviewed',?,?,?)
             """,
-            (self.employee_id, day, actual_in, actual_out, shift_id, stamp, stamp),
+            (
+                self.employee_id,
+                day,
+                actual_in,
+                actual_out,
+                approved_ot_hours,
+                shift_id,
+                stamp,
+                stamp,
+            ),
         )
         self.conn.commit()
 
@@ -79,11 +96,45 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
         self.assertEqual(result.ot_pay, 0.0)
         self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
 
-    def test_time_beyond_one_individual_shift_still_becomes_ot(self) -> None:
+    def test_each_shift_is_capped_at_eight_regular_hours_without_auto_ot(self) -> None:
         first = self.add_shift("2026-08-20", "04:00", "13:00")
         second = self.add_shift("2026-08-20", "13:00", "21:00")
         self.add_log("2026-08-20", "04:00", "13:00", first)
         self.add_log("2026-08-20", "13:00", "21:00", second)
+
+        result = compute_payroll_per_shift(self.conn, "2026-08-16", "2026-08-31")[0]
+
+        self.assertEqual(result.regular_hours, 16.0)
+        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.regular_pay, 1600.0)
+        self.assertEqual(result.ot_pay, 0.0)
+        self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
+
+    def test_monico_production_shape_is_sixteen_regular_zero_ot(self) -> None:
+        first = self.add_shift("2026-08-17", "12:00", "21:00", break_minutes=60)
+        second = self.add_shift("2026-08-17", "21:00", "07:00", break_minutes=60)
+        self.add_log("2026-08-17", "11:57", "21:00", first)
+        self.add_log("2026-08-17", "21:00", "07:01", second)
+
+        result = compute_payroll_per_shift(self.conn, "2026-08-15", "2026-08-29")[0]
+
+        self.assertEqual(result.regular_hours, 16.0)
+        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.regular_pay, 1600.0)
+        self.assertEqual(result.ot_pay, 0.0)
+        self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
+
+    def test_only_approved_outside_schedule_time_is_ot_on_split_day(self) -> None:
+        first = self.add_shift("2026-08-20", "05:00", "13:00")
+        second = self.add_shift("2026-08-20", "13:00", "21:00")
+        self.add_log("2026-08-20", "05:00", "13:00", first)
+        self.add_log(
+            "2026-08-20",
+            "13:00",
+            "22:00",
+            second,
+            approved_ot_hours=1.0,
+        )
 
         result = compute_payroll_per_shift(self.conn, "2026-08-16", "2026-08-31")[0]
 

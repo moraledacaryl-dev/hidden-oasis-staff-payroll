@@ -27,13 +27,13 @@ def apply_independent_split_shift_allocation(
     period_start: str,
     period_end: str,
 ) -> Any:
-    """Treat each explicitly scheduled shift as its own regular-hours bucket.
+    """Give each distinct same-day scheduled shift its own 8-hour regular bucket.
 
-    A second same-day shift is not overtime merely because another scheduled
-    shift occurred earlier that day. Each linked scheduled shift receives up to
-    the configured standard paid hours as regular time. Work beyond that
-    individual shift's regular bucket remains OT, and outside-schedule time
-    still requires approved OT exactly as before.
+    Hidden Oasis rule: a second scheduled shift is independent of the first.
+    Each linked shift contributes at most the configured standard paid hours
+    (normally 8) as regular time. Time beyond that cap is not automatically OT.
+    OT is payable only for explicitly approved work outside that shift's exact
+    scheduled window.
     """
     employee_id = int(employee["id"])
     standard_paid_hours = float(get_setting(conn, "standard_daily_paid_hours", "8") or 8)
@@ -70,7 +70,6 @@ def apply_independent_split_shift_allocation(
         matched_by_date.setdefault(work_date, []).append((log, schedule))
 
     changed_dates: set[str] = set()
-    keep_inside_ot_warning_dates: set[str] = set()
     regular_hours_delta = 0.0
     regular_pay_delta = 0.0
     ot_hours_delta = 0.0
@@ -104,19 +103,23 @@ def apply_independent_split_shift_allocation(
             paid_actual = round(float(comp.get("paid_actual_hours") or 0), 4)
             inside = round(float(comp.get("worked_inside_schedule_hours") or 0), 4)
             outside = round(max(0.0, paid_actual - inside), 4)
-            approved_outside = round(min(float(log.get("approved_ot_hours") or 0), outside), 4)
+            approved_outside = round(
+                min(float(log.get("approved_ot_hours") or 0), outside),
+                4,
+            )
 
+            # Reconstruct the legacy shared-day allocation so we can reverse
+            # exactly what the base engine classified before this policy runs.
             old_remaining = max(0.0, standard_paid_hours - old_regular_allocated)
             old_regular = round(min(old_remaining, inside), 4)
             old_inside_ot = round(max(0.0, inside - old_regular), 4)
             old_regular_allocated = round(old_regular_allocated + old_regular, 4)
             old_ot = round(old_inside_ot + approved_outside, 4)
 
+            # Correct policy: every distinct shift starts with a fresh 8-hour
+            # regular bucket. Any extra scheduled time is not auto-OT.
             new_regular = round(min(standard_paid_hours, inside), 4)
-            new_inside_ot = round(max(0.0, inside - new_regular), 4)
-            new_ot = round(new_inside_ot + approved_outside, 4)
-            if new_inside_ot > 0:
-                keep_inside_ot_warning_dates.add(work_date)
+            new_ot = approved_outside
 
             if abs(new_regular - old_regular) < 0.0001 and abs(new_ot - old_ot) < 0.0001:
                 continue
@@ -145,17 +148,18 @@ def apply_independent_split_shift_allocation(
     result.ot_pay = money(float(result.ot_pay or 0) + ot_pay_delta)
     result.holiday_pay = money(float(result.holiday_pay or 0) + holiday_pay_delta)
 
+    # The base engine's automatic "inside-schedule beyond 8" warning is invalid
+    # on independent split-shift dates because extra scheduled time is not OT by
+    # default under this policy.
     filtered_warnings: list[str] = []
     for warning in list(result.warnings or []):
-        if warning.startswith("Inside-schedule hours beyond "):
-            matched_date = next((day for day in changed_dates if day in warning), None)
-            if matched_date and matched_date not in keep_inside_ot_warning_dates:
-                continue
+        if warning.startswith("Inside-schedule hours beyond ") and any(
+            day in warning for day in changed_dates
+        ):
+            continue
         filtered_warnings.append(warning)
     result.warnings = filtered_warnings
 
-    # Gross pay and statutory deductions depend on the regular/OT split, so
-    # refresh those amounts after applying the per-shift policy.
     from core.payroll_fractional_leave import _recompute_statutory_and_net
 
     _recompute_statutory_and_net(conn, result, employee, period_start)
