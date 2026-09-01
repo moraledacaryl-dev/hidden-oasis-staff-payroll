@@ -1,0 +1,3 @@
+canonical_manual_actual_handler=api.schedules.save_day_actual
+legacy_manual_actual_handler=api.schedule_history_controls.save_actual_history
+production_owner=canonical_only
