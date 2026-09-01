@@ -1,0 +1,1 @@
+Manual schedule actual writes must dispatch only to api.schedules.save_day_actual. The payroll revision history router may retain move/delete compatibility handlers, but its employee-day save_actual_history handler must never be registered in the production application because it ignores shift_id and can overwrite an unlinked attendance row on split-shift dates.
