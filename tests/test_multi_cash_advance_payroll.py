@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import unittest
+
 from api.cash_advance_service import ensure_schema as ensure_cash_schema
 from api.payroll_adjustments import ensure_schema as ensure_adjustment_schema
 from api.payroll_adjustments_aggregate import _cash_snapshot
@@ -74,120 +76,127 @@ def _seed_advance(
     return int(cursor.lastrowid)
 
 
-def test_aggregate_snapshot_spans_multiple_advances_and_respects_other_drafts() -> None:
-    conn = get_conn(":memory:")
-    try:
-        init_db(conn)
-        ensure_adjustment_schema(conn)
-        employee_id = _seed_employee(conn)
-        run_id = _seed_run(conn, employee_id, deduction=0)
-        other_run_id = _seed_run(conn, employee_id, deduction=50, period_end="2026-09-15")
-        first = _seed_advance(
-            conn,
-            employee_id,
-            advance_date="2026-08-01",
-            amount=100,
-            deduction_per_payroll=100,
-        )
-        second = _seed_advance(
-            conn,
-            employee_id,
-            advance_date="2026-08-10",
-            amount=200,
-            deduction_per_payroll=100,
-        )
-        other_item = conn.execute(
-            "SELECT id FROM payroll_items WHERE payroll_run_id=? AND employee_id=?",
-            (other_run_id, employee_id),
-        ).fetchone()
-        conn.execute(
-            """
-            INSERT INTO payroll_item_adjustments(
-                payroll_run_id,payroll_item_id,employee_id,
-                cash_advance_amount,version,created_at,updated_at
-            ) VALUES(?,?,?,50,1,?,?)
-            """,
-            (other_run_id, int(other_item[0]), employee_id, now_iso(), now_iso()),
-        )
-        conn.commit()
+class MultiCashAdvancePayrollTests(unittest.TestCase):
+    def test_aggregate_snapshot_spans_multiple_advances_and_respects_other_drafts(self) -> None:
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=0)
+            other_run_id = _seed_run(conn, employee_id, deduction=50, period_end="2026-09-15")
+            first = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-01",
+                amount=100,
+                deduction_per_payroll=100,
+            )
+            second = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-10",
+                amount=200,
+                deduction_per_payroll=100,
+            )
+            other_item = conn.execute(
+                "SELECT id FROM payroll_items WHERE payroll_run_id=? AND employee_id=?",
+                (other_run_id, employee_id),
+            ).fetchone()
+            conn.execute(
+                """
+                INSERT INTO payroll_item_adjustments(
+                    payroll_run_id,payroll_item_id,employee_id,
+                    cash_advance_amount,version,created_at,updated_at
+                ) VALUES(?,?,?,50,1,?,?)
+                """,
+                (other_run_id, int(other_item[0]), employee_id, now_iso(), now_iso()),
+            )
+            conn.commit()
 
-        snapshot = _cash_snapshot(
-            conn,
-            run_id=run_id,
-            employee_id=employee_id,
-            period_end="2026-08-31",
-            amount=180,
-        )
+            snapshot = _cash_snapshot(
+                conn,
+                run_id=run_id,
+                employee_id=employee_id,
+                period_end="2026-08-31",
+                amount=180,
+            )
 
-        assert snapshot["cash_advance_reserved_elsewhere"] == 50
-        assert snapshot["cash_advance_total_available"] == 250
-        assert snapshot["cash_advance_suggested"] == 150
-        assert snapshot["cash_advance_allocations"] == [
-            {
-                "cash_advance_id": first,
-                "advance_date": "2026-08-01",
-                "reason": None,
-                "available_balance": 50.0,
-                "amount": 50.0,
-            },
-            {
-                "cash_advance_id": second,
-                "advance_date": "2026-08-10",
-                "reason": None,
-                "available_balance": 200.0,
-                "amount": 130.0,
-            },
-        ]
-    finally:
-        conn.close()
+            self.assertEqual(snapshot["cash_advance_reserved_elsewhere"], 50)
+            self.assertEqual(snapshot["cash_advance_total_available"], 250)
+            self.assertEqual(snapshot["cash_advance_suggested"], 150)
+            self.assertEqual(
+                snapshot["cash_advance_allocations"],
+                [
+                    {
+                        "cash_advance_id": first,
+                        "advance_date": "2026-08-01",
+                        "reason": None,
+                        "available_balance": 50.0,
+                        "amount": 50.0,
+                    },
+                    {
+                        "cash_advance_id": second,
+                        "advance_date": "2026-08-10",
+                        "reason": None,
+                        "available_balance": 200.0,
+                        "amount": 130.0,
+                    },
+                ],
+            )
+        finally:
+            conn.close()
+
+    def test_paid_payroll_deduction_posts_across_multiple_advances_fifo(self) -> None:
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_cash_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=250)
+            first = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-01",
+                amount=100,
+                deduction_per_payroll=100,
+            )
+            second = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-10",
+                amount=200,
+                deduction_per_payroll=100,
+            )
+            future = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-09-02",
+                amount=500,
+                deduction_per_payroll=500,
+            )
+            conn.commit()
+
+            apply_payroll_cash_advance_repayments(conn, run_id, actor="Owner")
+            conn.commit()
+
+            rows = conn.execute(
+                """
+                SELECT cash_advance_id, amount
+                FROM cash_advance_repayments
+                WHERE payroll_run_id=? AND COALESCE(active,1)=1
+                ORDER BY id
+                """,
+                (run_id,),
+            ).fetchall()
+            self.assertEqual(
+                [(int(row[0]), float(row[1])) for row in rows],
+                [(first, 100.0), (second, 150.0)],
+            )
+            self.assertTrue(all(int(row[0]) != future for row in rows))
+        finally:
+            conn.close()
 
 
-def test_paid_payroll_deduction_posts_across_multiple_advances_fifo() -> None:
-    conn = get_conn(":memory:")
-    try:
-        init_db(conn)
-        ensure_cash_schema(conn)
-        employee_id = _seed_employee(conn)
-        run_id = _seed_run(conn, employee_id, deduction=250)
-        first = _seed_advance(
-            conn,
-            employee_id,
-            advance_date="2026-08-01",
-            amount=100,
-            deduction_per_payroll=100,
-        )
-        second = _seed_advance(
-            conn,
-            employee_id,
-            advance_date="2026-08-10",
-            amount=200,
-            deduction_per_payroll=100,
-        )
-        future = _seed_advance(
-            conn,
-            employee_id,
-            advance_date="2026-09-02",
-            amount=500,
-            deduction_per_payroll=500,
-        )
-        conn.commit()
-
-        apply_payroll_cash_advance_repayments(conn, run_id, actor="Owner")
-        conn.commit()
-
-        rows = conn.execute(
-            """
-            SELECT cash_advance_id, amount
-            FROM cash_advance_repayments
-            WHERE payroll_run_id=? AND COALESCE(active,1)=1
-            ORDER BY id
-            """,
-            (run_id,),
-        ).fetchall()
-        assert [(int(row[0]), float(row[1])) for row in rows] == [
-            (first, 100.0),
-            (second, 150.0),
-        ]
-        assert all(int(row[0]) != future for row in rows)
-    finally:
-        conn.close()
+if __name__ == "__main__":
+    unittest.main()
