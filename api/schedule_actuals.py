@@ -6,7 +6,6 @@ from typing import Any
 from fastapi import APIRouter, Header, Query
 
 from api.security import current_user_from_token, require_api_key
-from api.split_shift_actual_reconciliation import reconcile_unlinked_split_shift_logs
 from core.db import DB_PATH, fetchall, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -31,20 +30,13 @@ def schedule_actuals_week(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
-    user = require_schedule_viewer(authorization, x_api_key)
+    require_schedule_viewer(authorization, x_api_key)
     start, end = week_bounds(week_start)
     conn = get_conn(DB_PATH)
     try:
-        # Attendance rows can predate creation of a second same-day shift. Link
-        # those existing rows only when the remaining mapping is provably
-        # one-to-one; ambiguous groups remain untouched and visible for review.
-        reconciliation = reconcile_unlinked_split_shift_logs(
-            conn,
-            changed_by=user.get("display_name") or "schedule-viewer",
-        )
-        if reconciliation["logs_linked"]:
-            conn.commit()
-
+        # Reads must never mutate or infer shift ownership. An explicit manual
+        # actual saved against one split shift must not cause a remaining legacy
+        # employee-day row to be appropriated by a sibling shift on refresh.
         rows = fetchall(
             conn,
             """
@@ -81,7 +73,14 @@ def schedule_actuals_week(
             "week_end": end,
             "items": rows,
             "mode": "actual_attendance_by_week",
-            "reconciliation": reconciliation,
+            "reconciliation": {
+                "groups_checked": 0,
+                "groups_linked": 0,
+                "logs_linked": 0,
+                "groups_skipped": 0,
+                "stale_links_detached": 0,
+                "continuous_segments_created": 0,
+            },
         }
     finally:
         conn.close()
