@@ -7,6 +7,7 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, Depends, FastAPI
 
 import api.main as core_main_module
+import api.payroll_review as payroll_review_module
 from api.attendance_compliance import router as attendance_compliance_router
 from api.attendance_template_import import router as attendance_template_import_router
 from api.attendance_template_split_shift import router as attendance_template_split_shift_router
@@ -37,6 +38,7 @@ from api.payroll_mark_paid import router as payroll_mark_paid_router
 from api.payroll_recalculate import router as payroll_recalculate_router
 from api.payroll_return import router as payroll_return_router
 from api.payroll_review import router as payroll_review_router
+from api.payroll_review_aggregate import install_aggregate_cash_advance_review
 from api.payroll_revision_controls import router as revision_controls_router
 from api.payroll_revision_service import ensure_workflow_schema
 from api.payroll_revision_workflow import router as revision_workflow_router
@@ -73,6 +75,13 @@ from core.runtime_guard import validate_runtime_environment
 # eliminating local-time writes. This compatibility binding is intentionally
 # removed when api/main.py is decomposed in the schema-consolidation pass.
 core_main_module.now_iso = utc_storage_iso
+
+# PR63 made payroll cash-advance deductions employee-level and FIFO across
+# multiple advances. The review endpoint historically re-capped those amounts
+# by each advance's configured suggestion. Install the compatibility normalizer
+# before the application is built so review, paid posting, and editor semantics
+# agree on the same authoritative aggregate deduction.
+install_aggregate_cash_advance_review(payroll_review_module)
 
 
 def initialize_runtime() -> None:
