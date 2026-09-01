@@ -96,7 +96,7 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
         self.assertEqual(result.ot_pay, 0.0)
         self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
 
-    def test_longer_second_scheduled_shift_is_regular_not_auto_ot(self) -> None:
+    def test_each_shift_is_capped_at_eight_regular_hours_without_auto_ot(self) -> None:
         first = self.add_shift("2026-08-20", "04:00", "13:00")
         second = self.add_shift("2026-08-20", "13:00", "21:00")
         self.add_log("2026-08-20", "04:00", "13:00", first)
@@ -104,13 +104,13 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
 
         result = compute_payroll_per_shift(self.conn, "2026-08-16", "2026-08-31")[0]
 
-        self.assertEqual(result.regular_hours, 17.0)
+        self.assertEqual(result.regular_hours, 16.0)
         self.assertEqual(result.approved_ot_hours, 0.0)
-        self.assertEqual(result.regular_pay, 1700.0)
+        self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.ot_pay, 0.0)
         self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
 
-    def test_monico_production_shape_is_seventeen_regular_zero_ot(self) -> None:
+    def test_monico_production_shape_is_sixteen_regular_zero_ot(self) -> None:
         first = self.add_shift("2026-08-17", "12:00", "21:00", break_minutes=60)
         second = self.add_shift("2026-08-17", "21:00", "07:00", break_minutes=60)
         self.add_log("2026-08-17", "11:57", "21:00", first)
@@ -118,9 +118,9 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
 
         result = compute_payroll_per_shift(self.conn, "2026-08-15", "2026-08-29")[0]
 
-        self.assertEqual(result.regular_hours, 17.0)
+        self.assertEqual(result.regular_hours, 16.0)
         self.assertEqual(result.approved_ot_hours, 0.0)
-        self.assertEqual(result.regular_pay, 1700.0)
+        self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.ot_pay, 0.0)
         self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
 
