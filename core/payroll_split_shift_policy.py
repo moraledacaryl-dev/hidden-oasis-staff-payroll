@@ -27,14 +27,13 @@ def apply_independent_split_shift_allocation(
     period_start: str,
     period_end: str,
 ) -> Any:
-    """Treat each explicitly scheduled same-day shift as independent regular time.
+    """Give each distinct same-day scheduled shift its own 8-hour regular bucket.
 
-    Hidden Oasis rule: when an employee has two or more distinct scheduled
-    shifts on one work date, paid work inside each scheduled window is regular
-    time in full. The second shift is not converted to OT, and a scheduled shift
-    longer than the standard daily-hours setting is not auto-OT merely because
-    of its scheduled length. Only approved work outside the exact scheduled
-    window is payable as OT.
+    Hidden Oasis rule: a second scheduled shift is independent of the first.
+    Each linked shift contributes at most the configured standard paid hours
+    (normally 8) as regular time. Time beyond that cap is not automatically OT.
+    OT is payable only for explicitly approved work outside that shift's exact
+    scheduled window.
     """
     employee_id = int(employee["id"])
     standard_paid_hours = float(get_setting(conn, "standard_daily_paid_hours", "8") or 8)
@@ -109,18 +108,17 @@ def apply_independent_split_shift_allocation(
                 4,
             )
 
-            # Reconstruct the legacy day-level allocation so we can remove
-            # exactly the regular/OT classification it previously produced.
+            # Reconstruct the legacy shared-day allocation so we can reverse
+            # exactly what the base engine classified before this policy runs.
             old_remaining = max(0.0, standard_paid_hours - old_regular_allocated)
             old_regular = round(min(old_remaining, inside), 4)
             old_inside_ot = round(max(0.0, inside - old_regular), 4)
             old_regular_allocated = round(old_regular_allocated + old_regular, 4)
             old_ot = round(old_inside_ot + approved_outside, 4)
 
-            # Hidden Oasis split-shift policy: every paid hour that falls inside
-            # this separately scheduled shift is regular. OT is only approved
-            # work outside this shift's scheduled window.
-            new_regular = inside
+            # Correct policy: every distinct shift starts with a fresh 8-hour
+            # regular bucket. Any extra scheduled time is not auto-OT.
+            new_regular = round(min(standard_paid_hours, inside), 4)
             new_ot = approved_outside
 
             if abs(new_regular - old_regular) < 0.0001 and abs(new_ot - old_ot) < 0.0001:
@@ -150,8 +148,9 @@ def apply_independent_split_shift_allocation(
     result.ot_pay = money(float(result.ot_pay or 0) + ot_pay_delta)
     result.holiday_pay = money(float(result.holiday_pay or 0) + holiday_pay_delta)
 
-    # Any legacy "inside-schedule beyond 8" warning on an independent
-    # split-shift date is now invalid because scheduled time is regular by rule.
+    # The base engine's automatic "inside-schedule beyond 8" warning is invalid
+    # on independent split-shift dates because extra scheduled time is not OT by
+    # default under this policy.
     filtered_warnings: list[str] = []
     for warning in list(result.warnings or []):
         if warning.startswith("Inside-schedule hours beyond ") and any(
@@ -161,8 +160,6 @@ def apply_independent_split_shift_allocation(
         filtered_warnings.append(warning)
     result.warnings = filtered_warnings
 
-    # Gross pay and statutory deductions depend on the regular/OT split, so
-    # refresh those amounts after applying the per-shift policy.
     from core.payroll_fractional_leave import _recompute_statutory_and_net
 
     _recompute_statutory_and_net(conn, result, employee, period_start)
