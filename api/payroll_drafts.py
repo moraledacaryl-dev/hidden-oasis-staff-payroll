@@ -19,8 +19,9 @@ from api.payroll_service import (
 )
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchall, fetchone, get_conn
-from core.payroll_engine import compute_payroll, update_payroll_status
+from core.payroll_engine import update_payroll_status
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
+from core.payroll_split_shift_policy import compute_payroll_per_shift
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 router = APIRouter(prefix="/api/v1")
@@ -173,7 +174,7 @@ def create_payroll_draft(
             "philhealth_er","pagibig_er","tax","cash_advance_deduction","other_deductions",
             "total_deductions","net_pay","warnings",
         ]
-        for result in compute_payroll(conn, start, end):
+        for result in compute_payroll_per_shift(conn, start, end):
             result = apply_fractional_paid_leave_adjustment(conn, result, start, end)
             result = _apply_period_cash_advance_deduction(conn, result, start, end)
             data = item_dict(result)
