@@ -7,7 +7,8 @@ from fastapi import APIRouter, Header, HTTPException
 from api.payroll_drafts import must_be_payroll_user, now_iso, totals
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import add_payroll_lines
-from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
+from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustments
+from core.payroll_split_shift_policy import compute_payroll_per_shift
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 router = APIRouter(prefix="/api/v1")
@@ -59,6 +60,88 @@ def _apply_manual(result: Any, adjustment: dict[str, Any] | None) -> Any:
     return result
 
 
+def _table_columns(conn: Any, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f'PRAGMA table_info("{table}")').fetchall()}
+
+
+def _delete_draft_dependents(conn: Any, run_id: int) -> dict[str, int]:
+    """Delete only data owned by a Draft run and restore references it reserved."""
+    deleted: dict[str, int] = {}
+
+    if fetchone(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name='payroll_corrections'"):
+        cursor = conn.execute(
+            """
+            UPDATE payroll_corrections
+            SET status='Recorded', applied_to_run_id=NULL, applied_at=NULL
+            WHERE applied_to_run_id=? AND status='Applied'
+            """,
+            (run_id,),
+        )
+        if cursor.rowcount:
+            deleted["corrections_restored"] = int(cursor.rowcount)
+
+    if "superseded_by_run_id" in _table_columns(conn, "payroll_runs"):
+        conn.execute(
+            "UPDATE payroll_runs SET superseded_by_run_id=NULL WHERE superseded_by_run_id=?",
+            (run_id,),
+        )
+
+    tables = [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()
+    ]
+    for table in tables:
+        if table == "payroll_runs":
+            continue
+        columns = _table_columns(conn, table)
+        if "payroll_run_id" not in columns:
+            continue
+        cursor = conn.execute(f'DELETE FROM "{table}" WHERE payroll_run_id=?', (run_id,))
+        if cursor.rowcount:
+            deleted[table] = int(cursor.rowcount)
+
+    return deleted
+
+
+@router.post("/payroll/runs/{run_id}/delete-draft")
+def delete_draft(
+    run_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = must_be_payroll_user(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
+        if not run:
+            raise HTTPException(status_code=404, detail="Payroll run not found.")
+        if str(run.get("status") or "") != "Draft":
+            raise HTTPException(status_code=409, detail="Only Draft payroll runs can be deleted.")
+
+        deleted = _delete_draft_dependents(conn, run_id)
+        cursor = conn.execute("DELETE FROM payroll_runs WHERE id=? AND status='Draft'", (run_id,))
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=409, detail="Draft changed while it was being deleted. Reload and try again.")
+        conn.commit()
+        return {
+            "ok": True,
+            "deleted_run_id": run_id,
+            "deleted": deleted,
+            "message": f"Draft payroll run #{run_id} was deleted. You can now create it again with the correct dates.",
+            "deleted_by": user.get("display_name"),
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 @router.post("/payroll/runs/{run_id}/recalculate")
 def recalculate_draft(
     run_id: int,
@@ -82,9 +165,16 @@ def recalculate_draft(
             raise HTTPException(status_code=409, detail={"message": "Recalculation blocked by payroll QA blockers.", "checks": checks})
 
         adjustments = _adjustments(conn, run_id)
+        per_shift_results = compute_payroll_per_shift(conn, run["period_start"], run["period_end"])
+        per_shift_results = apply_fractional_paid_leave_adjustments(
+            conn,
+            per_shift_results,
+            run["period_start"],
+            run["period_end"],
+        )
         results = [
             _apply_manual(result, adjustments.get(int(result.employee_id)))
-            for result in compute_payroll_with_fractional_leave(conn, run["period_start"], run["period_end"])
+            for result in per_shift_results
         ]
         result_by_employee = {int(result.employee_id): result for result in results}
         existing_items = fetchall(conn, "SELECT * FROM payroll_items WHERE payroll_run_id=?", (run_id,))
