@@ -143,7 +143,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
         open={open}
         eyebrow="Final adjustments"
         title={employeeName}
-        description="Change one adjustment category at a time. The projected net pay updates before you save."
+        description="Add a one-time earning or deduction, give it the label employees should see on the payslip, and preview the net-pay effect before saving."
         onClose={() => { if (!busy) setOpen(false); }}
         footer={serverEditable && !loading ? (
           <div className={styles.actions}>
@@ -189,17 +189,19 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
 
             {mode === "earning" ? (
               <section className={styles.section} role="tabpanel">
-                <div className={styles.sectionTitle}><strong>Additional earning</strong><span>Bonus, allowance, or one-time correction.</span></div>
+                <div className={styles.sectionTitle}><strong>Additional earning</strong><span>Bonus, allowance, incentive, or another one-time earning.</span></div>
                 <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="additional_earning" type="number" min="0" step="0.01" value={additionalEarning} onChange={(event) => setAdditionalEarning(Number(event.target.value || 0))} /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Reason</span><input name="additional_earning_note" value={additionalEarningNote} onChange={(event) => setAdditionalEarningNote(event.target.value)} placeholder="Required whenever amount is nonzero" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Payslip label</span><input name="additional_earning_note" value={additionalEarningNote} onChange={(event) => setAdditionalEarningNote(event.target.value)} placeholder="e.g. Performance incentive" required={additionalEarning > 0} /></label>
+                <p className={styles.helper}>This exact label will appear beside the amount on the employee and company payslip copies.</p>
               </section>
             ) : null}
 
             {mode === "deduction" ? (
               <section className={styles.section} role="tabpanel">
-                <div className={styles.sectionTitle}><strong>Other deduction</strong><span>Uniform, damage, or another approved deduction.</span></div>
+                <div className={styles.sectionTitle}><strong>Other deduction</strong><span>Uniform, damage, shortage, or another approved one-time deduction.</span></div>
                 <label className={styles.field}><span className={styles.fieldLabel}>Amount</span><input name="other_deduction" type="number" min="0" step="0.01" value={otherDeduction} onChange={(event) => setOtherDeduction(Number(event.target.value || 0))} /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Reason</span><input name="other_deduction_note" value={otherDeductionNote} onChange={(event) => setOtherDeductionNote(event.target.value)} placeholder="Required whenever amount is nonzero" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Payslip label</span><input name="other_deduction_note" value={otherDeductionNote} onChange={(event) => setOtherDeductionNote(event.target.value)} placeholder="e.g. Uniform deduction" required={otherDeduction > 0} /></label>
+                <p className={styles.helper}>This exact label will appear beside the amount on the employee and company payslip copies.</p>
               </section>
             ) : null}
 

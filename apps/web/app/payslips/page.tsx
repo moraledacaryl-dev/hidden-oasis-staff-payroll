@@ -28,7 +28,7 @@ function activePayslipRuns(runs: SlipRun[]): SlipRun[] {
     return Number(b.id) - Number(a.id);
   });
 }
-type SlipItem = { id: number; employee_id: number; employee_name: string; employee_code?: string; department: string; regular_hours: number; regular_pay?: number; approved_ot_hours: number; ot_pay?: number; night_diff_hours?: number; night_diff_pay?: number; holiday_pay?: number; paid_leave_days?: number; paid_leave_pay?: number; freelance_pay?: number; other_earnings?: number; gross_pay: number; total_deductions: number; net_pay: number; sss_ee: number; philhealth_ee: number; pagibig_ee: number; tax: number; cash_advance_deduction: number; other_deductions: number; leave_summary?: string[]; distribution?: { distributed: boolean; distributed_at?: string | null; distributed_by?: string | null; method?: string | null } };
+type SlipItem = { id: number; employee_id: number; employee_name: string; employee_code?: string; department: string; regular_hours: number; regular_pay?: number; approved_ot_hours: number; ot_pay?: number; night_diff_hours?: number; night_diff_pay?: number; holiday_pay?: number; paid_leave_days?: number; paid_leave_pay?: number; freelance_pay?: number; other_earnings?: number; gross_pay: number; total_deductions: number; net_pay: number; sss_ee: number; philhealth_ee: number; pagibig_ee: number; tax: number; cash_advance_deduction: number; other_deductions: number; manual_earning_amount?: number; manual_earning_label?: string | null; manual_deduction_amount?: number; manual_deduction_label?: string | null; leave_summary?: string[]; distribution?: { distributed: boolean; distributed_at?: string | null; distributed_by?: string | null; method?: string | null } };
 type SlipDetail = { ok: boolean; run: SlipRun; items: SlipItem[] };
 
 async function loadRuns(): Promise<SlipRun[]> {
@@ -95,6 +95,12 @@ function earningsTotal(item: SlipItem) {
 function PayslipCopy({ item, run, copyLabel, companyCopy = false }: { item: SlipItem; run: SlipRun; copyLabel: string; companyCopy?: boolean }) {
   const regularPay = hasValue(item.regular_pay) ? Number(item.regular_pay) : Number(item.gross_pay || 0) - Number(item.ot_pay || 0) - Number(item.night_diff_pay || 0) - Number(item.holiday_pay || 0) - Number(item.paid_leave_pay || 0) - Number(item.freelance_pay || 0) - Number(item.other_earnings || 0);
   const showFallbackGross = Math.abs(earningsTotal(item) - Number(item.gross_pay || 0)) > 0.01;
+  const manualEarning = Math.max(0, Number(item.manual_earning_amount || 0));
+  const otherEarningsRemainder = Math.max(0, Number(item.other_earnings || 0) - manualEarning);
+  const manualDeduction = Math.max(0, Number(item.manual_deduction_amount || 0));
+  const otherDeductionsRemainder = Math.max(0, Number(item.other_deductions || 0) - manualDeduction);
+  const manualEarningLabel = String(item.manual_earning_label || "").trim() || "Additional earning";
+  const manualDeductionLabel = String(item.manual_deduction_label || "").trim() || "Other deduction";
 
   return (
     <div className={`payslip-copy${companyCopy ? " company-copy" : ""}`}>
@@ -119,7 +125,8 @@ function PayslipCopy({ item, run, copyLabel, companyCopy = false }: { item: Slip
           {hasValue(item.paid_leave_pay) ? <p><span>Paid leave</span><strong>{peso(item.paid_leave_pay)}</strong></p> : null}
           {item.leave_summary?.length ? <div className="leave-lines"><strong>Leave details</strong>{item.leave_summary.map((line) => <span key={line}>{line}</span>)}</div> : null}
           {hasValue(item.freelance_pay) ? <p><span>Freelance / output pay</span><strong>{peso(item.freelance_pay)}</strong></p> : null}
-          {hasValue(item.other_earnings) ? <p><span>Other earnings</span><strong>{peso(item.other_earnings)}</strong></p> : null}
+          {hasValue(manualEarning) ? <p><span>{manualEarningLabel}</span><strong>{peso(manualEarning)}</strong></p> : null}
+          {hasValue(otherEarningsRemainder) ? <p><span>Other earnings</span><strong>{peso(otherEarningsRemainder)}</strong></p> : null}
           {showFallbackGross ? <p><span>Other gross pay</span><strong>{peso(Number(item.gross_pay || 0) - earningsTotal(item))}</strong></p> : null}
           <p className="total-line"><span>Gross pay</span><strong>{peso(item.gross_pay)}</strong></p>
         </section>
@@ -130,7 +137,8 @@ function PayslipCopy({ item, run, copyLabel, companyCopy = false }: { item: Slip
           {hasValue(item.pagibig_ee) ? <p><span>Pag-IBIG</span><strong>{peso(item.pagibig_ee)}</strong></p> : null}
           {hasValue(item.tax) ? <p><span>Withholding tax</span><strong>{peso(item.tax)}</strong></p> : null}
           {hasValue(item.cash_advance_deduction) ? <p><span>Cash advance</span><strong>{peso(item.cash_advance_deduction)}</strong></p> : null}
-          {hasValue(item.other_deductions) ? <p><span>Other deductions</span><strong>{peso(item.other_deductions)}</strong></p> : null}
+          {hasValue(manualDeduction) ? <p><span>{manualDeductionLabel}</span><strong>{peso(manualDeduction)}</strong></p> : null}
+          {hasValue(otherDeductionsRemainder) ? <p><span>Other deductions</span><strong>{peso(otherDeductionsRemainder)}</strong></p> : null}
           <p className="total-line"><span>Total deductions</span><strong>{peso(item.total_deductions)}</strong></p>
         </section>
       </div>
