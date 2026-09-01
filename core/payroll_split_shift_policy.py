@@ -27,13 +27,14 @@ def apply_independent_split_shift_allocation(
     period_start: str,
     period_end: str,
 ) -> Any:
-    """Treat each explicitly scheduled shift as its own regular-hours bucket.
+    """Treat each explicitly scheduled same-day shift as independent regular time.
 
-    A second same-day shift is not overtime merely because another scheduled
-    shift occurred earlier that day. Each linked scheduled shift receives up to
-    the configured standard paid hours as regular time. Work beyond that
-    individual shift's regular bucket remains OT, and outside-schedule time
-    still requires approved OT exactly as before.
+    Hidden Oasis rule: when an employee has two or more distinct scheduled
+    shifts on one work date, paid work inside each scheduled window is regular
+    time in full. The second shift is not converted to OT, and a scheduled shift
+    longer than the standard daily-hours setting is not auto-OT merely because
+    of its scheduled length. Only approved work outside the exact scheduled
+    window is payable as OT.
     """
     employee_id = int(employee["id"])
     standard_paid_hours = float(get_setting(conn, "standard_daily_paid_hours", "8") or 8)
@@ -70,7 +71,6 @@ def apply_independent_split_shift_allocation(
         matched_by_date.setdefault(work_date, []).append((log, schedule))
 
     changed_dates: set[str] = set()
-    keep_inside_ot_warning_dates: set[str] = set()
     regular_hours_delta = 0.0
     regular_pay_delta = 0.0
     ot_hours_delta = 0.0
@@ -104,19 +104,24 @@ def apply_independent_split_shift_allocation(
             paid_actual = round(float(comp.get("paid_actual_hours") or 0), 4)
             inside = round(float(comp.get("worked_inside_schedule_hours") or 0), 4)
             outside = round(max(0.0, paid_actual - inside), 4)
-            approved_outside = round(min(float(log.get("approved_ot_hours") or 0), outside), 4)
+            approved_outside = round(
+                min(float(log.get("approved_ot_hours") or 0), outside),
+                4,
+            )
 
+            # Reconstruct the legacy day-level allocation so we can remove
+            # exactly the regular/OT classification it previously produced.
             old_remaining = max(0.0, standard_paid_hours - old_regular_allocated)
             old_regular = round(min(old_remaining, inside), 4)
             old_inside_ot = round(max(0.0, inside - old_regular), 4)
             old_regular_allocated = round(old_regular_allocated + old_regular, 4)
             old_ot = round(old_inside_ot + approved_outside, 4)
 
-            new_regular = round(min(standard_paid_hours, inside), 4)
-            new_inside_ot = round(max(0.0, inside - new_regular), 4)
-            new_ot = round(new_inside_ot + approved_outside, 4)
-            if new_inside_ot > 0:
-                keep_inside_ot_warning_dates.add(work_date)
+            # Hidden Oasis split-shift policy: every paid hour that falls inside
+            # this separately scheduled shift is regular. OT is only approved
+            # work outside this shift's scheduled window.
+            new_regular = inside
+            new_ot = approved_outside
 
             if abs(new_regular - old_regular) < 0.0001 and abs(new_ot - old_ot) < 0.0001:
                 continue
@@ -145,12 +150,14 @@ def apply_independent_split_shift_allocation(
     result.ot_pay = money(float(result.ot_pay or 0) + ot_pay_delta)
     result.holiday_pay = money(float(result.holiday_pay or 0) + holiday_pay_delta)
 
+    # Any legacy "inside-schedule beyond 8" warning on an independent
+    # split-shift date is now invalid because scheduled time is regular by rule.
     filtered_warnings: list[str] = []
     for warning in list(result.warnings or []):
-        if warning.startswith("Inside-schedule hours beyond "):
-            matched_date = next((day for day in changed_dates if day in warning), None)
-            if matched_date and matched_date not in keep_inside_ot_warning_dates:
-                continue
+        if warning.startswith("Inside-schedule hours beyond ") and any(
+            day in warning for day in changed_dates
+        ):
+            continue
         filtered_warnings.append(warning)
     result.warnings = filtered_warnings
 
