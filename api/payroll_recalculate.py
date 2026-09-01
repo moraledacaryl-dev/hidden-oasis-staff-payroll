@@ -7,7 +7,8 @@ from fastapi import APIRouter, Header, HTTPException
 from api.payroll_drafts import must_be_payroll_user, now_iso, totals
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import add_payroll_lines
-from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
+from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustments
+from core.payroll_split_shift_policy import compute_payroll_per_shift
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 router = APIRouter(prefix="/api/v1")
@@ -64,12 +65,7 @@ def _table_columns(conn: Any, table: str) -> set[str]:
 
 
 def _delete_draft_dependents(conn: Any, run_id: int) -> dict[str, int]:
-    """Delete only data owned by a Draft run and restore references it reserved.
-
-    Payroll has accumulated several draft-owned tables over time. Discovering
-    payroll_run_id columns keeps deletion complete as those tables evolve while
-    deliberately leaving the payroll_runs row until all dependents are gone.
-    """
+    """Delete only data owned by a Draft run and restore references it reserved."""
     deleted: dict[str, int] = {}
 
     if fetchone(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name='payroll_corrections'"):
@@ -169,9 +165,16 @@ def recalculate_draft(
             raise HTTPException(status_code=409, detail={"message": "Recalculation blocked by payroll QA blockers.", "checks": checks})
 
         adjustments = _adjustments(conn, run_id)
+        per_shift_results = compute_payroll_per_shift(conn, run["period_start"], run["period_end"])
+        per_shift_results = apply_fractional_paid_leave_adjustments(
+            conn,
+            per_shift_results,
+            run["period_start"],
+            run["period_end"],
+        )
         results = [
             _apply_manual(result, adjustments.get(int(result.employee_id)))
-            for result in compute_payroll_with_fractional_leave(conn, run["period_start"], run["period_end"])
+            for result in per_shift_results
         ]
         result_by_employee = {int(result.employee_id): result for result in results}
         existing_items = fetchall(conn, "SELECT * FROM payroll_items WHERE payroll_run_id=?", (run_id,))
