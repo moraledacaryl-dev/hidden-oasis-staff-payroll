@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import unittest
 from pathlib import Path
 
 
@@ -7,19 +10,25 @@ SERVER = (ROOT / "api/server.py").read_text()
 AGGREGATE = (ROOT / "api/payroll_adjustments_aggregate.py").read_text()
 
 
-def test_editor_uses_employee_level_cash_advance_amount() -> None:
-    assert "Select the exact advance" not in EDITOR
-    assert "automatically applied to eligible advances oldest first" in EDITOR
-    assert 'cash_advance_id: null' in EDITOR
-    assert "cash_advance_total_available" in EDITOR
-    assert "How this deduction will be applied" in EDITOR
+class MultiCashAdvanceUiContractTests(unittest.TestCase):
+    def test_editor_uses_employee_level_cash_advance_amount(self) -> None:
+        self.assertNotIn("Select the exact advance", EDITOR)
+        self.assertIn("automatically applied to eligible advances oldest first", EDITOR)
+        self.assertIn('cash_advance_id: null', EDITOR)
+        self.assertIn("cash_advance_total_available", EDITOR)
+        self.assertIn("How this deduction will be applied", EDITOR)
+
+    def test_server_routes_adjustments_to_aggregate_allocator(self) -> None:
+        self.assertIn(
+            "from api.payroll_adjustments_aggregate import router as payroll_adjustments_router",
+            SERVER,
+        )
+
+    def test_aggregate_save_clears_legacy_exact_advance_binding(self) -> None:
+        self.assertIn("cash_advance_id=NULL", AGGREGATE)
+        self.assertIn("employee's available cash-advance balance", AGGREGATE)
+        self.assertIn("_other_draft_reserved_total", AGGREGATE)
 
 
-def test_server_routes_adjustments_to_aggregate_allocator() -> None:
-    assert "from api.payroll_adjustments_aggregate import router as payroll_adjustments_router" in SERVER
-
-
-def test_aggregate_save_clears_legacy_exact_advance_binding() -> None:
-    assert "cash_advance_id=NULL" in AGGREGATE
-    assert "employee's available cash-advance balance" in AGGREGATE
-    assert "_other_draft_reserved_total" in AGGREGATE
+if __name__ == "__main__":
+    unittest.main()
