@@ -194,6 +194,16 @@ def _include_router_filtered(
     application.include_router(filtered)
 
 
+# payroll_revision_controls nests the legacy schedule-history router. Keep its
+# historical move/delete handlers, but never register the obsolete employee-day
+# scheduled/actual writers: they ignore shift_id and can overwrite an unlinked
+# attendance row on split-shift days. Canonical shift-aware writers live in
+# api/schedules.py and must be the sole dispatch owners for these two routes.
+REVISION_CONTROLS_EXCLUDED_ROUTES = {
+    (f"{API_PREFIX}/schedules/day/scheduled", "POST"),
+    (f"{API_PREFIX}/schedules/day/actual", "POST"),
+}
+
 SCHEDULES_EXCLUDED_ROUTES = {
     (f"{API_PREFIX}/schedules/day/leave", "POST"),
     (f"{API_PREFIX}/schedules/shifts/{{shift_id}}/delete", "POST"),
@@ -211,7 +221,6 @@ ROUTERS = (
     payroll_corrections_router,
     payroll_audit_events_router,
     schedule_migration_router,
-    revision_controls_router,
     revision_workflow_router,
     production_health_router,
     hr_records_router,
@@ -278,6 +287,11 @@ def create_app() -> FastAPI:
     for router in ROUTERS:
         application.include_router(router)
 
+    _include_router_filtered(
+        application,
+        revision_controls_router,
+        REVISION_CONTROLS_EXCLUDED_ROUTES,
+    )
     _include_router_filtered(application, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
     application.include_router(staff_self_service_router)
     assert_unique_route_registry(application)
