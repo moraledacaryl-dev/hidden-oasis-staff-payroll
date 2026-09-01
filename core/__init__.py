@@ -10,6 +10,13 @@ from .observability import utc_storage_iso
 
 _db.now_iso = utc_storage_iso
 
+# A Rest Day is an explicit employee-day lifecycle decision. Guard every payroll
+# attendance reader against stale imported/manual rows that survived an older UI
+# clear operation, while the write path now removes those rows transactionally.
+from .attendance_lifecycle import install as _install_attendance_lifecycle
+
+_install_attendance_lifecycle()
+
 # PR #54 introduced the correct independent scheduled-shift payroll policy, but
 # legacy callers still import core.payroll_engine.compute_payroll directly.
 # Bind that public compute path to the policy once at package initialization.
