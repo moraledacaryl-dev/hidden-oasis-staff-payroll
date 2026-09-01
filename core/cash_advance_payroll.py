@@ -56,9 +56,10 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
               AND COALESCE(remaining_balance, outstanding_balance, amount, 0) > 0
               AND COALESCE(status,'') NOT IN ('Cancelled','Fully Paid')
               AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
+              AND date(COALESCE(advance_date, request_date)) <= date(?)
             ORDER BY date(COALESCE(advance_date, request_date)), id
             """,
-            (item["employee_id"],),
+            (item["employee_id"], run.get("period_end")),
         )
         for advance in advances:
             if remaining <= 0:
