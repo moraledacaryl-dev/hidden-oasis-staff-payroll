@@ -88,7 +88,7 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         self.assertEqual(result.ot_pay, 0.0)
         self.assertFalse(any('Inside-schedule hours beyond 8' in w for w in result.warnings or []))
 
-    def test_long_scheduled_split_shift_remains_regular(self) -> None:
+    def test_each_shift_has_its_own_eight_hour_regular_cap(self) -> None:
         first = self.add_shift('2026-08-20', '05:00', '15:00')
         second = self.add_shift('2026-08-20', '15:00', '23:00')
         self.add_log('2026-08-20', '05:00', '15:00', first)
@@ -96,9 +96,9 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
 
         result = self.result()
 
-        self.assertEqual(result.regular_hours, 18.0)
+        self.assertEqual(result.regular_hours, 16.0)
         self.assertEqual(result.approved_ot_hours, 0.0)
-        self.assertEqual(result.regular_pay, 1800.0)
+        self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.ot_pay, 0.0)
         self.assertFalse(any('Inside-schedule hours beyond 8' in w for w in result.warnings or []))
 
