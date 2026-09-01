@@ -190,8 +190,9 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
                 {reservedElsewhere > 0 ? <div className={styles.balanceRow}><span>Reserved by other draft payrolls</span><strong>{peso(reservedElsewhere)}</strong></div> : null}
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Deduction this cutoff</span>
-                  <input name="cash_advance_amount" type="number" min="0" max={cashTotalAvailable} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} disabled={cashTotalAvailable <= 0} />
+                  <input name="cash_advance_amount" type="number" min="0" max={cashTotalAvailable} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} />
                 </label>
+                {cashTotalAvailable <= 0 && savedCash > 0 ? <p className={styles.helper}>No cash-advance balance is currently available to this draft. You can still reduce this saved deduction to ₱0 and save to clear it.</p> : null}
                 {cashAmount > 0 ? (
                   <div className={styles.section}>
                     <div className={styles.sectionTitle}><strong>How this deduction will be applied</strong><span>Oldest eligible advance first.</span></div>
