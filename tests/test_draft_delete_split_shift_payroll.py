@@ -38,7 +38,14 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.conn.close()
 
-    def add_shift(self, day: str, start: str, end: str, *, break_minutes: int = 0) -> int:
+    def add_shift(
+        self,
+        day: str,
+        start: str,
+        end: str,
+        *,
+        break_minutes: int = 0,
+    ) -> int:
         cursor = self.conn.execute(
             """
             INSERT INTO scheduled_shifts(
@@ -56,7 +63,7 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
         day: str,
         actual_in: str,
         actual_out: str,
-        shift_id: int,
+        shift_id: int | None,
         *,
         approved_ot_hours: float = 0.0,
     ) -> None:
@@ -88,43 +95,71 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
         self.add_log("2026-08-20", "05:00", "13:00", first)
         self.add_log("2026-08-20", "13:00", "21:00", second)
 
-        result = compute_payroll_per_shift(self.conn, "2026-08-16", "2026-08-31")[0]
+        result = compute_payroll_per_shift(
+            self.conn,
+            "2026-08-16",
+            "2026-08-31",
+        )[0]
 
         self.assertEqual(result.regular_hours, 16.0)
         self.assertEqual(result.approved_ot_hours, 0.0)
         self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.ot_pay, 0.0)
-        self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
+        self.assertFalse(
+            any("beyond 8" in warning for warning in (result.warnings or []))
+        )
 
-    def test_each_shift_is_capped_at_eight_regular_hours_without_auto_ot(self) -> None:
+    def test_each_shift_gets_eight_regular_then_inside_excess_is_ot(self) -> None:
         first = self.add_shift("2026-08-20", "04:00", "13:00")
         second = self.add_shift("2026-08-20", "13:00", "21:00")
         self.add_log("2026-08-20", "04:00", "13:00", first)
         self.add_log("2026-08-20", "13:00", "21:00", second)
 
-        result = compute_payroll_per_shift(self.conn, "2026-08-16", "2026-08-31")[0]
+        result = compute_payroll_per_shift(
+            self.conn,
+            "2026-08-16",
+            "2026-08-31",
+        )[0]
 
         self.assertEqual(result.regular_hours, 16.0)
-        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.approved_ot_hours, 1.0)
         self.assertEqual(result.regular_pay, 1600.0)
-        self.assertEqual(result.ot_pay, 0.0)
-        self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
+        self.assertEqual(result.ot_pay, 125.0)
+        self.assertTrue(
+            any("beyond 8" in warning for warning in (result.warnings or []))
+        )
 
-    def test_monico_production_shape_is_sixteen_regular_zero_ot(self) -> None:
-        first = self.add_shift("2026-08-17", "12:00", "21:00", break_minutes=60)
-        second = self.add_shift("2026-08-17", "21:00", "07:00", break_minutes=60)
+    def test_monico_production_shape_is_sixteen_regular_two_ot(self) -> None:
+        first = self.add_shift(
+            "2026-08-17",
+            "12:00",
+            "21:00",
+            break_minutes=60,
+        )
+        second = self.add_shift(
+            "2026-08-17",
+            "21:00",
+            "07:00",
+            break_minutes=0,
+        )
         self.add_log("2026-08-17", "11:57", "21:00", first)
         self.add_log("2026-08-17", "21:00", "07:01", second)
 
-        result = compute_payroll_per_shift(self.conn, "2026-08-15", "2026-08-29")[0]
+        result = compute_payroll_per_shift(
+            self.conn,
+            "2026-08-15",
+            "2026-08-29",
+        )[0]
 
         self.assertEqual(result.regular_hours, 16.0)
-        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.approved_ot_hours, 2.0)
         self.assertEqual(result.regular_pay, 1600.0)
-        self.assertEqual(result.ot_pay, 0.0)
-        self.assertFalse(any("beyond 8" in warning for warning in (result.warnings or [])))
+        self.assertEqual(result.ot_pay, 250.0)
+        self.assertTrue(
+            any("beyond 8" in warning for warning in (result.warnings or []))
+        )
 
-    def test_only_approved_outside_schedule_time_is_ot_on_split_day(self) -> None:
+    def test_approved_outside_schedule_time_is_ot_on_split_day(self) -> None:
         first = self.add_shift("2026-08-20", "05:00", "13:00")
         second = self.add_shift("2026-08-20", "13:00", "21:00")
         self.add_log("2026-08-20", "05:00", "13:00", first)
@@ -136,17 +171,44 @@ class IndependentSplitShiftPayrollTests(unittest.TestCase):
             approved_ot_hours=1.0,
         )
 
-        result = compute_payroll_per_shift(self.conn, "2026-08-16", "2026-08-31")[0]
+        result = compute_payroll_per_shift(
+            self.conn,
+            "2026-08-16",
+            "2026-08-31",
+        )[0]
 
         self.assertEqual(result.regular_hours, 16.0)
         self.assertEqual(result.approved_ot_hours, 1.0)
         self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.ot_pay, 125.0)
 
+    def test_unscheduled_excess_is_not_auto_ot(self) -> None:
+        self.add_log("2026-08-19", "08:00", "17:01", None)
+
+        result = compute_payroll_per_shift(
+            self.conn,
+            "2026-08-16",
+            "2026-08-31",
+        )[0]
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.ot_pay, 0.0)
+        self.assertTrue(
+            any(
+                "no OT was explicitly approved" in warning
+                for warning in (result.warnings or [])
+            )
+        )
+
 
 class DeleteDraftPayrollTests(unittest.TestCase):
     def setUp(self) -> None:
-        handle = tempfile.NamedTemporaryFile(prefix="delete-draft-", suffix=".sqlite", delete=False)
+        handle = tempfile.NamedTemporaryFile(
+            prefix="delete-draft-",
+            suffix=".sqlite",
+            delete=False,
+        )
         self.path = handle.name
         handle.close()
         conn = get_conn(self.path)
@@ -161,7 +223,11 @@ class DeleteDraftPayrollTests(unittest.TestCase):
             """,
             (stamp, stamp),
         )
-        self.employee_id = int(conn.execute("SELECT id FROM employees WHERE employee_code='DEL-001'").fetchone()[0])
+        self.employee_id = int(
+            conn.execute(
+                "SELECT id FROM employees WHERE employee_code='DEL-001'"
+            ).fetchone()[0]
+        )
         cursor = conn.execute(
             """
             INSERT INTO payroll_runs(period_start,period_end,payout_date,run_label,status,prepared_by,created_at)
@@ -233,19 +299,46 @@ class DeleteDraftPayrollTests(unittest.TestCase):
             pass
 
     def test_delete_draft_removes_owned_rows_and_restores_corrections(self) -> None:
-        user = {"display_name": "Payroll Admin", "role_key": "payroll", "id": 1}
-        with patch("api.payroll_recalculate.DB_PATH", self.path), patch(
-            "api.payroll_recalculate.must_be_payroll_user", return_value=user
+        user = {
+            "display_name": "Payroll Admin",
+            "role_key": "payroll",
+            "id": 1,
+        }
+        with patch(
+            "api.payroll_recalculate.DB_PATH",
+            self.path,
+        ), patch(
+            "api.payroll_recalculate.must_be_payroll_user",
+            return_value=user,
         ):
             result = delete_draft(self.run_id, None, None)
         self.assertTrue(result["ok"])
 
         conn = get_conn(self.path)
         try:
-            self.assertIsNone(conn.execute("SELECT id FROM payroll_runs WHERE id=?", (self.run_id,)).fetchone())
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM payroll_items WHERE payroll_run_id=?", (self.run_id,)).fetchone()[0], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM payroll_item_adjustments WHERE payroll_run_id=?", (self.run_id,)).fetchone()[0], 0)
-            correction = conn.execute("SELECT status,applied_to_run_id,applied_at FROM payroll_corrections").fetchone()
+            self.assertIsNone(
+                conn.execute(
+                    "SELECT id FROM payroll_runs WHERE id=?",
+                    (self.run_id,),
+                ).fetchone()
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM payroll_items WHERE payroll_run_id=?",
+                    (self.run_id,),
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM payroll_item_adjustments WHERE payroll_run_id=?",
+                    (self.run_id,),
+                ).fetchone()[0],
+                0,
+            )
+            correction = conn.execute(
+                "SELECT status,applied_to_run_id,applied_at FROM payroll_corrections"
+            ).fetchone()
             self.assertEqual(correction[0], "Recorded")
             self.assertIsNone(correction[1])
             self.assertIsNone(correction[2])
@@ -254,12 +347,23 @@ class DeleteDraftPayrollTests(unittest.TestCase):
 
     def test_non_draft_run_cannot_be_deleted(self) -> None:
         conn = get_conn(self.path)
-        conn.execute("UPDATE payroll_runs SET status='Approved' WHERE id=?", (self.run_id,))
+        conn.execute(
+            "UPDATE payroll_runs SET status='Approved' WHERE id=?",
+            (self.run_id,),
+        )
         conn.commit()
         conn.close()
-        user = {"display_name": "Payroll Admin", "role_key": "payroll", "id": 1}
-        with patch("api.payroll_recalculate.DB_PATH", self.path), patch(
-            "api.payroll_recalculate.must_be_payroll_user", return_value=user
+        user = {
+            "display_name": "Payroll Admin",
+            "role_key": "payroll",
+            "id": 1,
+        }
+        with patch(
+            "api.payroll_recalculate.DB_PATH",
+            self.path,
+        ), patch(
+            "api.payroll_recalculate.must_be_payroll_user",
+            return_value=user,
         ):
             with self.assertRaises(HTTPException) as caught:
                 delete_draft(self.run_id, None, None)
