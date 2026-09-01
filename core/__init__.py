@@ -16,3 +16,10 @@ _db.now_iso = utc_storage_iso
 from .default_payroll_policy import install as _install_default_payroll_policy
 
 _install_default_payroll_policy()
+
+# Holiday/rest-day segmentation rebuilds OT and night-differential money after
+# the base calculation. Keep that monetary reconstruction on the same per-shift
+# allocation semantics so OT hours and OT pay cannot diverge in previews/runs.
+from .holiday_ot_policy import install as _install_holiday_ot_policy
+
+_install_holiday_ot_policy()
