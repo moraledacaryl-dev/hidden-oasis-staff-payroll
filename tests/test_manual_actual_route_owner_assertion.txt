@@ -1,0 +1,1 @@
+sole_owner=/api/v1/schedules/day/actual -> api.schedules.save_day_actual
