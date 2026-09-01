@@ -59,6 +59,93 @@ def _apply_manual(result: Any, adjustment: dict[str, Any] | None) -> Any:
     return result
 
 
+def _table_columns(conn: Any, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f'PRAGMA table_info("{table}")').fetchall()}
+
+
+def _delete_draft_dependents(conn: Any, run_id: int) -> dict[str, int]:
+    """Delete only data owned by a Draft run and restore references it reserved.
+
+    Payroll has accumulated several draft-owned tables over time. Discovering
+    payroll_run_id columns keeps deletion complete as those tables evolve while
+    deliberately leaving the payroll_runs row until all dependents are gone.
+    """
+    deleted: dict[str, int] = {}
+
+    if fetchone(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name='payroll_corrections'"):
+        cursor = conn.execute(
+            """
+            UPDATE payroll_corrections
+            SET status='Recorded', applied_to_run_id=NULL, applied_at=NULL
+            WHERE applied_to_run_id=? AND status='Applied'
+            """,
+            (run_id,),
+        )
+        if cursor.rowcount:
+            deleted["corrections_restored"] = int(cursor.rowcount)
+
+    if "superseded_by_run_id" in _table_columns(conn, "payroll_runs"):
+        conn.execute(
+            "UPDATE payroll_runs SET superseded_by_run_id=NULL WHERE superseded_by_run_id=?",
+            (run_id,),
+        )
+
+    tables = [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()
+    ]
+    for table in tables:
+        if table == "payroll_runs":
+            continue
+        columns = _table_columns(conn, table)
+        if "payroll_run_id" not in columns:
+            continue
+        cursor = conn.execute(f'DELETE FROM "{table}" WHERE payroll_run_id=?', (run_id,))
+        if cursor.rowcount:
+            deleted[table] = int(cursor.rowcount)
+
+    return deleted
+
+
+@router.post("/payroll/runs/{run_id}/delete-draft")
+def delete_draft(
+    run_id: int,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    user = must_be_payroll_user(authorization, x_api_key)
+    conn = get_conn(DB_PATH)
+    try:
+        run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
+        if not run:
+            raise HTTPException(status_code=404, detail="Payroll run not found.")
+        if str(run.get("status") or "") != "Draft":
+            raise HTTPException(status_code=409, detail="Only Draft payroll runs can be deleted.")
+
+        deleted = _delete_draft_dependents(conn, run_id)
+        cursor = conn.execute("DELETE FROM payroll_runs WHERE id=? AND status='Draft'", (run_id,))
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=409, detail="Draft changed while it was being deleted. Reload and try again.")
+        conn.commit()
+        return {
+            "ok": True,
+            "deleted_run_id": run_id,
+            "deleted": deleted,
+            "message": f"Draft payroll run #{run_id} was deleted. You can now create it again with the correct dates.",
+            "deleted_by": user.get("display_name"),
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 @router.post("/payroll/runs/{run_id}/recalculate")
 def recalculate_draft(
     run_id: int,
