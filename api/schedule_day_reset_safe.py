@@ -12,6 +12,8 @@ from core.db import DB_PATH, fetchall, get_conn
 
 router = APIRouter(prefix="/api/v1")
 
+ATTENDANCE_CLEARED_MARKER = "Attendance Cleared"
+
 
 class ResetDayPayload(BaseModel):
     employee_id: int
@@ -39,6 +41,45 @@ def ensure_marker_schema(conn) -> None:
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(employee_id, work_date, marker_type)
         )
+        """
+    )
+    # A manual Clear Day is authoritative. Once an employee/date is cleared,
+    # automated/template imports must not silently resurrect attendance for it.
+    # Manual attendance remains allowed so payroll can intentionally reopen the day.
+    conn.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_block_cleared_attendance_insert
+        BEFORE INSERT ON time_logs
+        WHEN lower(COALESCE(NEW.source, '')) != 'manual'
+          AND EXISTS (
+              SELECT 1 FROM schedule_day_markers m
+              WHERE m.employee_id=NEW.employee_id
+                AND date(m.work_date)=date(NEW.work_date)
+                AND m.marker_type='{ATTENDANCE_CLEARED_MARKER}'
+                AND m.active=1
+          )
+        BEGIN
+            SELECT RAISE(IGNORE);
+        END
+        """
+    )
+    conn.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_block_cleared_attendance_update
+        BEFORE UPDATE OF actual_in, actual_out, is_absent, absence_type,
+                         attendance_status, approved_ot_hours, source
+        ON time_logs
+        WHEN lower(COALESCE(NEW.source, '')) != 'manual'
+          AND EXISTS (
+              SELECT 1 FROM schedule_day_markers m
+              WHERE m.employee_id=NEW.employee_id
+                AND date(m.work_date)=date(NEW.work_date)
+                AND m.marker_type='{ATTENDANCE_CLEARED_MARKER}'
+                AND m.active=1
+          )
+        BEGIN
+            SELECT RAISE(IGNORE);
+        END
         """
     )
     conn.commit()
@@ -117,6 +158,29 @@ def reset_day(payload: ResetDayPayload, authorization: str | None = Header(defau
         for row in before["leave_requests"]:
             _split_or_shrink_leave(conn, row, payload.work_date, user.get("display_name"), stamp)
         conn.execute("UPDATE schedule_day_markers SET active=0, updated_by=?, updated_at=? WHERE employee_id=? AND date(work_date)=date(?)", (user.get("display_name"), stamp, payload.employee_id, work_date))
+        conn.execute(
+            """
+            INSERT INTO schedule_day_markers(
+                employee_id, work_date, marker_type, notes, active,
+                updated_by, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+            ON CONFLICT(employee_id, work_date, marker_type) DO UPDATE SET
+                notes=excluded.notes,
+                active=1,
+                updated_by=excluded.updated_by,
+                updated_at=excluded.updated_at
+            """,
+            (
+                payload.employee_id,
+                work_date,
+                ATTENDANCE_CLEARED_MARKER,
+                clear_reason,
+                user.get("display_name"),
+                stamp,
+                stamp,
+            ),
+        )
         after = {
             "shifts": fetchall(conn, "SELECT * FROM scheduled_shifts WHERE employee_id=? AND date(shift_date)=date(?)", (payload.employee_id, work_date)),
             "time_logs": fetchall(conn, "SELECT * FROM time_logs WHERE employee_id=? AND date(work_date)=date(?)", (payload.employee_id, work_date)),
@@ -135,6 +199,6 @@ def reset_day(payload: ResetDayPayload, authorization: str | None = Header(defau
             changed_by=user.get("display_name"),
         )
         conn.commit()
-        return {"ok": True, "message": "Day cleared."}
+        return {"ok": True, "message": "Day cleared and protected from automated attendance re-import."}
     finally:
         conn.close()
