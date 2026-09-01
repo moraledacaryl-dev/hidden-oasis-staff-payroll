@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException
 from api.schedules import DayActualPayload, DaySchedulePayload, MoveShiftPayload
 from api.schedules import POSITIONS, clean_shift, day_bundle, employee_exists, require_schedule_editor
 from api.schedules import ensure_schema, fetch_legacy_schedule_row, fetch_shift, fetch_time_log
+from api.schedules import save_day_actual as canonical_save_day_actual
 from api.schedule_change_log import ensure_schedule_change_log_schema, log_schedule_change
 from core.db import DB_PATH, fetchone, get_conn
 
@@ -119,45 +120,14 @@ def save_schedule_history(payload: DaySchedulePayload, authorization: str | None
 
 @router.post("/schedules/day/actual")
 def save_actual_history(payload: DayActualPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> dict[str, Any]:
-    user = require_schedule_editor(authorization, x_api_key)
-    shift_date = payload.shift_date.isoformat()
-    conn = get_conn(DB_PATH)
-    try:
-        ensure_history_schema(conn)
-        if not employee_exists(conn, payload.employee_id):
-            raise HTTPException(status_code=404, detail="Employee not found.")
-        status_value = payload.attendance_status.strip() or "Pending"
-        existing = fetch_time_log(conn, payload.employee_id, shift_date)
-        before = time_log_row(conn, int(existing["id"])) if existing else None
-        ts = local_now(conn)
-        if existing:
-            conn.execute(
-                """
-                UPDATE time_logs SET actual_in=?, actual_out=?, attendance_status=?, approved_ot_hours=?, reviewed_by=?, reviewed_at=?, notes=?, updated_at=? WHERE id=?
-                """,
-                (payload.actual_in or None, payload.actual_out or None, status_value, float(payload.approved_ot_hours or 0), user.get("display_name"), ts, payload.notes, ts, existing["id"]),
-            )
-            log_id = int(existing["id"])
-            change_type = "update_actual"
-        else:
-            cur = conn.execute(
-                """
-                INSERT INTO time_logs(employee_id, work_date, actual_in, actual_out, source, verification_type, is_absent, detected_ot_hours, approved_ot_hours, ot_status, attendance_status, reviewed_by, reviewed_at, notes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'manual', 'Manual', 0, 0, ?, 'None', ?, ?, ?, ?, ?, ?)
-                """,
-                (payload.employee_id, shift_date, payload.actual_in or None, payload.actual_out or None, float(payload.approved_ot_hours or 0), status_value, user.get("display_name"), ts, payload.notes, ts, ts),
-            )
-            log_id = int(cur.lastrowid)
-            change_type = "create_actual"
-        after = time_log_row(conn, log_id)
-        log_schedule_change(conn, change_type=change_type, entity_type="time_log", entity_id=log_id, employee_id=payload.employee_id, work_date=shift_date, before=before, after=after, changed_by=user.get("display_name"))
-        conn.commit()
-        return day_bundle(conn, shift_date, payload.employee_id) | {"message": "Actual attendance saved. Existing payroll runs were not changed."}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    """Compatibility route: always use the canonical shift-aware actual writer.
+
+    This legacy history route used to perform an employee/day lookup and could
+    overwrite an unrelated unlinked biometric row on split-shift days. Keeping
+    the route as a thin delegate makes route ordering harmless while historical
+    consumers are phased out.
+    """
+    return canonical_save_day_actual(payload, authorization, x_api_key)
 
 
 @router.post("/schedules/shifts/{shift_id}/move")
