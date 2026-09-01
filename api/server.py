@@ -28,6 +28,7 @@ from api.main import (
     payroll_result_to_api,
 )
 from api.my_payroll import router as my_payroll_router
+from api.payroll_adjustments import ensure_schema as ensure_payroll_adjustment_schema
 from api.payroll_adjustments import router as payroll_adjustments_router
 from api.payroll_audit_events import router as payroll_audit_events_router
 from api.payroll_corrections import router as payroll_corrections_router
@@ -79,6 +80,10 @@ def initialize_runtime() -> None:
     conn = get_conn(configured_db_path())
     try:
         init_db(conn)
+        # Financial adjustment/cash-advance compatibility schema must be fully
+        # upgraded before the API accepts traffic. Historically the first
+        # payroll-adjustment request could execute CREATE/ALTER statements.
+        ensure_payroll_adjustment_schema(conn)
         ensure_schedule_schema(conn)
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
