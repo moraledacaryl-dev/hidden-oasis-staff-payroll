@@ -10,9 +10,9 @@ from .observability import utc_storage_iso
 
 _db.now_iso = utc_storage_iso
 
-# Legacy payroll_engine still allocates regular hours by calendar day. Hidden
-# Oasis treats distinct same-day scheduled_shift_id values as separate shifts,
-# so install the bounded compatibility correction at the engine boundary.
-from .independent_shift_payroll import install as _install_independent_shift_payroll
+# PR #54 introduced the correct independent scheduled-shift payroll policy, but
+# legacy callers still import core.payroll_engine.compute_payroll directly.
+# Bind that public compute path to the policy once at package initialization.
+from .default_payroll_policy import install as _install_default_payroll_policy
 
-_install_independent_shift_payroll()
+_install_default_payroll_policy()
