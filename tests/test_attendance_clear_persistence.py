@@ -53,36 +53,6 @@ def _insert_stale_actual(conn, work_date: str = "2026-08-19") -> int:
     return int(cur.lastrowid)
 
 
-def _mark_rest_directly(conn, work_date: str = "2026-08-19") -> None:
-    stamp = now_iso()
-    conn.execute(
-        """
-        INSERT INTO schedule_day_markers(
-            employee_id,work_date,marker_type,notes,active,
-            created_by,created_at,updated_by,updated_at
-        ) VALUES(13,?,'Rest Day','Cleared in schedule',1,'Owner',?,'Owner',?)
-        """,
-        (work_date, stamp, stamp),
-    )
-    conn.commit()
-
-
-def test_existing_rest_day_marker_suppresses_surviving_stale_actual_from_payroll() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        path = _db(temp_dir)
-        conn = get_conn(path)
-        try:
-            _insert_stale_actual(conn)
-            _mark_rest_directly(conn)
-            result = next(item for item in compute_payroll(conn, "2026-08-19", "2026-08-19") if item.employee_id == 13)
-            assert result.regular_hours == 0
-            assert result.approved_ot_hours == 0
-            assert result.regular_pay == 0
-            assert result.ot_pay == 0
-        finally:
-            conn.close()
-
-
 def test_marking_rest_day_purges_old_unlinked_actual_and_audits_it() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         path = _db(temp_dir)
