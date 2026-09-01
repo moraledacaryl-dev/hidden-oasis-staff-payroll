@@ -34,15 +34,22 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.conn.close()
 
-    def add_shift(self, day: str, start: str, end: str) -> int:
+    def add_shift(
+        self,
+        day: str,
+        start: str,
+        end: str,
+        *,
+        break_minutes: int = 0,
+    ) -> int:
         cursor = self.conn.execute(
             """
             INSERT INTO scheduled_shifts(
                 employee_id,shift_date,start_time,end_time,position,department,
                 break_minutes,status,source
-            ) VALUES(?,?,?,?,?,'Admin',0,'Approved','planned')
+            ) VALUES(?,?,?,?,?,'Admin',?,'Approved','planned')
             """,
-            (self.employee_id, day, start, end, 'Tester'),
+            (self.employee_id, day, start, end, 'Tester', break_minutes),
         )
         self.conn.commit()
         return int(cursor.lastrowid)
@@ -52,7 +59,7 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         day: str,
         actual_in: str,
         actual_out: str,
-        shift_id: int,
+        shift_id: int | None,
         *,
         approved_ot_hours: float = 0.0,
     ) -> None:
@@ -65,7 +72,16 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
                 scheduled_shift_id,created_at,updated_at
             ) VALUES(?,?,?,?, 'manual','Manual',0,?,'Approved','Reviewed',?,?,?)
             """,
-            (self.employee_id, day, actual_in, actual_out, approved_ot_hours, shift_id, stamp, stamp),
+            (
+                self.employee_id,
+                day,
+                actual_in,
+                actual_out,
+                approved_ot_hours,
+                shift_id,
+                stamp,
+                stamp,
+            ),
         )
         self.conn.commit()
 
@@ -88,7 +104,7 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         self.assertEqual(result.ot_pay, 0.0)
         self.assertFalse(any('Inside-schedule hours beyond 8' in w for w in result.warnings or []))
 
-    def test_each_shift_has_its_own_eight_hour_regular_cap(self) -> None:
+    def test_each_shift_has_own_eight_regular_then_inside_excess_is_ot(self) -> None:
         first = self.add_shift('2026-08-20', '05:00', '15:00')
         second = self.add_shift('2026-08-20', '15:00', '23:00')
         self.add_log('2026-08-20', '05:00', '15:00', first)
@@ -97,10 +113,23 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         result = self.result()
 
         self.assertEqual(result.regular_hours, 16.0)
-        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.approved_ot_hours, 2.0)
         self.assertEqual(result.regular_pay, 1600.0)
-        self.assertEqual(result.ot_pay, 0.0)
-        self.assertFalse(any('Inside-schedule hours beyond 8' in w for w in result.warnings or []))
+        self.assertEqual(result.ot_pay, 250.0)
+        self.assertTrue(any('Inside-schedule hours beyond 8' in w for w in result.warnings or []))
+
+    def test_monico_aug17_shape_is_sixteen_regular_two_ot(self) -> None:
+        first = self.add_shift('2026-08-17', '12:00', '21:00', break_minutes=60)
+        second = self.add_shift('2026-08-17', '21:00', '07:00', break_minutes=0)
+        self.add_log('2026-08-17', '11:57', '21:00', first)
+        self.add_log('2026-08-17', '21:00', '07:01', second)
+
+        result = self.result()
+
+        self.assertEqual(result.regular_hours, 16.0)
+        self.assertEqual(result.approved_ot_hours, 2.0)
+        self.assertEqual(result.regular_pay, 1600.0)
+        self.assertEqual(result.ot_pay, 250.0)
 
     def test_approved_time_outside_a_split_shift_is_still_ot(self) -> None:
         first = self.add_shift('2026-08-20', '05:00', '13:00')
@@ -113,6 +142,33 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         self.assertEqual(result.regular_hours, 16.0)
         self.assertEqual(result.approved_ot_hours, 1.0)
         self.assertEqual(result.regular_pay, 1600.0)
+        self.assertEqual(result.ot_pay, 125.0)
+
+    def test_no_schedule_does_not_auto_create_ot(self) -> None:
+        self.add_log('2026-08-19', '08:00', '17:01', None)
+
+        result = self.result()
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.regular_pay, 800.0)
+        self.assertEqual(result.ot_pay, 0.0)
+        self.assertTrue(any('no OT was explicitly approved' in w for w in result.warnings or []))
+
+    def test_no_schedule_can_pay_explicitly_approved_excess_ot(self) -> None:
+        self.add_log(
+            '2026-08-19',
+            '08:00',
+            '17:00',
+            None,
+            approved_ot_hours=1.0,
+        )
+
+        result = self.result()
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.approved_ot_hours, 1.0)
+        self.assertEqual(result.regular_pay, 800.0)
         self.assertEqual(result.ot_pay, 125.0)
 
 
