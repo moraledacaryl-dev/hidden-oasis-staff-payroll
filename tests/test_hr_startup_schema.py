@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,109 +24,118 @@ def _startup_with_only_real_hr_schema(server, db_path: Path) -> None:
         server.initialize_runtime()
 
 
-def test_runtime_initializes_hr_schema_before_traffic() -> None:
-    from api import server
+class HrStartupSchemaTests(unittest.TestCase):
+    def test_runtime_initializes_hr_schema_before_traffic(self) -> None:
+        from api import server
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "hr-startup.sqlite"
-        _startup_with_only_real_hr_schema(server, db_path)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "hr-startup.sqlite"
+            _startup_with_only_real_hr_schema(server, db_path)
 
-        conn = get_conn(db_path)
-        try:
-            tables = {
-                str(row[0])
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-            assert "leave_types" in tables
-            assert "employee_leave_entitlements" in tables
-            assert "leave_requests" in tables
-            assert "hr_records" in tables
+            conn = get_conn(db_path)
+            try:
+                tables = {
+                    str(row[0])
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+                self.assertIn("leave_types", tables)
+                self.assertIn("employee_leave_entitlements", tables)
+                self.assertIn("leave_requests", tables)
+                self.assertIn("hr_records", tables)
 
-            entitlement_columns = {
-                str(row[1])
-                for row in conn.execute(
-                    "PRAGMA table_info(employee_leave_entitlements)"
-                ).fetchall()
-            }
-            assert "effective_start" in entitlement_columns
-            assert "effective_end" in entitlement_columns
+                entitlement_columns = {
+                    str(row[1])
+                    for row in conn.execute(
+                        "PRAGMA table_info(employee_leave_entitlements)"
+                    ).fetchall()
+                }
+                self.assertIn("effective_start", entitlement_columns)
+                self.assertIn("effective_end", entitlement_columns)
 
-            leave_request_columns = {
-                str(row[1])
-                for row in conn.execute("PRAGMA table_info(leave_requests)").fetchall()
-            }
-            assert "decision_note" in leave_request_columns
+                leave_request_columns = {
+                    str(row[1])
+                    for row in conn.execute("PRAGMA table_info(leave_requests)").fetchall()
+                }
+                self.assertIn("decision_note", leave_request_columns)
 
-            hr_indexes = {
-                str(row[1])
-                for row in conn.execute("PRAGMA index_list(hr_records)").fetchall()
-            }
-            assert "idx_hr_records_employee" in hr_indexes
-            assert "idx_hr_records_type" in hr_indexes
-        finally:
-            conn.close()
+                hr_indexes = {
+                    str(row[1])
+                    for row in conn.execute("PRAGMA index_list(hr_records)").fetchall()
+                }
+                self.assertIn("idx_hr_records_employee", hr_indexes)
+                self.assertIn("idx_hr_records_type", hr_indexes)
+            finally:
+                conn.close()
 
+    def test_startup_repairs_legacy_hr_tables(self) -> None:
+        from api import server
 
-def test_startup_repairs_legacy_hr_tables() -> None:
-    from api import server
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "legacy-hr.sqlite"
+            conn = get_conn(db_path)
+            try:
+                conn.executescript(
+                    """
+                    CREATE TABLE leave_types (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL UNIQUE
+                    );
+                    CREATE TABLE employee_leave_entitlements (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        employee_id INTEGER NOT NULL,
+                        leave_type_id INTEGER NOT NULL,
+                        year INTEGER NOT NULL,
+                        UNIQUE(employee_id, leave_type_id, year)
+                    );
+                    CREATE TABLE leave_requests (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        employee_id INTEGER NOT NULL,
+                        start_date TEXT,
+                        end_date TEXT
+                    );
+                    CREATE TABLE hr_records (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        employee_id INTEGER NOT NULL
+                    );
+                    """
+                )
+                conn.commit()
+            finally:
+                conn.close()
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "legacy-hr.sqlite"
-        conn = get_conn(db_path)
-        try:
-            conn.executescript(
-                """
-                CREATE TABLE leave_types (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
-                );
-                CREATE TABLE employee_leave_entitlements (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    employee_id INTEGER NOT NULL,
-                    leave_type_id INTEGER NOT NULL,
-                    year INTEGER NOT NULL,
-                    UNIQUE(employee_id, leave_type_id, year)
-                );
-                CREATE TABLE leave_requests (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    employee_id INTEGER NOT NULL,
-                    start_date TEXT,
-                    end_date TEXT
-                );
-                CREATE TABLE hr_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    employee_id INTEGER NOT NULL
-                );
-                """
-            )
-            conn.commit()
-        finally:
-            conn.close()
+            _startup_with_only_real_hr_schema(server, db_path)
 
-        _startup_with_only_real_hr_schema(server, db_path)
+            conn = get_conn(db_path)
+            try:
+                entitlement_columns = {
+                    str(row[1])
+                    for row in conn.execute(
+                        "PRAGMA table_info(employee_leave_entitlements)"
+                    ).fetchall()
+                }
+                self.assertTrue(
+                    {"credits", "used", "entitled", "effective_start", "effective_end"}
+                    <= entitlement_columns
+                )
 
-        conn = get_conn(db_path)
-        try:
-            entitlement_columns = {
-                str(row[1])
-                for row in conn.execute(
-                    "PRAGMA table_info(employee_leave_entitlements)"
-                ).fetchall()
-            }
-            assert {"credits", "used", "entitled", "effective_start", "effective_end"} <= entitlement_columns
+                leave_request_columns = {
+                    str(row[1])
+                    for row in conn.execute("PRAGMA table_info(leave_requests)").fetchall()
+                }
+                self.assertTrue(
+                    {"leave_type_id", "days", "paid", "status", "decision_note"}
+                    <= leave_request_columns
+                )
 
-            leave_request_columns = {
-                str(row[1])
-                for row in conn.execute("PRAGMA table_info(leave_requests)").fetchall()
-            }
-            assert {"leave_type_id", "days", "paid", "status", "decision_note"} <= leave_request_columns
-
-            hr_columns = {
-                str(row[1])
-                for row in conn.execute("PRAGMA table_info(hr_records)").fetchall()
-            }
-            assert {"record_type", "record_date", "subject", "severity", "status", "rating"} <= hr_columns
-        finally:
-            conn.close()
+                hr_columns = {
+                    str(row[1])
+                    for row in conn.execute("PRAGMA table_info(hr_records)").fetchall()
+                }
+                self.assertTrue(
+                    {"record_type", "record_date", "subject", "severity", "status", "rating"}
+                    <= hr_columns
+                )
+            finally:
+                conn.close()
