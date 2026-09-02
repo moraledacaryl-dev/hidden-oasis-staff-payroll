@@ -16,6 +16,7 @@ from api.cash_advances import router as cash_advances_router
 from api.cash_repayments import router as cash_repayments_router
 from api.employees import router as employees_router
 from api.holidays import router as holidays_router
+from api.hr_records import ensure_schema as ensure_hr_schema
 from api.hr_records import router as hr_records_router
 from api.impersonation import router as impersonation_router
 from api.integrations import router as integrations_router
@@ -93,6 +94,9 @@ def initialize_runtime() -> None:
         # upgraded before the API accepts traffic. Historically the first
         # payroll-adjustment request could execute CREATE/ALTER statements.
         ensure_payroll_adjustment_schema(conn)
+        # HR/leave compatibility upgrades are also part of the runtime contract;
+        # no HR request should be the first writer of production schema.
+        ensure_hr_schema(conn)
         ensure_schedule_schema(conn)
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
