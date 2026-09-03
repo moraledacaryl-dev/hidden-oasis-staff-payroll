@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 
 from api.payroll_drafts import must_be_payroll_user, now_iso, totals
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.money import money
 from core.payroll_engine import add_payroll_lines
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustments
 from core.payroll_split_shift_policy import compute_payroll_per_shift
@@ -36,22 +37,22 @@ def _adjustments(conn: Any, run_id: int) -> dict[int, dict[str, Any]]:
 def _apply_manual(result: Any, adjustment: dict[str, Any] | None) -> Any:
     if not adjustment:
         return result
-    earning = round(float(adjustment.get("additional_earning") or 0), 2)
-    other = round(float(adjustment.get("other_deduction") or 0), 2)
-    cash = round(float(adjustment.get("cash_advance_amount") or 0), 2)
+    earning = money(adjustment.get("additional_earning") or 0)
+    other = money(adjustment.get("other_deduction") or 0)
+    cash = money(adjustment.get("cash_advance_amount") or 0)
 
-    result.other_earnings = round(float(result.other_earnings or 0) + earning, 2)
-    result.gross_pay = round(float(result.gross_pay or 0) + earning, 2)
-    result.other_deductions = round(float(result.other_deductions or 0) + other, 2)
+    result.other_earnings = money(money(result.other_earnings or 0) + earning)
+    result.gross_pay = money(money(result.gross_pay or 0) + earning)
+    result.other_deductions = money(money(result.other_deductions or 0) + other)
     result.cash_advance_deduction = cash
     statutory = (
-        float(result.sss_ee or 0)
-        + float(result.philhealth_ee or 0)
-        + float(result.pagibig_ee or 0)
-        + float(result.tax or 0)
+        money(result.sss_ee or 0)
+        + money(result.philhealth_ee or 0)
+        + money(result.pagibig_ee or 0)
+        + money(result.tax or 0)
     )
-    result.total_deductions = round(statutory + result.other_deductions + cash, 2)
-    result.net_pay = round(result.gross_pay - result.total_deductions, 2)
+    result.total_deductions = money(statutory + result.other_deductions + cash)
+    result.net_pay = money(result.gross_pay - result.total_deductions)
     if result.net_pay < 0:
         raise HTTPException(
             status_code=422,

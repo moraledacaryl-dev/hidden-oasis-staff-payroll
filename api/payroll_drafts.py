@@ -19,6 +19,7 @@ from api.payroll_service import (
 )
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.money import money
 from core.payroll_engine import update_payroll_status
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
 from core.payroll_split_shift_policy import compute_payroll_per_shift
@@ -85,24 +86,25 @@ def _apply_period_cash_advance_deduction(conn: Any, result: Any, period_start: s
         """,
         (employee_id, period_end),
     )
-    statutory_and_manual = (
-        float(result.sss_ee or 0)
-        + float(result.philhealth_ee or 0)
-        + float(result.pagibig_ee or 0)
-        + float(result.tax or 0)
-        + float(result.other_deductions or 0)
+    statutory_and_manual = money(
+        money(result.sss_ee or 0)
+        + money(result.philhealth_ee or 0)
+        + money(result.pagibig_ee or 0)
+        + money(result.tax or 0)
+        + money(result.other_deductions or 0)
     )
-    capacity = max(0.0, float(result.gross_pay or 0) - statutory_and_manual)
+    gross = money(result.gross_pay or 0)
+    capacity = money(max(0.0, gross - statutory_and_manual))
     deduction = 0.0
     for row in rows:
-        scheduled = float(row.get("scheduled_deduction") or 0)
-        balance = float(row.get("balance") or 0)
+        scheduled = money(row.get("scheduled_deduction") or 0)
+        balance = money(row.get("balance") or 0)
         if scheduled <= 0 or balance <= 0 or capacity <= deduction:
             continue
-        deduction += min(balance, scheduled, capacity - deduction)
-    result.cash_advance_deduction = round(deduction, 2)
-    result.total_deductions = round(statutory_and_manual + result.cash_advance_deduction, 2)
-    result.net_pay = round(float(result.gross_pay or 0) - result.total_deductions, 2)
+        deduction = money(deduction + min(balance, scheduled, capacity - deduction))
+    result.cash_advance_deduction = money(deduction)
+    result.total_deductions = money(statutory_and_manual + result.cash_advance_deduction)
+    result.net_pay = money(gross - result.total_deductions)
     return result
 
 
