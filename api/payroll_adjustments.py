@@ -4,12 +4,13 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from api.cash_advance_service import ensure_schema as ensure_cash_schema, recalculate_balance
 from api.payroll_adjustment_events import append_adjustment_event, ensure_adjustment_event_schema
 from api.payroll_drafts import must_be_payroll_user, totals
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.money import money, money_decimal
 
 router = APIRouter(prefix="/api/v1")
 
@@ -24,13 +25,18 @@ class AdjustmentPayload(BaseModel):
     cash_advance_note: str | None = None
     expected_version: int = 0
 
+    @field_validator("additional_earning", "other_deduction", "cash_advance_amount", mode="before")
+    @classmethod
+    def quantize_money_fields(cls, value: Any) -> float:
+        return money(value)
+
 
 def stamp() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
 
 def to_centavos(value: float | int | None) -> int:
-    return int(round(float(value or 0) * 100))
+    return int(money_decimal(value) * 100)
 
 
 def ensure_schema(conn) -> None:
