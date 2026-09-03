@@ -18,6 +18,7 @@ from api.payroll_adjustments import (
 )
 from api.payroll_drafts import must_be_payroll_user, totals
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.money import money
 
 router = APIRouter(prefix="/api/v1")
 
@@ -43,7 +44,7 @@ def _eligible_advances(
     )
     result: list[dict[str, Any]] = []
     for row in rows:
-        balance = round(float(recalculate_balance(conn, int(row["id"])).get("balance") or 0), 2)
+        balance = money(recalculate_balance(conn, int(row["id"])).get("balance") or 0)
         if balance <= 0:
             continue
         result.append({**row, "live_balance": balance})
@@ -70,7 +71,7 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
         """,
         (employee_id, run_id),
     ) or {}
-    return round(max(0.0, float(row.get("total") or 0)), 2)
+    return money(max(0.0, float(row.get("total") or 0)))
 
 
 def _available_after_other_drafts(
@@ -78,13 +79,13 @@ def _available_after_other_drafts(
     reserved_total: float,
 ) -> list[dict[str, Any]]:
     """Apply existing aggregate reservations FIFO for a deterministic preview."""
-    remaining_reserved = round(max(0.0, reserved_total), 2)
+    remaining_reserved = money(max(0.0, reserved_total))
     result: list[dict[str, Any]] = []
     for advance in advances:
-        balance = round(max(0.0, float(advance.get("live_balance") or 0)), 2)
-        consumed = round(min(balance, remaining_reserved), 2)
-        remaining_reserved = round(max(0.0, remaining_reserved - consumed), 2)
-        available = round(max(0.0, balance - consumed), 2)
+        balance = money(max(0.0, float(advance.get("live_balance") or 0)))
+        consumed = money(min(balance, remaining_reserved))
+        remaining_reserved = money(max(0.0, remaining_reserved - consumed))
+        available = money(max(0.0, balance - consumed))
         result.append({**advance, "available_balance": available})
     return result
 
@@ -92,8 +93,8 @@ def _available_after_other_drafts(
 def _suggested_total(advances: list[dict[str, Any]]) -> float:
     total = 0.0
     for advance in advances:
-        available = round(max(0.0, float(advance.get("available_balance") or 0)), 2)
-        scheduled = round(
+        available = money(max(0.0, float(advance.get("available_balance") or 0)))
+        scheduled = money(
             max(
                 0.0,
                 float(
@@ -102,26 +103,25 @@ def _suggested_total(advances: list[dict[str, Any]]) -> float:
                     or advance.get("repayment_per_cutoff")
                     or 0
                 ),
-            ),
-            2,
+            )
         )
-        total += min(available, scheduled)
-    return round(total, 2)
+        total = money(total + min(available, scheduled))
+    return money(total)
 
 
 def _allocation_preview(
     advances: list[dict[str, Any]],
     amount: float,
 ) -> list[dict[str, Any]]:
-    remaining = round(max(0.0, amount), 2)
+    remaining = money(max(0.0, amount))
     allocations: list[dict[str, Any]] = []
     for advance in advances:
         if remaining <= 0:
             break
-        available = round(max(0.0, float(advance.get("available_balance") or 0)), 2)
+        available = money(max(0.0, float(advance.get("available_balance") or 0)))
         if available <= 0:
             continue
-        applied = round(min(remaining, available), 2)
+        applied = money(min(remaining, available))
         allocations.append(
             {
                 "cash_advance_id": int(advance["id"]),
@@ -131,7 +131,7 @@ def _allocation_preview(
                 "amount": applied,
             }
         )
-        remaining = round(max(0.0, remaining - applied), 2)
+        remaining = money(max(0.0, remaining - applied))
     return allocations
 
 
@@ -146,9 +146,8 @@ def _cash_snapshot(
     advances = _eligible_advances(conn, employee_id=employee_id, period_end=period_end)
     reserved_total = _other_draft_reserved_total(conn, employee_id=employee_id, run_id=run_id)
     available_advances = _available_after_other_drafts(advances, reserved_total)
-    total_available = round(
-        sum(float(row.get("available_balance") or 0) for row in available_advances),
-        2,
+    total_available = money(
+        sum(float(row.get("available_balance") or 0) for row in available_advances)
     )
     suggested = _suggested_total(available_advances)
     return {
@@ -181,7 +180,7 @@ def get_adjustments(
             raise HTTPException(status_code=404, detail="Payroll employee item not found.")
 
         adjustment = current_adjustment(conn, run_id, employee_id, item)
-        cash = round(float(adjustment.get("cash_advance_amount") or 0), 2)
+        cash = money(adjustment.get("cash_advance_amount") or 0)
         snapshot = _cash_snapshot(
             conn,
             run_id=run_id,
@@ -214,9 +213,9 @@ def save_adjustments(
     x_request_id: str | None = Header(default=None, alias="X-Request-ID"),
 ) -> dict[str, Any]:
     user = must_be_payroll_user(authorization, x_api_key)
-    earning = round(float(payload.additional_earning or 0), 2)
-    other = round(float(payload.other_deduction or 0), 2)
-    cash = round(float(payload.cash_advance_amount or 0), 2)
+    earning = money(payload.additional_earning or 0)
+    other = money(payload.other_deduction or 0)
+    cash = money(payload.cash_advance_amount or 0)
     earning_note = _clean_note(payload.additional_earning_note)
     other_note = _clean_note(payload.other_deduction_note)
     cash_note = _clean_note(payload.cash_advance_note)
@@ -257,9 +256,9 @@ def save_adjustments(
             )
 
         old = current_adjustment(conn, run_id, employee_id, item)
-        old_earning = round(float(old.get("additional_earning") or 0), 2)
-        old_other = round(float(old.get("other_deduction") or 0), 2)
-        old_cash = round(float(old.get("cash_advance_amount") or 0), 2)
+        old_earning = money(old.get("additional_earning") or 0)
+        old_other = money(old.get("other_deduction") or 0)
+        old_cash = money(old.get("cash_advance_amount") or 0)
         old_cash_id = int(old.get("cash_advance_id") or 0) or None
 
         snapshot = _cash_snapshot(
@@ -269,8 +268,8 @@ def save_adjustments(
             period_end=str(run.get("period_end") or ""),
             amount=cash,
         )
-        total_available = round(float(snapshot["cash_advance_total_available"]), 2)
-        suggested_cash = round(float(snapshot["cash_advance_suggested"]), 2)
+        total_available = money(snapshot["cash_advance_total_available"])
+        suggested_cash = money(snapshot["cash_advance_suggested"])
         if cash > total_available:
             raise HTTPException(
                 status_code=422,
@@ -282,13 +281,12 @@ def save_adjustments(
                 detail="A reason is required when the cash advance deduction differs from the configured aggregate suggestion.",
             )
 
-        current_cash = round(float(item.get("cash_advance_deduction") or 0), 2)
-        gross = round(float(item.get("gross_pay") or 0) - old_earning + earning, 2)
-        total_deductions = round(
-            float(item.get("total_deductions") or 0) - old_other - current_cash + other + cash,
-            2,
+        current_cash = money(item.get("cash_advance_deduction") or 0)
+        gross = money(money(item.get("gross_pay") or 0) - old_earning + earning)
+        total_deductions = money(
+            money(item.get("total_deductions") or 0) - old_other - current_cash + other + cash
         )
-        net = round(gross - total_deductions, 2)
+        net = money(gross - total_deductions)
         if net < 0:
             raise HTTPException(status_code=422, detail="Values cannot reduce net pay below zero.")
 
@@ -306,10 +304,10 @@ def save_adjustments(
             WHERE id=?
             """,
             (
-                round(float(item.get("other_earnings") or 0) - old_earning + earning, 2),
+                money(money(item.get("other_earnings") or 0) - old_earning + earning),
                 gross,
                 cash,
-                round(float(item.get("other_deductions") or 0) - old_other + other, 2),
+                money(money(item.get("other_deductions") or 0) - old_other + other),
                 total_deductions,
                 net,
                 item["id"],
