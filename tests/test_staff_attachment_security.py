@@ -32,6 +32,7 @@ class StaffAttachmentSecurityTests(unittest.TestCase):
                 original_start_time TEXT NOT NULL,
                 original_end_time TEXT NOT NULL,
                 reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Pending',
                 submitted_by_user_id INTEGER NOT NULL,
                 submitted_at TEXT NOT NULL,
                 attachment_path TEXT
@@ -95,8 +96,16 @@ class StaffAttachmentSecurityTests(unittest.TestCase):
         self.assertEqual(sorted(paths[staff_path]), ["get", "post"])
         self.assertIn(reviewer_path, paths)
         self.assertEqual(sorted(paths[reviewer_path]), ["get"])
-        post_operation = str(paths[staff_path]["post"].get("operationId") or "")
-        self.assertIn("staff_attachment_security", post_operation)
+
+        matching = [
+            route
+            for route in server.app.router.routes
+            if getattr(route, "path", None) == staff_path
+            and "POST" in (getattr(route, "methods", set()) or set())
+        ]
+        self.assertEqual(len(matching), 1)
+        endpoint = getattr(matching[0], "endpoint", None)
+        self.assertEqual(getattr(endpoint, "__module__", ""), "api.staff_attachment_security")
 
 
 if __name__ == "__main__":
