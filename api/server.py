@@ -59,6 +59,8 @@ from api.schedules import router as schedules_router
 from api.security import ROLE_OWNER, ROLE_PAYROLL, require_api_key, require_roles
 from api.sil_leave import router as sil_leave_router
 from api.split_shift_actual_reconciliation import reconcile_unlinked_split_shift_logs
+from api.staff_attachment_security import ensure_attachment_schema
+from api.staff_attachment_security import router as staff_attachment_router
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
 from api.users import router as users_router
@@ -97,6 +99,9 @@ def initialize_runtime() -> None:
         # HR/leave compatibility upgrades are also part of the runtime contract;
         # no HR request should be the first writer of production schema.
         ensure_hr_schema(conn)
+        # Attachment metadata is security-sensitive and must exist before the
+        # hardened upload/download routes begin serving traffic.
+        ensure_attachment_schema(conn)
         ensure_schedule_schema(conn)
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
@@ -229,6 +234,10 @@ SCHEDULES_EXCLUDED_ROUTES = {
     (f"{API_PREFIX}/schedules/week", "GET"),
 }
 
+STAFF_SELF_SERVICE_EXCLUDED_ROUTES = {
+    (f"{API_PREFIX}/me/shift-change-requests/{{request_id}}/attachment", "POST"),
+}
+
 ROUTERS = (
     impersonation_router,
     payroll_drafts_router,
@@ -264,6 +273,7 @@ ROUTERS = (
     performance_reviews_router,
     payroll_adjustments_router,
     payroll_recalculate_router,
+    staff_attachment_router,
 )
 
 LEGACY_MAIN_OVERRIDES = {
@@ -311,7 +321,11 @@ def create_app() -> FastAPI:
         REVISION_CONTROLS_EXCLUDED_ROUTES,
     )
     _include_router_filtered(application, schedules_router, SCHEDULES_EXCLUDED_ROUTES)
-    application.include_router(staff_self_service_router)
+    _include_router_filtered(
+        application,
+        staff_self_service_router,
+        STAFF_SELF_SERVICE_EXCLUDED_ROUTES,
+    )
     assert_unique_route_registry(application)
     return application
 
