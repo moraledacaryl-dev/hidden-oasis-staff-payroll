@@ -17,6 +17,7 @@ from api.cash_advance_service import (
     require_cash_advance_viewer,
 )
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.money import money
 
 router = APIRouter(prefix="/api/v1")
 
@@ -82,7 +83,7 @@ def _sync_legacy_fields(
     ):
         if column in columns:
             assignments.append(f"{column}=?")
-            values.append(round(float(value or 0), 2))
+            values.append(money(value))
 
     if assignments:
         values.append(advance_id)
@@ -222,8 +223,8 @@ def save_cash_advance(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
     user = require_cash_advance_editor(authorization, x_api_key) if payload.id else require_cash_advance_creator(authorization, x_api_key)
-    amount = round(float(payload.amount or 0), 2)
-    deduction = round(float(payload.deduction_per_payroll or 0), 2)
+    amount = money(payload.amount)
+    deduction = money(payload.deduction_per_payroll)
     if amount <= 0:
         raise HTTPException(status_code=422, detail="Cash advance amount must be greater than zero.")
     if deduction < 0:
@@ -244,8 +245,8 @@ def save_cash_advance(
                 raise HTTPException(status_code=404, detail="Cash advance not found.")
 
             advance_id = int(payload.id)
-            stored_amount = round(float(old.get("amount") or 0), 2)
-            stored_basis = round(float(old.get("ledger_opening_balance") if old.get("ledger_opening_balance") is not None else stored_amount), 2)
+            stored_amount = money(old.get("amount") or 0)
+            stored_basis = money(old.get("ledger_opening_balance") if old.get("ledger_opening_balance") is not None else stored_amount)
             if abs(amount - stored_basis) >= 0.005:
                 raise HTTPException(status_code=409, detail="Original amount / balance basis cannot be changed in normal edit. Use owner correction instead.")
 
@@ -274,8 +275,8 @@ def save_cash_advance(
 
         summary = recalculate_balance(conn, advance_id)
         saved = fetchone(conn, "SELECT amount, ledger_opening_balance FROM cash_advances WHERE id=?", (advance_id,)) or {}
-        saved_amount = round(float(saved.get("amount") or amount or 0), 2)
-        saved_basis = round(float(saved.get("ledger_opening_balance") if saved.get("ledger_opening_balance") is not None else saved_amount), 2)
+        saved_amount = money(saved.get("amount") or amount or 0)
+        saved_basis = money(saved.get("ledger_opening_balance") if saved.get("ledger_opening_balance") is not None else saved_amount)
         _sync_legacy_fields(conn, advance_id, saved_amount, deduction, summary["balance"] if payload.id else saved_basis, payload.advance_date)
         conn.commit()
 
