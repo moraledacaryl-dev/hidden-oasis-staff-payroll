@@ -58,7 +58,7 @@ class ApiRouteRegistryTests(unittest.TestCase):
         paths = server.app.openapi()["paths"]
         path = "/api/v1/me/shift-change-requests/{request_id}/attachment"
         self.assertIn(path, paths)
-        self.assertEqual(sorted(paths[path]), ["post"])
+        self.assertEqual(sorted(paths[path]), ["get", "post"])
         operation_id = str(paths[path]["post"].get("operationId") or "")
         self.assertTrue(operation_id.startswith("upload_shift_request_attachment"), operation_id)
 
