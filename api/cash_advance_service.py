@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from api.security import current_user_from_token, require_api_key
 from core.db import fetchall, fetchone
+from core.money import money
 
 
 class CashAdvancePayload(BaseModel):
@@ -21,6 +22,11 @@ class CashAdvancePayload(BaseModel):
     deduction_per_payroll: float = 0
     status: str = "Active"
     notes: str | None = None
+
+    @field_validator("amount", "deduction_per_payroll", mode="before")
+    @classmethod
+    def quantize_money_fields(cls, value: Any) -> float:
+        return money(value)
 
 
 def now_iso() -> str:
@@ -198,18 +204,18 @@ def confirmed_new_repayments(conn, cash_advance_id: int) -> float:
         WHERE r.cash_advance_id=? AND COALESCE(r.active,1)=1
           AND (r.source='Manual' OR COALESCE(pr.status,'') IN ('Paid','Locked','Released'))
     """, (cash_advance_id,)) or {}
-    return round(float(row.get("total") or 0), 2)
+    return money(row.get("total") or 0)
 
 
 def recalculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
     row = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
     if not row:
         raise HTTPException(status_code=404, detail="Cash advance not found.")
-    opening = round(float(row.get("ledger_opening_balance") if row.get("ledger_opening_balance") is not None else row.get("remaining_balance") or row.get("outstanding_balance") or row.get("amount") or 0), 2)
+    opening = money(row.get("ledger_opening_balance") if row.get("ledger_opening_balance") is not None else row.get("remaining_balance") or row.get("outstanding_balance") or row.get("amount") or 0)
     new_paid = confirmed_new_repayments(conn, cash_advance_id)
-    balance = round(max(0.0, opening - new_paid), 2)
-    historical_paid = round(max(0.0, float(row.get("amount") or 0) - opening), 2)
-    total_paid = round(historical_paid + new_paid, 2)
+    balance = money(max(0.0, opening - new_paid))
+    historical_paid = money(max(0.0, float(row.get("amount") or 0) - opening))
+    total_paid = money(historical_paid + new_paid)
     old_status = str(row.get("status") or "")
     if old_status == "Cancelled":
         status = "Cancelled"
@@ -227,7 +233,7 @@ def recalculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
         "UPDATE cash_advances SET remaining_balance=?, outstanding_balance=?, status=?, repayment_per_cutoff=COALESCE(NULLIF(repayment_per_cutoff,0), deduction_per_payroll), updated_at=? WHERE id=?",
         (balance, balance, status, now_iso(), cash_advance_id),
     )
-    return {"amount": round(float(row.get("amount") or 0),2), "paid": total_paid, "balance": balance, "status": status}
+    return {"amount": money(row.get("amount") or 0), "paid": total_paid, "balance": balance, "status": status}
 
 
 def repayment_history(conn, cash_advance_id: int) -> list[dict[str, Any]]:
