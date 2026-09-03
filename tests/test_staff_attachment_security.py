@@ -17,6 +17,15 @@ from api.staff_attachment_security import (
 )
 
 
+def walk_routes(routes):
+    for route in routes:
+        nested = getattr(route, "routes", None)
+        if nested:
+            yield from walk_routes(nested)
+        else:
+            yield route
+
+
 class StaffAttachmentSecurityTests(unittest.TestCase):
     def test_attachment_schema_adds_security_metadata_to_legacy_table(self) -> None:
         conn = sqlite3.connect(":memory:")
@@ -99,7 +108,7 @@ class StaffAttachmentSecurityTests(unittest.TestCase):
 
         matching = [
             route
-            for route in server.app.router.routes
+            for route in walk_routes(server.app.router.routes)
             if getattr(route, "path", None) == staff_path
             and "POST" in (getattr(route, "methods", set()) or set())
         ]
