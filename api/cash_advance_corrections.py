@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from api.cash_advance_service import ensure_schema, now_iso, recalculate_balance, repayment_history
 from api.security import current_user_from_token, require_api_key
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.money import money
 
 router = APIRouter(prefix="/api/v1")
 
@@ -83,7 +84,7 @@ def correct_cash_advance_amount(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
     user = require_owner(authorization, x_api_key)
-    corrected = round(float(payload.corrected_amount or 0), 2)
+    corrected = money(payload.corrected_amount or 0)
     reason = payload.correction_reason.strip()
     if corrected <= 0:
         raise HTTPException(status_code=422, detail="Corrected amount must be greater than zero.")
@@ -98,15 +99,15 @@ def correct_cash_advance_amount(
             raise HTTPException(status_code=404, detail="Cash advance not found.")
 
         old_summary = recalculate_balance(conn, cash_advance_id)
-        encoded_amount = round(float(advance.get("amount") or 0), 2)
+        encoded_amount = money(advance.get("amount") or 0)
         opening_raw = advance.get("ledger_opening_balance")
-        current_basis = round(float(opening_raw if opening_raw is not None else encoded_amount), 2)
+        current_basis = money(opening_raw if opening_raw is not None else encoded_amount)
         if corrected == current_basis:
             raise HTTPException(status_code=422, detail="Corrected amount is already the current balance basis.")
 
-        total_repaid = round(float(old_summary.get("paid") or 0), 2)
+        total_repaid = money(old_summary.get("paid") or 0)
         new_opening = corrected
-        credit = round(max(0.0, total_repaid - corrected), 2)
+        credit = money(max(0.0, total_repaid - corrected))
         stamp = now_iso()
 
         conn.execute(
@@ -122,8 +123,8 @@ def correct_cash_advance_amount(
             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             cash_advance_id, int(advance["employee_id"]), current_basis, corrected,
-            total_repaid, float(old_summary.get("balance") or 0),
-            float(new_summary.get("balance") or 0), credit, reason,
+            total_repaid, money(old_summary.get("balance") or 0),
+            money(new_summary.get("balance") or 0), credit, reason,
             payload.reference, user.get("display_name") or "Owner", stamp,
         ))
         conn.commit()
@@ -156,7 +157,7 @@ def settle_cash_advance_credit(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, Any]:
     user = require_owner(authorization, x_api_key)
-    amount = round(float(payload.amount or 0), 2)
+    amount = money(payload.amount or 0)
     method = str(payload.method or "").strip()
     note = str(payload.note or "").strip()
     allowed_methods = {"Cash payout", "Payroll reimbursement", "Offset another cash advance"}
@@ -175,7 +176,7 @@ def settle_cash_advance_credit(
         advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
         if not advance:
             raise HTTPException(status_code=404, detail="Cash advance not found.")
-        credit = round(float(advance.get("overpayment_credit") or 0), 2)
+        credit = money(advance.get("overpayment_credit") or 0)
         if credit <= 0:
             raise HTTPException(status_code=409, detail="This cash advance has no employee credit to settle.")
         if amount > credit:
@@ -191,12 +192,12 @@ def settle_cash_advance_credit(
             if int(target["employee_id"]) != int(advance["employee_id"]):
                 raise HTTPException(status_code=422, detail="Offset target must belong to the same employee.")
             target_summary = recalculate_balance(conn, int(target_id))
-            if amount > round(float(target_summary.get("balance") or 0), 2):
+            if amount > money(target_summary.get("balance") or 0):
                 raise HTTPException(status_code=422, detail="Offset amount cannot exceed the target advance balance.")
 
         stamp = now_iso()
         display_name = user.get("display_name") or "Owner"
-        new_credit = round(max(0.0, credit - amount), 2)
+        new_credit = money(max(0.0, credit - amount))
 
         conn.execute(
             """
