@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from api.cash_advance_service import ensure_schema, now_iso, recalculate_balance, require_cash_advance_viewer
 from core.db import DB_PATH, fetchone, get_conn
+from core.money import money
 
 router = APIRouter(prefix="/api/v1")
 
@@ -16,11 +19,16 @@ class ManualRepaymentPayload(BaseModel):
     reference: str | None = None
     notes: str | None = None
 
+    @field_validator("amount", mode="before")
+    @classmethod
+    def quantize_amount(cls, value: Any) -> float:
+        return money(value)
+
 
 @router.post("/cash-advances/{cash_advance_id}/manual-repayments")
 def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")):
     user = require_cash_advance_viewer(authorization, x_api_key)
-    amount = round(float(payload.amount or 0), 2)
+    amount = money(payload.amount or 0)
     if amount <= 0:
         raise HTTPException(status_code=422, detail="Repayment amount must be greater than zero.")
     conn = get_conn(DB_PATH)
