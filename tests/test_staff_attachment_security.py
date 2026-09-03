@@ -14,16 +14,8 @@ from api.staff_attachment_security import (
     _resolved_attachment_path,
     _safe_download_name,
     ensure_attachment_schema,
+    router as staff_attachment_router,
 )
-
-
-def walk_routes(routes):
-    for route in routes:
-        nested = getattr(route, "routes", None)
-        if nested:
-            yield from walk_routes(nested)
-        else:
-            yield route
 
 
 class StaffAttachmentSecurityTests(unittest.TestCase):
@@ -106,15 +98,19 @@ class StaffAttachmentSecurityTests(unittest.TestCase):
         self.assertIn(reviewer_path, paths)
         self.assertEqual(sorted(paths[reviewer_path]), ["get"])
 
-        matching = [
+        hardened_posts = [
             route
-            for route in walk_routes(server.app.router.routes)
+            for route in staff_attachment_router.routes
             if getattr(route, "path", None) == staff_path
             and "POST" in (getattr(route, "methods", set()) or set())
         ]
-        self.assertEqual(len(matching), 1)
-        endpoint = getattr(matching[0], "endpoint", None)
+        self.assertEqual(len(hardened_posts), 1)
+        endpoint = getattr(hardened_posts[0], "endpoint", None)
         self.assertEqual(getattr(endpoint, "__module__", ""), "api.staff_attachment_security")
+        self.assertIn(
+            (staff_path, "POST"),
+            server.STAFF_SELF_SERVICE_EXCLUDED_ROUTES,
+        )
 
 
 if __name__ == "__main__":
