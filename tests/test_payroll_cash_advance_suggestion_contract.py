@@ -14,8 +14,10 @@ class PayrollCashAdvanceSuggestionContractTests(unittest.TestCase):
         self.assertIn("deduction_per_payroll?: number | null", self.editor)
         self.assertIn("cash_advance_suggested", self.editor)
         self.assertIn("setCashSuggested(Number(data.cash_advance_suggested ?? 0))", self.editor)
+        self.assertIn("from core.money import money", self.backend)
         self.assertIn("def _suggested_total(advances: list[dict[str, Any]]) -> float:", self.backend)
-        self.assertIn("total += min(available, scheduled)", self.backend)
+        self.assertIn("total = money(total + min(available, scheduled))", self.backend)
+        self.assertIn("return money(total)", self.backend)
 
     def test_editor_uses_total_balance_not_one_advance_balance(self) -> None:
         self.assertIn("cash_advance_total_available", self.editor)
@@ -39,8 +41,10 @@ class PayrollCashAdvanceSuggestionContractTests(unittest.TestCase):
         self.assertIn("const available = Math.max(0, roundMoney(Number(advance.available_balance ?? 0)))", self.editor)
         self.assertIn("const amount = Math.min(remaining, available);", self.editor)
         self.assertIn("remaining = roundMoney(remaining - amount);", self.editor)
-        self.assertIn("available = round(max(0.0, float(advance.get(\"available_balance\") or 0)), 2)", self.backend)
-        self.assertIn("return round(total, 2)", self.backend)
+        self.assertIn("available = money(max(0.0, float(advance.get(\"available_balance\") or 0)))", self.backend)
+        self.assertIn("applied = money(min(remaining, available))", self.backend)
+        self.assertIn("remaining = money(max(0.0, remaining - applied))", self.backend)
+        self.assertNotIn("round(", self.backend)
 
 
 if __name__ == "__main__":
