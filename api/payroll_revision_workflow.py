@@ -7,6 +7,7 @@ from api.payroll_adjustments import ensure_schema as ensure_adjustment_schema
 from api.payroll_drafts import must_be_payroll_user, totals
 from api.payroll_revision_controls import PAYROLL_ITEM_COLS, changes_for_run, ensure_revision_schema, item_dict, now_iso
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.money import money
 from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 
 router = APIRouter(prefix="/api/v1")
@@ -33,17 +34,17 @@ def carry_forward_manual_values(conn, source_run_id: int, new_run_id: int, treat
         if not item:
             continue
 
-        earning = round(float(adjustment.get("additional_earning") or 0), 2)
-        other = round(float(adjustment.get("other_deduction") or 0), 2)
-        cash = round(float(adjustment.get("cash_advance_amount") or 0), 2)
+        earning = money(adjustment.get("additional_earning") or 0)
+        other = money(adjustment.get("other_deduction") or 0)
+        cash = money(adjustment.get("cash_advance_amount") or 0)
 
-        base_gross = round(float(item.get("gross_pay") or 0), 2)
-        base_total = round(float(item.get("total_deductions") or 0), 2)
-        auto_cash = round(float(item.get("cash_advance_deduction") or 0), 2)
+        base_gross = money(item.get("gross_pay") or 0)
+        base_total = money(item.get("total_deductions") or 0)
+        auto_cash = money(item.get("cash_advance_deduction") or 0)
 
-        gross = round(base_gross + earning, 2)
-        total_deductions = round(base_total - auto_cash + other + cash, 2)
-        net_pay = round(gross - total_deductions, 2)
+        gross = money(base_gross + earning)
+        total_deductions = money(base_total - auto_cash + other + cash)
+        net_pay = money(gross - total_deductions)
 
         conn.execute(
             """
@@ -196,9 +197,9 @@ def save_controlled_revision(
                 for row in fetchall(conn, "SELECT * FROM payroll_items WHERE payroll_run_id=?", (new_run_id,))
             }
             for employee_id in sorted(set(original_items) | set(revised_items)):
-                original_net = round(float((original_items.get(employee_id) or {}).get("net_pay") or 0), 2)
-                revised_net = round(float((revised_items.get(employee_id) or {}).get("net_pay") or 0), 2)
-                difference = round(revised_net - original_net, 2)
+                original_net = money((original_items.get(employee_id) or {}).get("net_pay") or 0)
+                revised_net = money((revised_items.get(employee_id) or {}).get("net_pay") or 0)
+                difference = money(revised_net - original_net)
                 direction = "Additional pay" if difference > 0 else "Recoverable" if difference < 0 else "No change"
                 if difference > 0:
                     summary["additional_pay"] += difference
@@ -211,7 +212,7 @@ def save_controlled_revision(
                     "INSERT INTO payroll_revision_adjustments(revision_run_id,original_run_id,employee_id,original_net_pay,revised_net_pay,adjustment_amount,adjustment_direction,created_at) VALUES(?,?,?,?,?,?,?,?)",
                     (new_run_id, run_id, employee_id, original_net, revised_net, difference, direction, stamp),
                 )
-            summary = {key: round(value, 2) if isinstance(value, float) else value for key, value in summary.items()}
+            summary = {key: money(value) if isinstance(value, float) else value for key, value in summary.items()}
         else:
             conn.execute("UPDATE payroll_runs SET superseded_by_run_id=? WHERE id=?", (new_run_id, run_id))
 
