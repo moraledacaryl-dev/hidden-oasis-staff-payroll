@@ -5,6 +5,7 @@ from typing import Any
 
 from api.cash_advance_service import ensure_schema, now_iso, recalculate_balance
 from core.db import fetchall, fetchone
+from core.money import money
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -45,7 +46,7 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
         (run_id,),
     )
     for item in items:
-        remaining = round(float(item.get("cash_advance_deduction") or 0), 2)
+        remaining = money(item.get("cash_advance_deduction") or 0)
         if remaining <= 0:
             continue
         advances = fetchall(
@@ -82,28 +83,19 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
                 if existing.get("active") is not None
                 else 1
             ) == 1:
-                existing_amount = round(
-                    float(existing.get("amount") or 0),
-                    2,
-                )
-                remaining = round(
-                    max(0.0, remaining - existing_amount),
-                    2,
-                )
+                existing_amount = money(existing.get("amount") or 0)
+                remaining = money(max(0.0, remaining - existing_amount))
                 continue
 
             current = recalculate_balance(
                 conn,
                 int(advance["id"]),
             )
-            balance = round(
-                float(current.get("balance") or 0),
-                2,
-            )
+            balance = money(current.get("balance") or 0)
             if balance <= 0:
                 continue
 
-            amount = round(min(remaining, balance), 2)
+            amount = money(min(remaining, balance))
             stamp = now_iso()
             payment_date = run.get("payout_date") or now_iso()[:10]
             method = "Payroll deduction"
@@ -177,7 +169,7 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
                 conn,
                 int(advance["id"]),
             )
-            remaining = round(remaining - amount, 2)
+            remaining = money(remaining - amount)
 
 
 def reverse_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int, actor: str | None = None, reason: str | None = None) -> None:
