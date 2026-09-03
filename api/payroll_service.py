@@ -11,6 +11,7 @@ from api.security import current_user_from_token, require_api_key
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import REVIEW_STATUS, compute_payroll, update_payroll_status
+from core.payroll_maker_checker import assert_distinct_checker
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
 class PayrollDraftRequest(BaseModel):
@@ -101,8 +102,10 @@ def approve_payroll_run(run_id: int, authorization: str | None = Header(default=
             raise HTTPException(status_code=404, detail="Payroll run not found.")
         if run.get("status") not in {REVIEW_STATUS, "Reviewed"}:
             raise HTTPException(status_code=409, detail="Only owner-review runs can be approved.")
+        actor = str(user.get("display_name") or "Owner")
         try:
-            update_payroll_status(conn, run_id, "Approved", str(user.get("display_name") or "Owner"))
+            assert_distinct_checker(conn, run, actor)
+            update_payroll_status(conn, run_id, "Approved", actor)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
