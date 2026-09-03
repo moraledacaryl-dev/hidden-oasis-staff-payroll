@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.db import fetchall
+from core.money import money
 
 
 def _rows_by_employee(rows: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
@@ -15,13 +16,11 @@ def _rows_by_employee(rows: list[dict[str, Any]]) -> dict[int, list[dict[str, An
 
 def _recompute_summary(result: dict[str, Any]) -> dict[str, Any]:
     rows = list(result.get("rows") or [])
-    result["expected_total"] = round(
-        sum(float(row.get("expected") or 0) for row in rows),
-        2,
+    result["expected_total"] = money(
+        sum(float(row.get("expected") or 0) for row in rows)
     )
-    result["applied_total"] = round(
-        sum(float(row.get("applied") or 0) for row in rows),
-        2,
+    result["applied_total"] = money(
+        sum(float(row.get("applied") or 0) for row in rows)
     )
     issue_statuses = {"PARTIAL", "OVER", "NOT APPLIED", "UNALLOCATED"}
     result["issue_count"] = sum(
@@ -37,7 +36,7 @@ def _mark_employee_mismatch(
     expected_total: float,
     applied_total: float,
 ) -> None:
-    delta = round(applied_total - expected_total, 2)
+    delta = money(applied_total - expected_total)
     if abs(delta) < 0.005:
         return
     candidates = [
@@ -81,7 +80,7 @@ def normalize_cash_advance_run_check(
         (run_id,),
     )
     deduction_by_employee = {
-        int(row.get("employee_id") or 0): round(float(row.get("deduction") or 0), 2)
+        int(row.get("employee_id") or 0): money(row.get("deduction") or 0)
         for row in payroll_items
     }
     grouped = _rows_by_employee(rows)
@@ -94,12 +93,11 @@ def normalize_cash_advance_run_check(
                     row["applied"] = 0.0
                     row["status"] = "MANUAL REPAYMENT"
                     continue
-                applied = round(float(row.get("applied") or 0), 2)
+                applied = money(row.get("applied") or 0)
                 row["expected"] = applied
                 row["status"] = "APPLIED" if applied > 0 else "NOT SELECTED"
-            posted_total = round(
-                sum(float(row.get("applied") or 0) for row in employee_rows),
-                2,
+            posted_total = money(
+                sum(float(row.get("applied") or 0) for row in employee_rows)
             )
             _mark_employee_mismatch(
                 employee_rows,
@@ -125,20 +123,18 @@ def normalize_cash_advance_run_check(
         employee_id = int(row.get("employee_id") or 0)
         advance_id = int(row.get("cash_advance_id") or 0)
         explicit_ids.add(advance_id)
-        explicit_by_employee[employee_id] = round(
+        explicit_by_employee[employee_id] = money(
             explicit_by_employee.get(employee_id, 0.0)
-            + float(row.get("amount") or 0),
-            2,
+            + money(row.get("amount") or 0)
         )
 
     for employee_id, employee_rows in grouped.items():
-        remaining = round(
+        remaining = money(
             max(
                 0.0,
                 deduction_by_employee.get(employee_id, 0.0)
                 - explicit_by_employee.get(employee_id, 0.0),
-            ),
-            2,
+            )
         )
         automatic_rows: list[dict[str, Any]] = []
         for row in employee_rows:
@@ -151,13 +147,13 @@ def normalize_cash_advance_run_check(
             if advance_id in explicit_ids:
                 continue
             automatic_rows.append(row)
-            available = round(max(0.0, float(row.get("balance_before_run") or 0)), 2)
-            applied = round(min(remaining, available), 2) if remaining > 0 else 0.0
+            available = money(max(0.0, float(row.get("balance_before_run") or 0)))
+            applied = money(min(remaining, available)) if remaining > 0 else 0.0
             row["applied"] = applied
             row["expected"] = applied
-            row["balance_after_run"] = round(max(0.0, available - applied), 2)
+            row["balance_after_run"] = money(max(0.0, available - applied))
             row["status"] = "APPLIED" if applied > 0 else "NOT SELECTED"
-            remaining = round(max(0.0, remaining - applied), 2)
+            remaining = money(max(0.0, remaining - applied))
 
         if remaining > 0.005 and automatic_rows:
             automatic_rows[-1]["status"] = "UNALLOCATED"
