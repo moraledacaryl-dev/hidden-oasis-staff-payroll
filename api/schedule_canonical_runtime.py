@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, Query
 
-from api.schedules import clean_shift, ensure_schema, require_schedule_viewer, week_bounds
+from api.schedules import clean_shift, require_schedule_viewer, week_bounds
 from core.db import DB_PATH, fetchall, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -22,7 +22,6 @@ def schedule_week(
     start, end = week_bounds(week_start)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         rows = fetchall(
             conn,
             """
