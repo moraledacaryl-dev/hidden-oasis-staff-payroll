@@ -28,7 +28,7 @@ type Item = {
   decision_note?: string | null;
   employee_notified?: number;
   coverage_confirmed?: number;
-  attachment_path?: string | null;
+  has_attachment?: boolean;
 };
 
 async function post(body: Record<string, unknown>) {
@@ -181,7 +181,7 @@ export function ScheduleChangeReview() {
 
           <SurfaceSection number="2" title="Employee reason" description="Reason and supporting evidence submitted with the request.">
             <p className="request-reason">{selected.reason}</p>
-            {selected.attachment_path ? <p className="request-note">A supporting document is attached to this request.</p> : null}
+            {selected.has_attachment ? <p className="request-note">A supporting document is attached to this request.</p> : null}
           </SurfaceSection>
 
           {pending ? <SurfaceSection number="3" title="Decision controls" description="Confirm coverage and communication before applying the change.">
