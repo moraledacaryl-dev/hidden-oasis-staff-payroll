@@ -141,6 +141,14 @@ def request_row(conn, request_id: int) -> dict[str, Any] | None:
     )
 
 
+def public_request_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Return a client-safe shift-request DTO without private filesystem data."""
+    item = dict(row)
+    stored_path = item.pop("attachment_path", None)
+    item["has_attachment"] = bool(str(stored_path or "").strip())
+    return item
+
+
 def schedule_items(conn, employee_id: int) -> list[dict[str, Any]]:
     today = business_today()
     start = (today - timedelta(days=7)).isoformat()
@@ -233,7 +241,7 @@ def my_self_service(
                 "position": employee.get("position"),
             },
             "schedule": schedule_items(conn, employee_id),
-            "requests": requests,
+            "requests": [public_request_row(item) for item in requests],
             "coworkers": coworkers,
         }
     finally:
@@ -439,7 +447,7 @@ def list_shift_change_requests(
                      r.submitted_at DESC
             """,
         )
-        return {"ok": True, "items": items}
+        return {"ok": True, "items": [public_request_row(item) for item in items]}
     finally:
         conn.close()
 
@@ -606,6 +614,6 @@ def get_shift_change_request(
         if not row:
             raise HTTPException(status_code=404, detail="Request not found.")
         history = fetchall(conn, "SELECT * FROM shift_change_request_audit WHERE request_id=? ORDER BY created_at, id", (request_id,))
-        return {"ok": True, "item": row, "history": history}
+        return {"ok": True, "item": public_request_row(row), "history": history}
     finally:
         conn.close()
