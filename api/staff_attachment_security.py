@@ -68,7 +68,6 @@ def _resolved_attachment_path(stored_path: str | None) -> Path:
 
 
 def _request_for_attachment(conn, request_id: int) -> dict[str, Any]:
-    ensure_attachment_schema(conn)
     row = fetchone(conn, "SELECT * FROM shift_change_requests WHERE id=?", (request_id,))
     if not row:
         raise HTTPException(status_code=404, detail="Request not found.")
