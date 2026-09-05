@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from api.active_money_boundary_closure import install_active_money_boundary_closure
 from core.db import fetchall
 from core.money import money
 
@@ -162,6 +163,7 @@ def normalize_cash_advance_run_check(
 
 
 def install_aggregate_cash_advance_review(payroll_review_module: Any) -> None:
+    install_active_money_boundary_closure()
     current = payroll_review_module._cash_advance_run_check
     if getattr(current, "_aggregate_cash_review", False):
         return
