@@ -14,13 +14,6 @@ def employee_name(row: dict[str, Any]) -> str:
     return str(row.get("full_name") or row.get("name") or row.get("employee_name") or "")
 
 
-def ensure_user_employee_column(conn) -> None:
-    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(app_users)").fetchall()}
-    if "employee_id" not in columns:
-        conn.execute("ALTER TABLE app_users ADD COLUMN employee_id INTEGER")
-        conn.commit()
-
-
 @router.get("/me/payroll")
 def my_payroll(
     user: dict[str, Any] = Depends(current_user_from_token),
@@ -29,7 +22,6 @@ def my_payroll(
     require_api_key(x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_user_employee_column(conn)
         account = fetchone(conn, "SELECT employee_id FROM app_users WHERE id=? AND active=1", (user.get("id"),))
         employee_id = int(account.get("employee_id") or 0) if account else 0
         if not employee_id:
