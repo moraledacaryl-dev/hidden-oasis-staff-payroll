@@ -298,7 +298,6 @@ def leave_balances(year: int = Query(default_factory=lambda: date.today().year),
     user = require_hr_viewer(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         if user.get("role_key") == "staff":
             employees = fetchall(conn, _employee_list_sql(conn, "WHERE e.id=?"), (int(user["employee_id"]),))
         else:
@@ -319,7 +318,7 @@ def leave_balances(year: int = Query(default_factory=lambda: date.today().year),
                 continue
             start = entitlement_start(ent, year)
             end = entitlement_end(ent, year)
-            used = sync_entitlement_usage(conn, employee_id, int(ent["leave_type_id"]), year, start, end)
+            used = leave_request_used_days(conn, employee_id, int(ent["leave_type_id"]), start, end)
             credits = float(ent.get("credits") or 0)
             by_employee.setdefault(employee_id, []).append({
                 "leave_type_id": ent["leave_type_id"],
@@ -332,7 +331,6 @@ def leave_balances(year: int = Query(default_factory=lambda: date.today().year),
                 "effective_start": start,
                 "effective_end": end,
             })
-        conn.commit()
         return {"ok": True, "year": year, "leave_types": types, "items": [{**dict(emp), "balances": by_employee.get(int(emp["id"]), [])} for emp in employees]}
     finally:
         conn.close()
@@ -372,7 +370,6 @@ def list_leave_requests(authorization: str | None = Header(default=None, alias="
     require_hr_editor(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         profile_expr, department_join = _employee_profile_sql(conn, name_alias="employee_name")
         items = fetchall(conn, f"""
             SELECT lr.*, {profile_expr}, lt.name AS leave_type_name
@@ -441,7 +438,6 @@ def hr_records(employee_id: int | None = Query(default=None), record_type: str |
     user = require_hr_viewer(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         filters: list[str] = []
         params: list[Any] = []
         if user.get("role_key") == "staff":
