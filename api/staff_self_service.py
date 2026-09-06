@@ -212,7 +212,6 @@ def my_self_service(
     require_staff_user(x_api_key, user)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         employee = employee_for_user(conn, user)
         employee_id = int(employee["id"])
         requests = fetchall(
@@ -433,7 +432,6 @@ def list_shift_change_requests(
     require_reviewer(x_api_key, user)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         items = fetchall(
             conn,
             """
@@ -609,7 +607,6 @@ def get_shift_change_request(
     require_reviewer(x_api_key, user)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         row = request_row(conn, request_id)
         if not row:
             raise HTTPException(status_code=404, detail="Request not found.")
