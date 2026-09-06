@@ -207,7 +207,8 @@ def confirmed_new_repayments(conn, cash_advance_id: int) -> float:
     return money(row.get("total") or 0)
 
 
-def recalculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
+def calculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
+    """Calculate authoritative cash-advance balance without mutating storage."""
     row = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
     if not row:
         raise HTTPException(status_code=404, detail="Cash advance not found.")
@@ -229,11 +230,16 @@ def recalculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
         status = "Approved"
     else:
         status = "Active"
+    return {"amount": money(row.get("amount") or 0), "paid": total_paid, "balance": balance, "status": status}
+
+
+def recalculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
+    summary = calculate_balance(conn, cash_advance_id)
     conn.execute(
         "UPDATE cash_advances SET remaining_balance=?, outstanding_balance=?, status=?, repayment_per_cutoff=COALESCE(NULLIF(repayment_per_cutoff,0), deduction_per_payroll), updated_at=? WHERE id=?",
-        (balance, balance, status, now_iso(), cash_advance_id),
+        (summary["balance"], summary["balance"], summary["status"], now_iso(), cash_advance_id),
     )
-    return {"amount": money(row.get("amount") or 0), "paid": total_paid, "balance": balance, "status": status}
+    return summary
 
 
 def repayment_history(conn, cash_advance_id: int) -> list[dict[str, Any]]:
