@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, FastAPI
 
 import api.main as core_main_module
 import api.payroll_review as payroll_review_module
-from api.attendance_compliance import router as attendance_compliance_router
+from api.attendance_compliance import ensure_schema as ensure_attendance_compliance_schema
+from api.attendance_compliance_runtime import router as attendance_compliance_router
 from api.attendance_template_import import router as attendance_template_import_router
 from api.attendance_template_split_shift import router as attendance_template_split_shift_router
 from api.cash_advance_corrections import router as cash_advance_corrections_router
@@ -112,6 +113,9 @@ def initialize_runtime() -> None:
         # both annual review and performance-log schema before accepting traffic.
         ensure_performance_review_schema(conn)
         ensure_performance_logs_schema(conn)
+        # Attendance compliance reads consume memo/evidence schema but must not
+        # CREATE/ALTER/commit during GET requests.
+        ensure_attendance_compliance_schema(conn)
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
         ensure_integration_schema(conn)
