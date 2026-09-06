@@ -52,6 +52,7 @@ from api.schedule_change_log import ensure_schedule_change_log_schema
 from api.schedule_leave_fractional import router as schedule_leave_fractional_router
 from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.schedule_migration import router as schedule_migration_router
+from api.schedule_publication import ensure_schema as ensure_publication_schema
 from api.schedule_publication import router as schedule_publication_router
 from api.schedule_rest_days import router as schedule_rest_days_router
 from api.schedules import ensure_schema as ensure_schedule_schema
@@ -103,6 +104,8 @@ def initialize_runtime() -> None:
         # hardened upload/download routes begin serving traffic.
         ensure_attachment_schema(conn)
         ensure_schedule_schema(conn)
+        # Published schedule reads must never be first-writer schema operations.
+        ensure_publication_schema(conn)
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
         ensure_integration_schema(conn)
