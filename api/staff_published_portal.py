@@ -6,9 +6,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from api.cash_advance_service import ensure_schema as ensure_cash_schema, recalculate_balance
+from api.cash_advance_service import calculate_balance
 from api.hr_records import ensure_schema as ensure_hr_schema
-from api.schedule_publication import ensure_schema as ensure_publication_schema
 from api.security import current_user_from_token
 from api.staff_schedule_ack import router as staff_schedule_ack_router
 from api.staff_self_service import employee_for_user, my_self_service, require_staff_user
@@ -35,9 +34,6 @@ def published_self_service(
     data = my_self_service(user=user, x_api_key=x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_hr_schema(conn)
-        ensure_publication_schema(conn)
-        ensure_cash_schema(conn)
         employee = data.get("employee") or {}
         employee_id = int(employee.get("id") or 0)
         department = str(employee.get("department") or "").strip().lower()
@@ -178,7 +174,7 @@ def published_self_service(
             (employee_id,),
         ) if employee_id else []
         for advance in cash_advances:
-            summary = recalculate_balance(conn, int(advance["id"]))
+            summary = calculate_balance(conn, int(advance["id"]))
             advance["remaining_balance"] = summary["balance"]
             advance["status"] = summary["status"]
         coworker_shifts = fetchall(
@@ -207,7 +203,6 @@ def published_self_service(
         data["attendance"] = attendance
         data["cash_advances"] = cash_advances
         data["coworker_shifts"] = coworker_shifts
-        conn.commit()
         return data
     finally:
         conn.close()
