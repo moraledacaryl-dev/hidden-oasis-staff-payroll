@@ -196,7 +196,6 @@ def replace_snapshot(conn, week_start: str) -> None:
 
 
 def publication_for_date(conn, work_date: str | date) -> dict[str, Any] | None:
-    ensure_schema(conn)
     return fetchone(conn, "SELECT * FROM schedule_publications WHERE week_start=? AND status='Published'", (week_start_for_date(work_date),))
 
 
@@ -226,7 +225,6 @@ def get_schedule_publication(week_start: str, authorization: str | None = Header
     require_user(authorization, x_api_key, {"owner", "payroll", "supervisor"})
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         publication = fetchone(conn, "SELECT * FROM schedule_publications WHERE week_start=?", (week_start,))
         pending = has_pending_changes(conn, week_start) if publication else False
         acks = fetchall(
