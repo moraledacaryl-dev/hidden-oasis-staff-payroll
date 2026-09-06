@@ -69,7 +69,6 @@ def list_rest_days(
     start, end = week_bounds(week_start)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         items = fetchall(
             conn,
             """

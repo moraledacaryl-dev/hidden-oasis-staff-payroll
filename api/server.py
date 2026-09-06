@@ -57,6 +57,7 @@ from api.schedule_leave_statuses import router as schedule_leave_statuses_router
 from api.schedule_migration import router as schedule_migration_router
 from api.schedule_publication import ensure_schema as ensure_publication_schema
 from api.schedule_publication import router as schedule_publication_router
+from api.schedule_rest_days import ensure_schema as ensure_rest_day_schema
 from api.schedule_rest_days import router as schedule_rest_days_router
 from api.schedules import ensure_schema as ensure_schedule_schema
 from api.schedules import router as schedules_router
@@ -116,6 +117,9 @@ def initialize_runtime() -> None:
         # Attendance compliance reads consume memo/evidence schema but must not
         # CREATE/ALTER/commit during GET requests.
         ensure_attendance_compliance_schema(conn)
+        # Rest Day listing is payroll-relevant but must remain a pure read. Ensure
+        # day-marker and schedule-change-log schema before accepting traffic.
+        ensure_rest_day_schema(conn)
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
         ensure_integration_schema(conn)
