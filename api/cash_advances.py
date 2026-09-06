@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.cash_advance_service import (
     CashAdvancePayload,
+    calculate_balance,
     ensure_schema,
     normalize_method,
     now_iso,
@@ -202,15 +203,13 @@ def list_cash_advances(
     require_cash_advance_viewer(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         columns = _columns(conn, "cash_advances")
         date_expr = "COALESCE(ca.advance_date, ca.request_date)" if "request_date" in columns else "ca.advance_date"
         items = fetchall(conn, _cash_advance_select_sql(conn, f"ORDER BY date({date_expr}) DESC, ca.id DESC"))
         for item in items:
-            summary = recalculate_balance(conn, int(item["id"]))
+            summary = calculate_balance(conn, int(item["id"]))
             item.update({"remaining_balance": summary["balance"], "status": summary["status"], "total_repaid": summary["paid"]})
             item["repayments"] = repayment_history(conn, int(item["id"]))
-        conn.commit()
         return {"ok": True, "items": items}
     finally:
         conn.close()
