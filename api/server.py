@@ -12,6 +12,7 @@ from api.attendance_compliance import ensure_schema as ensure_attendance_complia
 from api.attendance_compliance_runtime import router as attendance_compliance_router
 from api.attendance_template_import import router as attendance_template_import_router
 from api.attendance_template_split_shift import router as attendance_template_split_shift_router
+from api.cash_advance_corrections import ensure_correction_schema
 from api.cash_advance_corrections import router as cash_advance_corrections_router
 from api.cash_advances import router as cash_advances_router
 from api.cash_repayments import router as cash_repayments_router
@@ -102,6 +103,9 @@ def initialize_runtime() -> None:
         # upgraded before the API accepts traffic. Historically the first
         # payroll-adjustment request could execute CREATE/ALTER statements.
         ensure_payroll_adjustment_schema(conn)
+        # Cash-advance correction history is read-only at request time. Ensure
+        # correction/settlement schema before accepting traffic.
+        ensure_correction_schema(conn)
         # Payslip listing/detail reads join distribution metadata and must not
         # create or commit schema as a side effect of a GET request.
         ensure_distribution_schema(conn)

@@ -282,7 +282,6 @@ def list_credit_settlements(
         raise HTTPException(status_code=403, detail="Credit settlement history requires owner or payroll role.")
     conn = get_conn(DB_PATH)
     try:
-        ensure_correction_schema(conn)
         return {"ok": True, "items": fetchall(conn, "SELECT * FROM cash_advance_credit_settlements WHERE cash_advance_id=? ORDER BY id DESC", (cash_advance_id,))}
     finally:
         conn.close()
@@ -300,7 +299,6 @@ def list_amount_corrections(
         raise HTTPException(status_code=403, detail="Amount correction history requires owner or payroll role.")
     conn = get_conn(DB_PATH)
     try:
-        ensure_correction_schema(conn)
         return {"ok": True, "items": fetchall(conn, "SELECT * FROM cash_advance_amount_corrections WHERE cash_advance_id=? ORDER BY id DESC", (cash_advance_id,))}
     finally:
         conn.close()
