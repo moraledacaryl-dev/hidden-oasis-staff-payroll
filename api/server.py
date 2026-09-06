@@ -44,7 +44,9 @@ from api.payroll_revision_controls import router as revision_controls_router
 from api.payroll_revision_service import ensure_workflow_schema
 from api.payroll_revision_workflow import router as revision_workflow_router
 from api.payslip_distribution import router as payslip_distribution_router
-from api.performance_reviews import router as performance_reviews_router
+from api.performance_reviews import ensure_performance_logs_schema
+from api.performance_reviews import ensure_schema as ensure_performance_review_schema
+from api.performance_reviews_runtime import router as performance_reviews_router
 from api.production_health import router as production_health_router
 from api.schedule_actuals import router as schedule_actuals_router
 from api.schedule_canonical_runtime import router as schedule_canonical_runtime_router
@@ -106,6 +108,10 @@ def initialize_runtime() -> None:
         ensure_schedule_schema(conn)
         # Published schedule reads must never be first-writer schema operations.
         ensure_publication_schema(conn)
+        # Performance review/list reads are also pure read surfaces. Initialize
+        # both annual review and performance-log schema before accepting traffic.
+        ensure_performance_review_schema(conn)
+        ensure_performance_logs_schema(conn)
         ensure_schedule_change_log_schema(conn)
         ensure_workflow_schema(conn)
         ensure_integration_schema(conn)
