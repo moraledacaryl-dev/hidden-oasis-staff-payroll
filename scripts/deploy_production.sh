@@ -17,6 +17,8 @@ DEPLOY_STATE_FILE="${DEPLOY_STATE_FILE:-/var/lib/hiddenoasis/staff-payroll/deplo
 SOURCE_VENV="${SOURCE_VENV:-$APP_ROOT/.venv-api}"
 SOURCE_PYTHON="$SOURCE_VENV/bin/python"
 SOURCE_PIP="$SOURCE_VENV/bin/pip"
+NPM_AUDIT_ATTEMPTS="${NPM_AUDIT_ATTEMPTS:-3}"
+NPM_AUDIT_RETRY_DELAY_SECONDS="${NPM_AUDIT_RETRY_DELAY_SECONDS:-3}"
 
 cd "$APP_ROOT"
 CURRENT_COMMIT="$(git rev-parse HEAD)"
@@ -25,6 +27,24 @@ RELEASE_DIR="$RELEASES_DIR/$CURRENT_COMMIT"
 fail() {
   echo "Fatal: $*" >&2
   exit 1
+}
+
+run_npm_audit_with_retry() {
+  local attempt=1
+  while (( attempt <= NPM_AUDIT_ATTEMPTS )); do
+    echo "Running npm audit (attempt $attempt/$NPM_AUDIT_ATTEMPTS): npm audit $*"
+    if npm audit "$@"; then
+      return 0
+    fi
+    if (( attempt == NPM_AUDIT_ATTEMPTS )); then
+      echo "npm audit failed after $NPM_AUDIT_ATTEMPTS attempts; refusing deployment." >&2
+      return 1
+    fi
+    echo "npm audit attempt $attempt failed; retrying in ${NPM_AUDIT_RETRY_DELAY_SECONDS}s..." >&2
+    sleep "$NPM_AUDIT_RETRY_DELAY_SECONDS"
+    attempt=$((attempt + 1))
+  done
+  return 1
 }
 
 listener_pid() {
@@ -107,8 +127,8 @@ fi
 
 cd apps/web
 npm ci
-npm audit --omit=dev --audit-level=high
-npm audit --audit-level=high
+run_npm_audit_with_retry --omit=dev --audit-level=high
+run_npm_audit_with_retry --audit-level=high
 npm run lint
 npm run typecheck
 rm -rf .next
