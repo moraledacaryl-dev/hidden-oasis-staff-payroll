@@ -145,7 +145,6 @@ def list_annual_reviews(
     require_review_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         if not table_exists(conn, "employees"):
             return {"ok": True, "year": year, "items": []}
 
@@ -322,6 +321,7 @@ def save_annual_review(
     finally:
         conn.close()
 
+
 class PerformanceLogPayload(BaseModel):
     id: int | None = None
     employee_id: int
@@ -370,7 +370,6 @@ def list_performance_logs(
     require_review_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_performance_logs_schema(conn)
         where = []
         params: list[Any] = []
 
