@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
-from api.cash_advance_service import recalculate_balance
+from api.cash_advance_service import calculate_balance, recalculate_balance
 from api.payroll_adjustment_events import append_adjustment_event
 from api.payroll_adjustments import (
     AdjustmentPayload,
@@ -28,6 +28,7 @@ def _eligible_advances(
     *,
     employee_id: int,
     period_end: str,
+    persist_balances: bool = False,
 ) -> list[dict[str, Any]]:
     rows = fetchall(
         conn,
@@ -44,7 +45,8 @@ def _eligible_advances(
     )
     result: list[dict[str, Any]] = []
     for row in rows:
-        balance = money(recalculate_balance(conn, int(row["id"])).get("balance") or 0)
+        calculator = recalculate_balance if persist_balances else calculate_balance
+        balance = money(calculator(conn, int(row["id"])).get("balance") or 0)
         if balance <= 0:
             continue
         result.append({**row, "live_balance": balance})
@@ -142,8 +144,14 @@ def _cash_snapshot(
     employee_id: int,
     period_end: str,
     amount: float,
+    persist_balances: bool = False,
 ) -> dict[str, Any]:
-    advances = _eligible_advances(conn, employee_id=employee_id, period_end=period_end)
+    advances = _eligible_advances(
+        conn,
+        employee_id=employee_id,
+        period_end=period_end,
+        persist_balances=persist_balances,
+    )
     reserved_total = _other_draft_reserved_total(conn, employee_id=employee_id, run_id=run_id)
     available_advances = _available_after_other_drafts(advances, reserved_total)
     total_available = money(
@@ -169,7 +177,6 @@ def get_adjustments(
     must_be_payroll_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_schema(conn)
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
         item = fetchone(
             conn,
@@ -267,6 +274,7 @@ def save_adjustments(
             employee_id=employee_id,
             period_end=str(run.get("period_end") or ""),
             amount=cash,
+            persist_balances=True,
         )
         total_available = money(snapshot["cash_advance_total_available"])
         suggested_cash = money(snapshot["cash_advance_suggested"])
@@ -433,6 +441,7 @@ def save_adjustments(
             employee_id=employee_id,
             period_end=str(run.get("period_end") or ""),
             amount=cash,
+            persist_balances=True,
         )
         return {
             "ok": True,
