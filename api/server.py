@@ -44,6 +44,7 @@ from api.payroll_review_aggregate import install_aggregate_cash_advance_review
 from api.payroll_revision_controls import router as revision_controls_router
 from api.payroll_revision_service import ensure_workflow_schema
 from api.payroll_revision_workflow import router as revision_workflow_router
+from api.payslip_distribution import ensure_distribution_schema
 from api.payslip_distribution import router as payslip_distribution_router
 from api.performance_reviews import ensure_performance_logs_schema
 from api.performance_reviews import ensure_schema as ensure_performance_review_schema
@@ -101,6 +102,9 @@ def initialize_runtime() -> None:
         # upgraded before the API accepts traffic. Historically the first
         # payroll-adjustment request could execute CREATE/ALTER statements.
         ensure_payroll_adjustment_schema(conn)
+        # Payslip listing/detail reads join distribution metadata and must not
+        # create or commit schema as a side effect of a GET request.
+        ensure_distribution_schema(conn)
         # HR/leave compatibility upgrades are also part of the runtime contract;
         # no HR request should be the first writer of production schema.
         ensure_hr_schema(conn)

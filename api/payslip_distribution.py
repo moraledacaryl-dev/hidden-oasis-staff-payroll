@@ -7,7 +7,6 @@ from pydantic import BaseModel
 
 from api.security import current_user_from_token, require_api_key
 from core.db import DB_PATH, fetchall, fetchone, get_conn
-from api.payroll_adjustments import ensure_schema as ensure_adjustment_schema
 from api.payroll_drafts import totals
 from api.payroll_review import PAYROLL_ITEM_FIELDS, _leave_summaries
 
@@ -63,7 +62,6 @@ def list_payslip_runs(authorization: str | None = Header(default=None, alias="Au
     require_payslip_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_distribution_schema(conn)
         rows = fetchall(
             conn,
             """
@@ -91,8 +89,6 @@ def payslip_run_detail(run_id: int, authorization: str | None = Header(default=N
     require_payslip_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_distribution_schema(conn)
-        ensure_adjustment_schema(conn)
         run = get_visible_run(conn, run_id)
         items = fetchall(
             conn,
