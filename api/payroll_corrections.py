@@ -38,8 +38,6 @@ def list_payroll_corrections(
     must_be_payroll_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_payroll_corrections_schema(conn)
-        conn.commit()
         run = fetchone(conn, "SELECT id FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
