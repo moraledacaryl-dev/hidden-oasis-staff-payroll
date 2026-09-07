@@ -120,15 +120,17 @@ class AttendanceClearTombstoneTests(unittest.TestCase):
             ).fetchone()[0]
             self.assertEqual(automated_count, 0)
 
+            stamp = now_iso()
             conn.execute(
                 """
                 INSERT INTO time_logs(
                     employee_id, work_date, actual_in, actual_out, source,
-                    verification_type, is_absent, approved_ot_hours, attendance_status
+                    verification_type, is_absent, approved_ot_hours, attendance_status,
+                    created_at, updated_at
                 ) VALUES(?, '2026-08-19', '08:00', '17:00', 'manual',
-                         'Manual', 0, 0, 'Approved')
+                         'Manual', 0, 0, 'Approved', ?, ?)
                 """,
-                (self.employee_id,),
+                (self.employee_id, stamp, stamp),
             )
             manual = conn.execute(
                 """
