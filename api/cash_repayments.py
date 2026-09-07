@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, field_validator
 
-from api.cash_advance_service import ensure_schema, now_iso, recalculate_balance, require_cash_advance_viewer
+from api.cash_advance_service import ensure_schema, now_iso, recalculate_balance, require_cash_advance_editor
 from core.db import DB_PATH, fetchone, get_conn
 from core.money import money
 
@@ -27,7 +27,7 @@ class ManualRepaymentPayload(BaseModel):
 
 @router.post("/cash-advances/{cash_advance_id}/manual-repayments")
 def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayload, authorization: str | None = Header(default=None, alias="Authorization"), x_api_key: str | None = Header(default=None, alias="X-API-Key")):
-    user = require_cash_advance_viewer(authorization, x_api_key)
+    user = require_cash_advance_editor(authorization, x_api_key)
     amount = money(payload.amount or 0)
     if amount <= 0:
         raise HTTPException(status_code=422, detail="Repayment amount must be greater than zero.")
