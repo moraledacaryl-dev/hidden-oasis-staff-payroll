@@ -42,7 +42,6 @@ def integration_status(
 ) -> dict[str, Any]:
     conn = get_conn(configured_db_path())
     try:
-        ensure_integration_schema(conn)
         latest = fetchall(
             conn,
             """
@@ -63,7 +62,6 @@ def integration_readiness(
     """Return a fail-closed activation assessment without exposing destination secrets."""
     conn = get_conn(configured_db_path())
     try:
-        ensure_integration_schema(conn)
         summary = _summary(conn)
         status_counts = {
             row["status"]: int(row["count"])
@@ -132,7 +130,6 @@ def list_events(
 ) -> list[dict[str, Any]]:
     conn = get_conn(configured_db_path())
     try:
-        ensure_integration_schema(conn)
         clauses: list[str] = []
         params: list[Any] = []
         if destination:
@@ -163,7 +160,6 @@ def event_detail(
 ) -> dict[str, Any]:
     conn = get_conn(configured_db_path())
     try:
-        ensure_integration_schema(conn)
         row = fetchone(conn, "SELECT * FROM integration_outbox WHERE id=?", (event_id,))
         if not row:
             raise HTTPException(status_code=404, detail="Integration event not found.")
