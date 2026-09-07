@@ -45,7 +45,14 @@ def require_cash_advance_viewer(authorization: str | None, x_api_key: str | None
 
 
 def require_cash_advance_creator(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
-    return require_cash_advance_viewer(authorization, x_api_key)
+    if authorization:
+        user = current_user_from_token(authorization)
+        if user.get("role_key") not in {"owner", "payroll"}:
+            raise HTTPException(status_code=403, detail="Only owner or payroll can create cash advances.")
+        return user
+
+    require_api_key(x_api_key)
+    return {"display_name": "System", "role_key": "payroll"}
 
 
 def require_cash_advance_editor(authorization: str | None, x_api_key: str | None) -> dict[str, Any]:
