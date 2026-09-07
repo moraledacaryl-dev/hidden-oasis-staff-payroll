@@ -71,6 +71,7 @@ from api.staff_attachment_security import router as staff_attachment_router
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
 from api.users import router as users_router
+from core.corrections import ensure_payroll_corrections_schema
 from core.db import get_conn, init_db
 from core.integration_compat import ensure_legacy_integration_writer_compatibility
 from core.integration_outbox import ensure_integration_schema
@@ -103,6 +104,9 @@ def initialize_runtime() -> None:
         # upgraded before the API accepts traffic. Historically the first
         # payroll-adjustment request could execute CREATE/ALTER statements.
         ensure_payroll_adjustment_schema(conn)
+        # Payroll correction listing is a read surface. Ensure its compatibility
+        # schema before accepting traffic so GET requests never become writers.
+        ensure_payroll_corrections_schema(conn)
         # Cash-advance correction history is read-only at request time. Ensure
         # correction/settlement schema before accepting traffic.
         ensure_correction_schema(conn)
