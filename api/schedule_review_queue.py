@@ -31,7 +31,6 @@ def normalize_note(value: Any) -> str:
 
 
 def schedule_items(conn) -> list[dict[str, Any]]:
-    ensure_schedule_review_columns(conn)
     rows = fetchall(
         conn,
         """
