@@ -10,7 +10,7 @@ from core.cash_advance_payroll import (
     apply_payroll_cash_advance_repayments,
     reverse_payroll_cash_advance_repayments,
 )
-from core.db import DB_PATH, fetchone, get_conn
+from core.db import DB_PATH, fetchone, get_conn, now_iso
 from core.payroll_engine import create_accounting_queue_for_payroll
 from core.quality import build_payroll_preflight_checks
 
@@ -50,7 +50,7 @@ def mark_payroll_run_paid(
 
         actor = str(user.get("display_name") or "Owner")
         reference = payload.reference.strip() if payload.reference else None
-        paid_at = conn.execute("SELECT datetime('now','localtime')").fetchone()[0]
+        paid_at = now_iso()
 
         revision_of_run_id = int(run.get("revision_of_run_id") or 0)
         if revision_of_run_id:
