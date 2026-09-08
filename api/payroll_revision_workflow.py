@@ -243,7 +243,6 @@ def get_revision_adjustments(
     must_be_payroll_user(authorization, x_api_key)
     conn = get_conn(DB_PATH)
     try:
-        ensure_workflow_schema(conn)
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
         if not run:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
