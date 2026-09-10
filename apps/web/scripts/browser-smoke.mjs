@@ -151,6 +151,9 @@ async function inspectPage(session, role, route, viewport) {
         for (let node = element; node && node !== document.body; node = node.parentElement) {
           const style = getComputedStyle(node);
           if (style.display === "none" || style.visibility === "hidden") return true;
+          // Responsive tables retain clipped headers for screen readers. Their
+          // descendants have layout boxes but are not visible overflow.
+          if (style.clipPath === "inset(50%)" && node.clientWidth <= 1 && node.clientHeight <= 1) return true;
           if (style.position === "fixed") {
             const rect = node.getBoundingClientRect();
             if (rect.right <= 0 || rect.left >= window.innerWidth) return true;
@@ -180,7 +183,9 @@ async function inspectPage(session, role, route, viewport) {
     })()`,
   });
   const result = evaluation.result?.value || {};
-  const matchedFailureText = visibleFailurePatterns.find((pattern) => pattern.test(result.text || ""))?.toString() || null;
+  // This informational badge describes an unsaved preview, not a failed save.
+  const failureText = (result.text || "").replace(/Preview · not saved/g, "Preview");
+  const matchedFailureText = visibleFailurePatterns.find((pattern) => pattern.test(failureText))?.toString() || null;
   const screenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
   const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-");
   const file = path.join(outputDir, `${role}-${viewport.name}-${slug}.png`);
