@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { copyScheduledShift, moveScheduledShift } from "@/app/schedule/actions";
 import { ConfirmActionModal } from "@/components/ConfirmActionModal";
 import { ScheduleDayEditorModal, type ScheduleDayBundle } from "@/components/ScheduleDayEditorModal";
-import { formatIsoDay } from "@/lib/period";
+import { formatIsoDay, todayInManilaIso } from "@/lib/period";
 import type { ScheduleEmployee, ScheduleLeaveStatus, ScheduleRestDay, ScheduleShift } from "@/lib/schedule-types";
 import styles from "@/app/schedule/page.module.css";
 import restStyles from "./ScheduleRestDay.module.css";
@@ -33,6 +33,8 @@ function overlaps(a: { start: Date; end: Date }, b: { start: Date; end: Date }) 
 export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props) {
   const router = useRouter();
   const matrixRef = useRef<HTMLDivElement | null>(null);
+  const [phoneDay, setPhoneDay] = useState(days.includes(todayInManilaIso()) ? todayInManilaIso() : days[0]);
+  const selectedPhoneDay = days.includes(phoneDay) ? phoneDay : days[0];
   const [localShifts, setLocalShifts] = useState(shifts);
   const [dragId, setDragId] = useState<number | null>(null);
   const [selectedShiftId, setSelectedShiftId] = useState<number | null>(null);
@@ -122,13 +124,28 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   return <>
     {(isPending || message) ? <div className={styles.boardHint}>{isPending ? "Saving…" : message}</div> : null}
     {selectedShiftId ? <div className={dnd.selectionBar}><span>Select a destination cell for the chosen shift.</span><div><button className="button small" type="button" onClick={() => setSelectedShiftId(null)}>Cancel selection</button></div></div> : null}
+    <section className="schedule-phone-view" aria-label="Daily schedule">
+      <label>Schedule day<select value={selectedPhoneDay} onChange={(event) => setPhoneDay(event.target.value)}>{days.map((day) => <option key={day} value={day}>{formatIsoDay(day)}</option>)}</select></label>
+      {rows.map((row) => {
+        const cellShifts = shiftsByCell[cellKey(row.id, selectedPhoneDay)] || [];
+        const leave = row.id !== null ? leaveByCell[`${row.id}:${selectedPhoneDay}`] : undefined;
+        const rest = row.id !== null && restDayKeys.has(`${row.id}:${selectedPhoneDay}`);
+        return <article className="schedule-phone-worker" key={row.id || "unassigned"}>
+          <header><strong>{row.name}</strong><small>{[row.code, row.position || row.department].filter(Boolean).join(" · ")}</small></header>
+          {leave ? <p>{leave.leave_type_name} · {leave.status}</p> : rest ? <p>Rest day</p> : null}
+          {!leave ? cellShifts.map((shift) => <button className="schedule-phone-shift" key={shift.id} type="button" onClick={() => setEditor({ day: selectedPhoneDay, shift })}><strong>{shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1 day" : ""}</strong><span>{shift.position || "Scheduled shift"}</span><small>Actual: {actualText(shift)} · {shift.actual_status || "Not reviewed"}</small><span>{canEdit ? "Open shift" : "View shift"} →</span></button>) : null}
+          {!cellShifts.length && !leave && !rest ? <p>No shift scheduled.</p> : null}
+          {canEdit ? <button className="button small secondary" type="button" onClick={() => setEditor({ day: selectedPhoneDay, shift: null, employeeId: row.id, initialTab: "scheduled" })}>Manage day</button> : null}
+        </article>;
+      })}
+    </section>
     <div aria-hidden={!floatingHeader.visible} className={`schedule-floating-header ${floatingHeader.visible ? "is-visible" : ""}`} style={{ left: floatingHeader.left, width: floatingHeader.width }}>
       <div className="schedule-floating-track" style={{ transform: `translateX(${-floatingHeader.scrollLeft}px)` }}>
         <div className="schedule-floating-corner">Employee</div>
         {days.map((day) => <div className="schedule-floating-day" key={day}><strong>{dayTitle(day)}</strong><span>{daySubtitle(day)}</span></div>)}
       </div>
     </div>
-    <div className={`${styles.matrixGrid} ${isPending ? dnd.busy : ""}`} ref={matrixRef}>
+    <div className={`schedule-desktop-matrix ${styles.matrixGrid} ${isPending ? dnd.busy : ""}`} ref={matrixRef}>
       <div className={styles.matrixCorner}>Employee</div>
       {days.map((day) => <div className={styles.matrixHeader} key={day}><strong>{dayTitle(day)}</strong><span>{daySubtitle(day)}</span></div>)}
       {rows.map((row) => <div className={styles.matrixRow} key={row.id || "unassigned"}>

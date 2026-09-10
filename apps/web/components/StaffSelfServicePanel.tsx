@@ -1,4 +1,7 @@
 "use client";
+import { MobileSection } from "@/components/MobileSection";
+
+import { clientRequest } from "@/lib/client-request";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -36,8 +39,8 @@ function money(value: number) {
 
 function statusTone(status: string): "ok" | "warning" | "danger" {
   const normalized = status.toLowerCase();
-  if (["approved", "paid", "active", "completed", "reviewed"].some((value) => normalized.includes(value))) return "ok";
-  if (["pending", "for review", "draft"].some((value) => normalized.includes(value))) return "warning";
+  if (["approved", "paid", "active", "completed", "reviewed"].includes(normalized)) return "ok";
+  if (["pending", "for review", "draft"].includes(normalized)) return "warning";
   return "danger";
 }
 
@@ -45,13 +48,15 @@ export function StaffSelfServicePanel() {
   const [data, setData] = useState<SelfServiceData | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [messageError, setMessageError] = useState(false);
+  const [dateInvalid, setDateInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError("");
-    const response = await fetch("/api/schedule/shifts", { cache: "no-store" });
+    const response = await clientRequest("/api/schedule/shifts", { cache: "no-store" });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.detail || body.message || "Self-service could not be loaded.");
+    if (!response.ok) { setError(body.detail || body.message || "Self-service could not be loaded."); return; }
     setData(body as SelfServiceData);
   }, []);
 
@@ -63,9 +68,14 @@ export function StaffSelfServicePanel() {
     event.preventDefault();
     const form = event.currentTarget;
     const fields = new FormData(form);
+    setDateInvalid(false);
+    if (String(fields.get("end_date")) < String(fields.get("start_date"))) {
+      setDateInvalid(true); setMessageError(true); setMessage("End date cannot be before start date.");
+      form.querySelector<HTMLInputElement>('[name="end_date"]')?.focus(); return;
+    }
     setBusy(true);
-    setMessage("");
-    const response = await fetch("/api/schedule/shifts", {
+    setMessage(""); setMessageError(false);
+    const response = await clientRequest("/api/schedule/shifts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -79,7 +89,7 @@ export function StaffSelfServicePanel() {
     const body = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok) {
-      setMessage(body.detail || "Leave request failed.");
+      setMessageError(true); setMessage(body.detail || "Leave request failed.");
       return;
     }
     form.reset();
@@ -89,8 +99,8 @@ export function StaffSelfServicePanel() {
 
   async function withdrawLeave(requestId: number) {
     setBusy(true);
-    setMessage("");
-    const response = await fetch("/api/schedule/shifts", {
+    setMessage(""); setMessageError(false);
+    const response = await clientRequest("/api/schedule/shifts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ operation: "withdraw_leave_request", request_id: requestId }),
@@ -98,7 +108,7 @@ export function StaffSelfServicePanel() {
     const body = await response.json().catch(() => ({}));
     setBusy(false);
     if (!response.ok) {
-      setMessage(body.detail || "Leave request could not be withdrawn.");
+      setMessageError(true); setMessage(body.detail || "Leave request could not be withdrawn.");
       return;
     }
     setMessage("Leave request withdrawn.");
@@ -125,7 +135,7 @@ export function StaffSelfServicePanel() {
         />
       </section>
 
-      <section className="staff-two-col" id="my-leave">
+      <MobileSection title="Leave balances & request" description="Check your balance or request time off"><section className="staff-two-col" id="my-leave">
         <article className="staff-section">
           <header><div><h2>Leave balances</h2><p>Your current entitlement and pending usage.</p></div><StatusBadge label={`${pendingLeave} pending`} tone={pendingLeave ? "warning" : "ok"} /></header>
           <div className="staff-section-body staff-balance-list">
@@ -145,28 +155,28 @@ export function StaffSelfServicePanel() {
             <form className="staff-form" onSubmit={submitLeave}>
               <label>Leave type<select name="leave_type_id" required defaultValue=""><option value="" disabled>Select leave type</option>{data.leave_balances.map((item) => <option value={item.leave_type_id} key={item.leave_type_id}>{item.leave_type_name}</option>)}</select></label>
               <label>Start date<input name="start_date" type="date" required /></label>
-              <label>End date<input name="end_date" type="date" required /></label>
+              <label>End date<input name="end_date" type="date" required aria-invalid={dateInvalid} aria-describedby={message ? "leave-feedback" : undefined} onChange={() => setDateInvalid(false)} /></label>
               <label>Reason<textarea name="reason" rows={3} minLength={3} required placeholder="Brief reason for the request" /></label>
               <button className="button" type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit request"}</button>
             </form>
-            {message ? <p className="muted">{message}</p> : null}
+            {message ? <p id="leave-feedback" className={`form-feedback ${messageError ? "is-error" : "is-success"}`} role={messageError ? "alert" : "status"}>{message}</p> : null}
           </div>
         </article>
-      </section>
+      </section></MobileSection>
 
-      <section className="staff-section">
+      <MobileSection title="Leave request history" description={`${pendingLeave} pending · Track decisions or withdraw a request`}><section className="staff-section">
         <header><div><h2>Leave requests</h2><p>Track approval status and withdraw pending requests.</p></div></header>
-        <div className="table-wrap"><table className="staff-table"><thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead><tbody>
-          {data.leave_requests.map((item) => <tr key={item.id}><td><strong>{item.leave_type_name}</strong></td><td>{item.start_date} to {item.end_date}</td><td>{item.days}</td><td><StatusBadge label={item.status} tone={statusTone(item.status)} />{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td>{item.reason || "—"}</td><td>{item.status === "Pending" ? <button className="button small secondary" type="button" disabled={busy} onClick={() => void withdrawLeave(item.id)}>Withdraw</button> : "—"}</td></tr>)}
+        <div className="table-wrap"><table className="responsive-records staff-table"><thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead><tbody>
+          {data.leave_requests.map((item) => <tr key={item.id}><td data-label="Type"><strong>{item.leave_type_name}</strong></td><td data-label="Dates">{item.start_date} to {item.end_date}</td><td data-label="Days">{item.days}</td><td data-label="Status"><StatusBadge label={item.status} tone={statusTone(item.status)} />{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td data-label="Reason">{item.reason || "—"}</td><td data-label="Action">{item.status === "Pending" ? <button className="button small secondary" type="button" disabled={busy} onClick={() => void withdrawLeave(item.id)}>Withdraw</button> : "—"}</td></tr>)}
           {!data.leave_requests.length ? <tr><td colSpan={6} className="staff-empty">No leave requests.</td></tr> : null}
         </tbody></table></div>
-      </section>
+      </section></MobileSection>
 
-      <section className="staff-two-col" id="my-attendance">
+      <MobileSection title="Attendance & cash advances" description="Recorded hours and repayment balances"><section className="staff-two-col" id="my-attendance">
         <article className="staff-section">
           <header><div><h2>My attendance</h2><p>Recorded time and approved overtime.</p></div><StatusBadge label={`${data.attendance.length} records`} tone="ok" /></header>
-          <div className="table-wrap"><table className="staff-table"><thead><tr><th>Date</th><th>Time</th><th>Status</th><th>OT</th></tr></thead><tbody>
-            {data.attendance.map((item, index) => <tr key={`${item.work_date}-${index}`}><td>{item.work_date}</td><td>{item.is_absent ? item.absence_type || "Absent" : `${item.actual_in || "—"}–${item.actual_out || "—"}`}</td><td><StatusBadge label={item.attendance_status} tone={statusTone(item.attendance_status)} /></td><td>{Number(item.approved_ot_hours || 0).toLocaleString("en-PH")} hrs</td></tr>)}
+          <div className="table-wrap"><table className="responsive-records staff-table"><thead><tr><th>Date</th><th>Time</th><th>Status</th><th>OT</th></tr></thead><tbody>
+            {data.attendance.map((item, index) => <tr key={`${item.work_date}-${index}`}><td data-label="Date">{item.work_date}</td><td data-label="Time">{item.is_absent ? item.absence_type || "Absent" : `${item.actual_in || "—"}–${item.actual_out || "—"}`}</td><td data-label="Status"><StatusBadge label={item.attendance_status} tone={statusTone(item.attendance_status)} /></td><td data-label="OT">{Number(item.approved_ot_hours || 0).toLocaleString("en-PH")} hrs</td></tr>)}
             {!data.attendance.length ? <tr><td colSpan={4} className="staff-empty">No attendance records.</td></tr> : null}
           </tbody></table></div>
         </article>
@@ -178,15 +188,15 @@ export function StaffSelfServicePanel() {
             {!data.cash_advances.length ? <p className="staff-empty">No cash advances.</p> : null}
           </div>
         </article>
-      </section>
+      </section></MobileSection>
 
-      <section className="staff-section">
+      <MobileSection title="My HR records" description={`${data.hr_records.length} records shared with you`}><section className="staff-section">
         <header><div><h2>HR records</h2><p>Formal records visible to your employee account.</p></div><StatusBadge label={`${data.hr_records.length} records`} tone="ok" /></header>
         <div className="staff-section-body staff-status-list">
           {data.hr_records.map((item) => <div className="staff-status-row" key={item.id}><div><strong>{item.record_date} · {item.record_type}</strong><span>{item.subject}</span><small>{item.issued_by ? `Issued by ${item.issued_by}` : "Employer record"}</small></div><div><StatusBadge label={item.status} tone={statusTone(item.status)} /><small>{item.severity}</small></div></div>)}
           {!data.hr_records.length ? <p className="staff-empty">No HR records.</p> : null}
         </div>
-      </section>
+      </section></MobileSection>
     </>
   );
 }

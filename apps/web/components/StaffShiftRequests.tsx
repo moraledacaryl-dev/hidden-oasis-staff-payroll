@@ -1,4 +1,6 @@
 "use client";
+import { MobileSection } from "@/components/MobileSection";
+import { todayInManilaIso, formatBusinessDateTime } from "@/lib/period";
 
 import { FormEvent, useMemo, useState } from "react";
 import { shiftRequestTypes } from "@/app/me/shift-request-types";
@@ -28,14 +30,6 @@ async function uploadAttachment(requestId: number, file: File) {
   if (!response.ok) throw new Error(data.detail || data.message || "Attachment upload failed.");
 }
 
-function todayIso() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function sortAscending(a: StaffShift, b: StaffShift) {
   return `${a.shift_date} ${a.start_time}`.localeCompare(`${b.shift_date} ${b.start_time}`);
 }
@@ -43,10 +37,10 @@ function sortAscending(a: StaffShift, b: StaffShift) {
 function ScheduleTable({ items, emptyText }: { items: StaffShift[]; emptyText: string }) {
   return (
     <div className="table-wrap">
-      <table>
+      <table className="responsive-records ">
         <thead><tr><th>Date</th><th>Time</th><th>Position</th><th>Department</th><th>Status</th><th>Notes</th></tr></thead>
         <tbody>
-          {items.map((shift) => <tr key={`${shift.id}-${shift.shift_date}-${shift.start_time}`}><td>{shift.shift_date}</td><td><strong>{shift.start_time}–{shift.end_time}</strong></td><td>{shift.position || "—"}</td><td>{shift.department || "—"}</td><td>{shift.status || "—"}</td><td>{shift.notes || "—"}</td></tr>)}
+          {items.map((shift) => <tr key={`${shift.id}-${shift.shift_date}-${shift.start_time}`}><td data-label="Date">{shift.shift_date}</td><td data-label="Time"><strong>{shift.start_time}–{shift.end_time}</strong></td><td data-label="Position">{shift.position || "—"}</td><td data-label="Department">{shift.department || "—"}</td><td data-label="Status">{shift.status === "Draft" ? "Published" : shift.status || "Published"}</td><td data-label="Notes">{shift.notes || "—"}</td></tr>)}
           {!items.length ? <tr><td colSpan={6}>{emptyText}</td></tr> : null}
         </tbody>
       </table>
@@ -59,7 +53,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkerShi
   const [busy, setBusy] = useState(false);
 
   const { upcomingSchedule, previousSchedule } = useMemo(() => {
-    const today = todayIso();
+    const today = todayInManilaIso();
     const ordered = [...schedule].sort(sortAscending);
     return {
       upcomingSchedule: ordered.filter((shift) => shift.shift_date >= today),
@@ -132,7 +126,7 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkerShi
     <>
       <section className="card staff-schedule-print">
         <div className="panel-title"><h2>My schedule</h2><button className="button secondary print-actions" type="button" onClick={() => window.print()}>Print / Save PDF</button></div>
-        {publications.length ? <div className="badge-row print-actions">{publications.map((publication) => publication.acknowledged ? <span className="badge" key={publication.week_start}>Week of {publication.week_start} acknowledged{publication.acknowledged_at ? ` · ${publication.acknowledged_at}` : ""}</span> : <button className="button small" disabled={busy} key={publication.week_start} type="button" onClick={() => acknowledge(publication.week_start)}>Acknowledge week of {publication.week_start}</button>)}</div> : null}
+        {publications.length ? <div className="badge-row print-actions">{publications.map((publication) => publication.acknowledged ? <span className="badge" key={publication.week_start}>Week of {publication.week_start} acknowledged{publication.acknowledged_at ? ` · ${formatBusinessDateTime(publication.acknowledged_at)}` : ""}</span> : <button className="button small" disabled={busy} key={publication.week_start} type="button" onClick={() => acknowledge(publication.week_start)}>Acknowledge week of {publication.week_start}</button>)}</div> : null}
 
         <div className="panel-title"><h3>Upcoming</h3><span className="badge">{upcomingSchedule.length}</span></div>
         <ScheduleTable items={upcomingSchedule} emptyText="No upcoming published shifts." />
@@ -147,10 +141,10 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkerShi
         </div>
       </section>
 
-      <section className="card">
+      <MobileSection title="Request a shift change" description="Choose an upcoming shift and explain the change"><section className="card" id="my-requests">
         <div className="panel-title"><h2>Request a shift change</h2></div>
-        {message ? <p><strong>{message}</strong></p> : null}
-        <form onSubmit={submit} className="grid cols-2">
+        {message ? <p role="status" className="form-feedback"><strong>{message}</strong></p> : null}
+        {upcomingSchedule.length ? <form onSubmit={submit} className="grid cols-2">
           <label className="field">Affected shift<select name="shift_id" required defaultValue=""><option value="" disabled>Select your upcoming shift</option>{upcomingSchedule.map((shift) => <option key={shift.id} value={shift.id}>{shift.shift_date} · {shift.start_time}–{shift.end_time}</option>)}</select></label>
           <label className="field">Request type<select name="request_type" required defaultValue={shiftRequestTypes[0]}>{shiftRequestTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
           <label className="field">Requested date<input type="date" name="requested_date" /></label>
@@ -161,16 +155,16 @@ export function StaffShiftRequests({ employeeId, schedule, requests, coworkerShi
           <label className="field"><span><input type="checkbox" name="emergency" /> Emergency review priority</span></label>
           <label className="field"><span><input type="checkbox" name="accuracy_confirmed" required /> I confirm that this information is accurate.</span></label>
           <div><button className="button" type="submit" disabled={busy || !upcomingSchedule.length}>{busy ? "Saving…" : "Submit request"}</button></div>
-        </form>
-      </section>
+        </form> : <p className="staff-empty">A shift change request needs an upcoming published shift. Your manager can publish the schedule; use Request leave below for a leave request.</p>}
+      </section></MobileSection>
 
       <section className="card">
         <div className="panel-title"><h2>My requests</h2></div>
-        <div className="table-wrap"><table><thead><tr><th>Request</th><th>Original</th><th>Requested</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead><tbody>
+        <div className="table-wrap"><table className="responsive-records "><thead><tr><th>Request</th><th>Original</th><th>Requested</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead><tbody>
           {requests.map((item) => {
             const waitingForMe = item.proposed_swap_employee_id === employeeId && item.status === "Swap Confirmation";
             const canWithdraw = item.employee_id === employeeId && ["Pending", "Swap Confirmation", "Emergency Review"].includes(item.status);
-            return <tr key={item.id}><td><strong>{item.request_no}</strong><br /><span className="muted">{item.request_type} · {item.submitted_at}</span>{item.has_attachment ? <><br /><span className="muted">Attachment uploaded</span></> : null}</td><td>{item.original_date}<br />{item.original_start_time}–{item.original_end_time}</td><td>{item.requested_date || "Same date"}<br />{item.requested_start_time || item.original_start_time}–{item.requested_end_time || item.original_end_time}{item.swap_employee_name ? <><br /><span className="muted">Swap: {item.swap_employee_name}</span></> : null}</td><td>{item.reason}</td><td><strong>{item.status}</strong>{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td>{waitingForMe ? <><button className="button small" disabled={busy} onClick={() => act("confirm_swap", item.id)}>Confirm swap</button><button className="button small secondary" disabled={busy} onClick={() => act("decline_swap", item.id)}>Decline swap</button></> : null}{canWithdraw ? <button className="button small secondary" disabled={busy} onClick={() => act("withdraw_request", item.id)}>Withdraw</button> : null}</td></tr>;
+            return <tr key={item.id}><td data-label="Request"><strong>{item.request_no}</strong><br /><span className="muted">{item.request_type} · {formatBusinessDateTime(item.submitted_at)}</span>{item.has_attachment ? <><br /><span className="muted">Attachment uploaded</span></> : null}</td><td data-label="Original">{item.original_date}<br />{item.original_start_time}–{item.original_end_time}</td><td data-label="Requested">{item.requested_date || "Same date"}<br />{item.requested_start_time || item.original_start_time}–{item.requested_end_time || item.original_end_time}{item.swap_employee_name ? <><br /><span className="muted">Swap: {item.swap_employee_name}</span></> : null}</td><td data-label="Reason">{item.reason}</td><td data-label="Status"><strong>{item.status}</strong>{item.decision_note ? <><br /><span className="muted">{item.decision_note}</span></> : null}</td><td data-label="Action">{waitingForMe ? <><button className="button small" disabled={busy} onClick={() => act("confirm_swap", item.id)}>Confirm swap</button><button className="button small secondary" disabled={busy} onClick={() => act("decline_swap", item.id)}>Decline swap</button></> : null}{canWithdraw ? <button className="button small secondary" disabled={busy} onClick={() => act("withdraw_request", item.id)}>Withdraw</button> : null}</td></tr>;
           })}
           {!requests.length ? <tr><td colSpan={6}>No requests submitted.</td></tr> : null}
         </tbody></table></div>

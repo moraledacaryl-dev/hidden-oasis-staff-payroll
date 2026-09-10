@@ -1,5 +1,7 @@
 "use client";
 
+import { clientRequest } from "@/lib/client-request";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -23,7 +25,7 @@ export function PasswordChangeForm() {
       setMessage("New passwords do not match.");
       return;
     }
-    const response = await fetch("/api/settings/password", {
+    const response = await clientRequest("/api/settings/password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -45,14 +47,14 @@ export function PasswordChangeForm() {
   }
 
   return (
-    <form action={submit} className="form-panel">
+    <form onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }} className="form-panel">
       <div className="form-grid">
         <label>Current password<input name="current_password" type="password" required autoComplete="current-password" /></label>
         <label>New password<input name="new_password" type="password" required minLength={12} autoComplete="new-password" /></label>
         <label>Confirm new password<input name="confirm_password" type="password" required minLength={12} autoComplete="new-password" /></label>
       </div>
       <div className="action-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Changing..." : "Change password"}</button></div>
-      {message ? <p className="muted" role="status">{message}</p> : null}
+      {message ? <p className="form-feedback" role="status">{message}</p> : null}
     </form>
   );
 }

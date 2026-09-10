@@ -1,5 +1,7 @@
 "use client";
 
+import { clientRequest } from "@/lib/client-request";
+
 import { useCallback, useEffect, useState } from "react";
 import { ConfirmActionModal } from "@/components/ConfirmActionModal";
 
@@ -20,17 +22,20 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [loadedWeek, setLoadedWeek] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const refresh = useCallback(async () => {
-    const response = await fetch("/api/schedule/shifts", {
+    const response = await clientRequest("/api/schedule/shifts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ operation: "get_schedule_publication", week_start: weekStart }),
       cache: "no-store",
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) return;
+    if (!response.ok || !data.ok) { setLoadError("Publication status could not be loaded. Retrying…"); setLoadedWeek(""); return; }
+    setLoadError(""); setLoadedWeek(weekStart);
     setState({ publication: data.publication || null, pending: Boolean(data.has_pending_changes) });
     if (data.publication?.notes) setNotes(String(data.publication.notes));
   }, [weekStart]);
@@ -45,7 +50,7 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
     const republish = Boolean(state.publication);
     setBusy(true);
     setMessage("");
-    const response = await fetch("/api/schedule/shifts", {
+    const response = await clientRequest("/api/schedule/shifts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ operation: "publish_schedule", week_start: weekStart, notes: notes || null }),
@@ -63,9 +68,10 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
     setMessage(republish ? "Revised schedule published." : "Schedule published.");
   }
 
+  const ready = loadedWeek === weekStart;
   const published = state.publication?.status === "Published";
   const republish = Boolean(state.publication);
-  const label = state.pending ? "Changes Pending" : published ? "Published" : "Draft";
+  const label = !ready ? "Loading publication…" : state.pending ? "Changes Pending" : published ? "Published" : "Draft";
 
   return (
     <>
@@ -95,12 +101,13 @@ export function SchedulePublicationPanel({ weekStart }: { weekStart: string }) {
         </label>
 
         <div className="action-row">
-          <button className="button" type="button" disabled={busy || (published && !state.pending)} onClick={() => setConfirmOpen(true)}>
-            {busy ? "Publishing…" : state.pending ? "Republish revised schedule" : published ? "Published" : "Publish schedule"}
+          <button className="button" type="button" disabled={!ready || busy || (published && !state.pending)} onClick={() => setConfirmOpen(true)}>
+            {!ready ? "Loading publication…" : busy ? "Publishing…" : state.pending ? "Republish revised schedule" : published ? "Published" : "Publish schedule"}
           </button>
         </div>
 
-        {message ? <p className="muted">{message}</p> : null}
+        {loadError ? <p role="alert" className="form-feedback is-error">{loadError}</p> : null}
+        {message ? <p className="form-feedback" role="status">{message}</p> : null}
       </section>
 
       <ConfirmActionModal

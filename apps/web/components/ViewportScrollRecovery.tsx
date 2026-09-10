@@ -8,7 +8,7 @@ function surfaceIsOpen() {
 }
 
 function recoverViewportScroll() {
-  if (surfaceIsOpen()) return;
+  if (surfaceIsOpen() || document.documentElement.hasAttribute("data-sidebar-mobile-open")) return;
 
   const html = document.documentElement;
   const body = document.body;

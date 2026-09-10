@@ -1,5 +1,7 @@
 "use client";
 
+import { clientRequest } from "@/lib/client-request";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppDrawer } from "@/components/AppSurface";
@@ -35,7 +37,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
   async function submit(formData: FormData) {
     setBusy(true);
     setMessage("");
-    const response = await fetch("/api/cash-advances", {
+    const response = await clientRequest("/api/cash-advances", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -56,8 +58,10 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
       setMessage(data.detail || "Cash advance was not saved.");
       return;
     }
+    setMessage(item ? "Cash advance updated." : "Cash advance added.");
     if (item) setOpen(false);
     router.refresh();
+    return true;
   }
 
   async function lifecycle(action: LifecycleAction) {
@@ -68,7 +72,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
     }
     setBusy(true);
     setMessage("");
-    const response = await fetch("/api/cash-advances", {
+    const response = await clientRequest("/api/cash-advances", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, cash_advance_id: item.id, reason: actionReason.trim() || null }),
@@ -85,7 +89,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
   }
 
   const renderForm = () => (
-    <form action={submit} className={`cash-edit-panel${item ? " is-editing" : ""}`}>
+    <form onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; void submit(new FormData(form)).then((saved) => { if (saved && !item) { form.reset(); setAmount(0); setMethod("Payroll deduction"); } }); }} className={`cash-edit-panel${item ? " is-editing" : ""}`}>
       {item ? <input type="hidden" name="employee_id" value={item.employee_id || ""} /> : null}
 
       {!item ? (
@@ -166,17 +170,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
       closeLabel="Close cash advance editor"
     >
       {renderForm()}
-      <style jsx>{`
-        .cash-edit-panel{display:grid;gap:18px;width:100%;padding:18px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:var(--shadow)}
-        .cash-edit-panel.is-editing{padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
-        .cash-edit-header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
-        .cash-edit-header h3{margin:2px 0 4px;font-size:1.05rem}.cash-edit-eyebrow{color:var(--accent);font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
-        .cash-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}.cash-edit-field{display:grid;gap:6px;min-width:0}.cash-edit-field>span{color:var(--muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.cash-edit-field input,.cash-edit-field select,.cash-edit-field textarea{width:100%;min-width:0}.cash-edit-field textarea{resize:vertical}.cash-edit-field small{color:var(--muted);font-size:.74rem;line-height:1.35}.cash-edit-span-2{grid-column:1/-1}
-        .cash-edit-field-emphasis{padding:12px;border:1px solid var(--accent-soft);border-radius:8px;background:var(--accent-soft)}.cash-edit-field-emphasis input{background:var(--surface)}
-        .cash-lifecycle-card{display:grid;gap:12px;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft)}.cash-lifecycle-card>div:first-child{display:flex;justify-content:space-between;gap:12px}.cash-lifecycle-card>div:first-child span{color:var(--muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.cash-lifecycle-actions{display:flex;gap:8px;flex-wrap:wrap}
-        .cash-edit-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:14px;border-top:1px solid var(--line)}.cash-edit-actions>p{margin:0;color:var(--danger);font-size:.8rem;font-weight:700}.cash-edit-actions>div{display:flex;gap:8px;margin-left:auto}
-        @media(max-width:720px){.cash-edit-panel{padding:14px}.cash-edit-panel.is-editing{padding:0}.cash-edit-grid{grid-template-columns:1fr}.cash-edit-span-2{grid-column:1}.cash-edit-actions{display:grid}.cash-edit-actions>div{width:100%;margin-left:0}.cash-edit-actions button{flex:1}.cash-lifecycle-card>div:first-child{display:grid}}
-      `}</style>
+
     </AppDrawer>
   );
 }

@@ -1,3 +1,5 @@
+import { MobileSection } from "@/components/MobileSection";
+import { payrollCheckHref } from "@/lib/payroll-links";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
@@ -31,59 +33,62 @@ export default async function DashboardPage() {
   let reviews: AttendanceReview[] = [];
 
   if (canSeePayroll) preview = await getPayrollPreview(periodStart, periodEnd);
-  else [exceptions, reviews] = await Promise.all([getAttendanceExceptions(periodStart, periodEnd), getAttendanceReviews(periodStart, periodEnd)]);
+  if (session.role_key !== "payroll") [exceptions, reviews] = await Promise.all([getAttendanceExceptions(periodStart, periodEnd), getAttendanceReviews(periodStart, periodEnd)]);
 
-  const activeEmployees = employees.filter((employee) => employee.status !== "Inactive" && employee.status !== "Terminated").length;
+  const activeEmployees = employees.filter((employee) => !["Inactive", "Terminated", "Separated"].includes(employee.status)).length;
   const blockers = preview?.checks.filter((check) => check.severity === "Blocker").length || 0;
   const warnings = preview?.checks.filter((check) => check.severity === "Warning").length || 0;
   const missing = exceptions.filter((item) => !item.actual_in || !item.actual_out).length;
   const absent = exceptions.filter((item) => item.is_absent).length;
   const otPending = exceptions.filter((item) => item.ot_status === "Pending").length;
   const openCount = preview ? preview.checks.length : exceptions.length;
-  const readiness = Math.max(0, Math.min(100, 100 - blockers * 15 - warnings * 4 - (!preview ? Math.min(openCount, 10) * 3 : 0)));
+  const periodQuery = `start=${periodStart}&end=${periodEnd}`;
+  const reviewHref = canSeePayroll ? `/payroll?${periodQuery}` : `/attendance/review?${periodQuery}`;
+  const reviewStatus = blockers ? "Blocked" : openCount ? "Needs review" : "Checks clear";
+  const checkHref = (category: string) => payrollCheckHref(category, session.role_key, periodStart, periodEnd);
 
   return (
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className={`page ${styles.dashboardPage}`}>
         <PageHeading
           eyebrow="Command center"
-          title={`Good evening, ${session.display_name.split(" ")[0]}.`}
-          description={canSeePayroll ? `Your ${periodStart} to ${periodEnd} payroll is nearly ready. ${openCount} item${openCount === 1 ? "" : "s"} need review.` : "Today’s staffing, attendance, and people actions in one place."}
-          actions={<><Link className="button secondary" href={canSeePayroll ? "/cutoff" : "/attendance"}>{periodStart} to {periodEnd}</Link><Link className="button" href={canSeePayroll ? "/cutoff" : "/attendance"}>{canSeePayroll ? "Open cutoff" : "Review attendance"}</Link></>}
+          title={`Welcome, ${session.display_name.split(" ")[0]}.`}
+          description={canSeePayroll ? `Your ${periodStart} to ${periodEnd} payroll has ${blockers} blocking check${blockers === 1 ? "" : "s"}. ${openCount} item${openCount === 1 ? "" : "s"} need review.` : "Today’s staffing, attendance, and people actions in one place."}
+          actions={<><Link className="button secondary" href={reviewHref}>{periodStart} to {periodEnd}</Link><Link className="button" href={canSeePayroll ? "/cutoff" : reviewHref}>{canSeePayroll ? "Latest completed cutoff" : "Review attendance"}</Link></>}
         />
 
         <section className={styles.heroCard}>
-          <div className={styles.heroCopy}><span className="eyebrow">{canSeePayroll ? "Payroll readiness" : "Operations pulse"}</span><h2>{openCount ? `${openCount} ${canSeePayroll ? "payroll" : "operations"} item${openCount === 1 ? "" : "s"} still need a decision.` : "No blocking items remain."}</h2><p>{canSeePayroll ? "Rest days and exact matches are already cleared. Remaining items are material variances, missing logs, or deductions that require a human decision." : "Only meaningful schedule, attendance, and people exceptions remain in the queue."}</p><div className={styles.heroActions}><Link className="button" href={canSeePayroll ? "/attendance" : "/schedule/requests"}>Review now →</Link><Link className="button secondary" href="/schedule">View schedule</Link></div></div>
-          <div className={styles.readiness}><div className={styles.progressRing} style={{ "--progress": readiness } as React.CSSProperties}><strong>{readiness}%</strong></div><p>{canSeePayroll ? "Cutoff readiness" : "Operations readiness"}</p></div>
+          <div className={styles.heroCopy}><span className="eyebrow">{canSeePayroll ? "Payroll readiness" : "Operations pulse"}</span><h2>{openCount ? `${openCount} ${canSeePayroll ? "payroll" : "operations"} item${openCount === 1 ? "" : "s"} still need a decision.` : "No blocking items remain."}</h2><p>{canSeePayroll ? "Resolve blockers before finalizing payroll. Attendance decisions require an Owner or General Manager." : "Only meaningful schedule, attendance, and people exceptions remain in the queue."}</p><div className={styles.heroActions}><Link className="button" href={reviewHref}>Review now →</Link><Link className="button secondary" href="/schedule">View schedule</Link></div></div>
+          <div className={styles.readiness}><strong>{reviewStatus}</strong><p>{blockers} blockers · {openCount} open checks</p></div>
         </section>
 
-        <section className={styles.metrics}>
+        <MobileSection title="Dashboard totals" description="Staff count and current period figures"><section className={styles.metrics}>
           <Kpi code="ST" label="Active staff" value={activeEmployees} foot={`${meta.employee_count} employee records`} />
           {preview ? <Kpi code="GR" label="Projected gross" value={peso(preview.totals.gross_pay)} foot={`${periodStart} to ${periodEnd}`} /> : <Kpi code="ON" label="Open issues" value={exceptions.length} foot="Attendance exceptions" trend={exceptions.length ? "Needs review" : "Clear"} warning={exceptions.length > 0} />}
-          {preview ? <Kpi code="NT" label="Projected net" value={peso(preview.totals.net_pay)} foot="After current deductions" trend={preview.mode} warning /> : <Kpi code="ML" label="Missing logs" value={missing} foot="Incomplete time records" trend={missing ? "Review" : "Clear"} warning={missing > 0} />}
+          {preview ? <Kpi code="NT" label="Projected net" value={peso(preview.totals.net_pay)} foot="After current deductions" trend="Preview · not saved" warning /> : <Kpi code="ML" label="Missing logs" value={missing} foot="Incomplete time records" trend={missing ? "Review" : "Clear"} warning={missing > 0} />}
           {preview ? <Kpi code="RV" label="Items to review" value={openCount} foot={`${blockers} blockers · ${warnings} warnings`} trend={openCount ? "Needs action" : "Clear"} warning={openCount > 0} /> : <Kpi code="OT" label="Pending overtime" value={otPending} foot={`${absent} absent`} trend={otPending ? "Review" : "Clear"} warning={otPending > 0} />}
-        </section>
+        </section></MobileSection>
 
         <section className={styles.twoCol}>
           <SectionCard>
-            <SectionHeader title={canSeePayroll ? "Priority review queue" : "Today’s action queue"} description="Only items that require a decision are shown." actions={<Link href={canSeePayroll ? "/attendance" : "/schedule/requests"}>View all →</Link>} />
+            <SectionHeader title={canSeePayroll ? "Priority review queue" : "Today’s action queue"} description="Only items that require a decision are shown." actions={<Link href={reviewHref}>View all →</Link>} />
             <SectionBody>
               <div className={styles.queue}>
                 {preview ? (
                   preview.checks.length ? preview.checks.slice(0, 4).map((check, index) => (
-                    <div className={styles.queueItem} key={`${check.category}-${index}`}>
+                    <Link href={checkHref(check.category)} className={styles.queueItem} key={`${check.category}-${index}`}>
                       <span className={`${styles.queueIcon} ${check.severity === "Blocker" ? styles.danger : ""}`}>{check.severity === "Blocker" ? "!" : "?"}</span>
                       <div><strong>{check.category}</strong><p>{check.issue}</p></div>
                       <StatusBadge label={check.severity} tone={check.severity === "Blocker" ? "danger" : "warning"} />
-                    </div>
+                    </Link>
                   )) : <EmptyState title="No open items" description="The review queue is clear." />
                 ) : (
                   exceptions.length ? exceptions.slice(0, 4).map((exception) => (
-                    <div className={styles.queueItem} key={exception.id}>
+                    <Link href={reviewHref} className={styles.queueItem} key={exception.id}>
                       <span className={`${styles.queueIcon} ${exception.is_absent ? styles.danger : ""}`}>{exception.is_absent ? "!" : "?"}</span>
                       <div><strong>{exception.full_name}</strong><p>{exception.work_date} · {exception.attendance_status}</p></div>
                       <StatusBadge label={exception.is_absent ? "Absent" : "Review"} tone={exception.is_absent ? "danger" : "warning"} />
-                    </div>
+                    </Link>
                   )) : <EmptyState title="No open items" description="The review queue is clear." />
                 )}
               </div>
@@ -92,21 +97,21 @@ export default async function DashboardPage() {
 
           <SectionCard>
             <SectionHeader title="Quick actions" description="Common management tasks." />
-            <SectionBody><div className={styles.quickGrid}><Quick href="/schedule" code="+" label="Add shift" detail="Schedule staff" /><Quick href="/schedule/import" code="UP" label="Upload logs" detail="Import attendance" /><Quick href="/staff/manage" code="ST" label="Add employee" detail="Create record" /><Quick href="/cash-advances" code="CA" label="Cash advance" detail="Review request" /></div></SectionBody>
+            <SectionBody><div className={styles.quickGrid}><Quick href="/schedule" code="+" label="Add shift" detail="Schedule staff" /><Quick href="/schedule/import" code="UP" label="Upload logs" detail="Import attendance" /><Quick href="/staff/manage?add=1" code="ST" label="Add employee" detail="Create record" /><Quick href="/cash-advances" code="CA" label="Cash advance" detail="Review request" /></div></SectionBody>
           </SectionCard>
         </section>
 
-        <section className={styles.lowerGrid}>
+        <MobileSection title="Workforce & cutoff details" description="Employee status and current review figures"><section className={styles.lowerGrid}>
           <SectionCard>
             <SectionHeader title="Workforce snapshot" description="Current employee status." actions={<Link href="/staff">Open staff →</Link>} />
-            <SectionBody><div className={styles.summaryList}><div className={styles.summaryRow}><span>Active employees</span><strong>{activeEmployees}</strong></div><div className={styles.summaryRow}><span>Inactive or terminated</span><strong>{Math.max(meta.employee_count - activeEmployees, 0)}</strong></div><div className={styles.summaryRow}><span>Reviewed attendance items</span><strong>{reviews.length}</strong></div><div className={styles.summaryRow}><span>Open attendance exceptions</span><strong>{exceptions.length}</strong></div></div></SectionBody>
+            <SectionBody><div className={styles.summaryList}><div className={styles.summaryRow}><span>Active employees</span><strong>{activeEmployees}</strong></div><div className={styles.summaryRow}><span>Inactive or terminated</span><strong>{Math.max(meta.employee_count - activeEmployees, 0)}</strong></div>{session.role_key !== "payroll" ? <><div className={styles.summaryRow}><span>Reviewed attendance items</span><strong>{reviews.length}</strong></div><div className={styles.summaryRow}><span>Open attendance exceptions</span><strong>{exceptions.length}</strong></div></> : <p>Attendance decisions: General Manager or Owner.</p>}</div></SectionBody>
           </SectionCard>
 
           <SectionCard>
             <SectionHeader title={canSeePayroll ? "Current cutoff position" : "Attendance position"} description="Live values from the current operational period." />
-            <SectionBody><div className={styles.readinessSummary}><div><span>Readiness</span><strong>{readiness}%</strong></div><div><span>{canSeePayroll ? "Blocking checks" : "Missing logs"}</span><strong>{canSeePayroll ? blockers : missing}</strong></div><div><span>{canSeePayroll ? "Warnings" : "Pending overtime"}</span><strong>{canSeePayroll ? warnings : otPending}</strong></div><div><span>{canSeePayroll ? "Open checks" : "Absences"}</span><strong>{canSeePayroll ? openCount : absent}</strong></div></div></SectionBody>
+            <SectionBody><div className={styles.readinessSummary}><div><span>Review status</span><strong>{reviewStatus}</strong></div><div><span>{canSeePayroll ? "Blocking checks" : "Missing logs"}</span><strong>{canSeePayroll ? blockers : missing}</strong></div><div><span>{canSeePayroll ? "Warnings" : "Pending overtime"}</span><strong>{canSeePayroll ? warnings : otPending}</strong></div><div><span>{canSeePayroll ? "Open checks" : "Absences"}</span><strong>{canSeePayroll ? openCount : absent}</strong></div></div></SectionBody>
           </SectionCard>
-        </section>
+        </section></MobileSection>
       </div>
     </Shell>
   );

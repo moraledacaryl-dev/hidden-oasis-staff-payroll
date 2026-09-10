@@ -128,6 +128,7 @@ MIGRATIONS: tuple[tuple[int, str, Callable[[sqlite3.Connection], None]], ...] = 
     (4, "staff-requestable leave types", _migration_4_staff_requestable_leave_types),
     (5, "employee schedule defaults", _migration_5_employee_schedule_defaults),
     (6, "MFA recovery codes", _migration_6_mfa_recovery_codes),
+    (7, "repair disciplinary leave requestability", _migration_4_staff_requestable_leave_types),
 )
 
 
@@ -790,10 +791,10 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             INSERT OR IGNORE INTO leave_types
-            (name, default_credits, paid, statutory, requires_approval, requires_attachment, annual_reset, notes)
-            VALUES (?,?,?,?,?,?,?,?)
+            (name, default_credits, paid, statutory, requires_approval, requires_attachment, annual_reset, notes, staff_requestable)
+            VALUES (?,?,?,?,?,?,?,?,?)
             """,
-            lt,
+            (*lt, int(lt[0] not in {"AWOL", "Suspension"})),
         )
 
     for name, rate in [("Pubmat", 150.0), ("Video Edit", 0.0), ("Reel", 0.0), ("Custom Output", 0.0)]:

@@ -23,7 +23,7 @@ function AccessRestricted({ role, allowedRoles }: { role: RoleKey; allowedRoles:
         <span className="eyebrow">Access restricted</span>
         <h1>This workspace is not for {roleLabels[role]}.</h1>
         <p className="muted">Allowed roles: {allowedRoles.map((allowed) => roleLabels[allowed]).join(", ")}.</p>
-        <div className="badge-row"><Link className="primary-link" href="/">Go to command center</Link></div>
+        <div className="badge-row"><Link className="primary-link" href={role === "staff" ? "/me" : "/"}>Go to my home</Link></div>
       </section>
     </div>
   );
@@ -85,7 +85,7 @@ export async function Shell({
   return (
     <div className={styles.app}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <aside className={styles.sidebar} aria-label="Workspace navigation">
+      <aside id="workspace-navigation" className={styles.sidebar} aria-label="Workspace navigation">
         <SidebarCollapseController />
         <div className={styles.brand}>
           <div className={styles.brandMark}>HO</div>

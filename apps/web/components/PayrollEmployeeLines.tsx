@@ -61,11 +61,11 @@ export function PayrollEmployeeLines({ items }: { items: PayrollPreviewItem[] })
           <article className="payroll-employee-card" key={item.employee_id}>
             <button className="payroll-employee-summary" type="button" onClick={() => setOpenId(isOpen ? null : item.employee_id)} aria-expanded={isOpen}>
               <span className="payroll-employee-main"><strong>{employeeName(item)}</strong><small>{item.employee_code || item.department || "No code"}</small></span>
-              <span><small>Gross</small><strong>{peso(item.gross_pay)}</strong></span>
+              <span className="payroll-gross"><small>Gross</small><strong>{peso(item.gross_pay)}</strong></span>
               <span className={holidayPay > 0 ? "payroll-holiday has-holiday" : "payroll-holiday"}><small>Holiday</small><strong>{holidayPay > 0 ? peso(holidayPay) : "—"}</strong></span>
-              <span><small>Deductions</small><strong>{peso(item.total_deductions)}</strong></span>
+              <span className="payroll-deductions"><small>Deductions</small><strong>{peso(item.total_deductions)}</strong></span>
               <span className={caDeduction > 0 ? "payroll-ca has-ca" : "payroll-ca"}><small>CA</small><strong>{caDeduction > 0 ? peso(caDeduction) : "—"}</strong></span>
-              <span><small>Net</small><strong>{peso(item.net_pay)}</strong></span>
+              <span className="payroll-net"><small>Net</small><strong>{peso(item.net_pay)}</strong></span>
               <span className="payroll-expand-mark">{isOpen ? "−" : "+"}</span>
             </button>
 
@@ -99,24 +99,7 @@ export function PayrollEmployeeLines({ items }: { items: PayrollPreviewItem[] })
       })}
       {!items.length ? <p className="muted">No employee payroll lines found.</p> : null}
 
-      <style jsx>{`
-        .payroll-employee-list{display:grid;gap:10px}
-        .payroll-employee-card{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden}
-        .payroll-employee-summary{width:100%;display:grid;grid-template-columns:minmax(180px,1.8fr) repeat(5,minmax(90px,.8fr)) 32px;gap:12px;align-items:center;padding:12px 14px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
-        .payroll-employee-summary:hover{background:var(--surface-soft)}
-        .payroll-employee-summary span{display:grid;gap:2px;min-width:0}
-        .payroll-employee-summary small,.payroll-detail-grid span{color:var(--muted);font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
-        .payroll-employee-summary strong{font-size:.88rem;overflow-wrap:anywhere}
-        .payroll-employee-main strong{font-size:.95rem}.payroll-ca.has-ca strong,.payroll-holiday.has-holiday strong{color:var(--warning)}
-        .payroll-expand-mark{place-items:center;width:28px;height:28px;border:1px solid var(--line);border-radius:999px;background:var(--surface-soft);font-size:1.05rem;font-weight:900;color:var(--muted)}
-        .payroll-employee-detail{display:grid;gap:14px;padding:14px;border-top:1px solid var(--line);background:var(--surface-soft)}
-        .payroll-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-        .payroll-detail-grid div{display:grid;gap:4px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
-        .payroll-detail-grid strong{font-size:.9rem}.payroll-warning-list{display:grid;gap:6px;padding:12px;border-left:3px solid var(--warning);border-radius:0 8px 8px 0;background:var(--warning-soft)}
-        .payroll-warning-list p{margin:0;color:var(--text);font-size:.8rem;line-height:1.35}
-        @media(max-width:1000px){.payroll-employee-summary{grid-template-columns:1fr 1fr 1fr 32px}.payroll-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media(max-width:640px){.payroll-employee-summary{grid-template-columns:1fr 32px}.payroll-employee-summary>span:not(.payroll-employee-main):not(.payroll-expand-mark){grid-template-columns:1fr 1fr;align-items:center}.payroll-detail-grid{grid-template-columns:1fr}}
-      `}</style>
+
     </div>
   );
 }

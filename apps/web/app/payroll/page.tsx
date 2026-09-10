@@ -1,3 +1,5 @@
+import { MobileSection } from "@/components/MobileSection";
+import { payrollCheckHref } from "@/lib/payroll-links";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PayrollEmployeeLines } from "@/components/PayrollEmployeeLines";
@@ -50,41 +52,42 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
     <Shell allowedRoles={["owner", "payroll"]}>
       <div className="page payroll-page">
         <header className="payroll-hero">
-          <div><span className="eyebrow">Payroll workflow</span><h1>Payroll preview</h1><p className="muted">Inspect employee earnings, holiday pay, deductions, cash advances, leave pay, and validation results for any date range before creating or approving a saved run.</p></div>
-          <div className="payroll-actions"><Link className="button secondary" href="/cutoff">Open cutoff control</Link><Link className="button" href="/payroll/runs">Payroll runs</Link></div>
+          <div><span className="eyebrow">Payroll workflow</span><h1>Payroll preview</h1><p className="muted">Review pay and resolve blockers before saving a payroll run.</p></div>
+          <div className="payroll-actions"><Link className="button secondary" href="/cutoff">Latest completed cutoff</Link><Link className="button" href="/payroll/runs">Payroll runs</Link></div>
         </header>
 
         <section className="payroll-toolbar" data-payroll-preview-selector="true">
           <form method="get">
             <span className="payroll-toolbar-label">Preview dates</span>
-            <label>Start date<input max={today} name="start" type="date" defaultValue={periodStart} /></label>
-            <label>End date<input max={today} name="end" type="date" defaultValue={periodEnd} /></label>
-            <button className="button" type="submit">Preview</button>
+            <label>Start date<input name="start" type="date" defaultValue={periodStart} /></label>
+            <label>End date<input name="end" type="date" defaultValue={periodEnd} /></label>
+            <button className="button" type="submit">Preview</button><Link className="button secondary" href="/payroll">Reset</Link>
           </form>
-          <p className="muted">Defaults to the current payroll cutoff, but you can preview any date range. Changing preview dates does not alter a saved payroll run.</p>
+          <p className="muted">Preview any date range. Saved payroll runs remain unchanged.</p>
         </section>
 
-        <section className="payroll-kpis">
+        <MobileSection title="Payroll totals" description={`${preview.totals.employees} employees · Net ${peso(preview.totals.net_pay)}`}><section className="payroll-kpis">
           <div className="payroll-kpi"><span>Employees</span><strong>{preview.totals.employees}</strong><small>Included in calculation</small></div>
           <div className="payroll-kpi"><span>Gross pay</span><strong>{peso(preview.totals.gross_pay)}</strong><small>Before deductions</small></div>
           <div className="payroll-kpi"><span>Holiday pay</span><strong>{peso(holidayPay)}</strong><small>Holiday/rest-day premiums and eligible regular-holiday pay</small></div>
           <div className="payroll-kpi"><span>Leave pay</span><strong>{peso(leavePay)}</strong><small>Paid leave included separately</small></div>
           <div className="payroll-kpi"><span>Net payroll</span><strong>{peso(preview.totals.net_pay)}</strong><small>Expected payout total</small></div>
-        </section>
+        </section></MobileSection>
 
-        <section className="payroll-panel">
+        <MobileSection title="Holiday details" description="Dates and classifications in this preview"><section className="payroll-panel">
           <header><div><h2>Active holidays in this preview</h2><p>These date-specific classifications are considered by the payroll calculation. Special Non-Working Day premium is earned only from actual worked attendance.</p></div><StatusBadge label={`${holidays.length} holiday${holidays.length === 1 ? "" : "s"}`} /></header>
           <div className="payroll-panel-body">
             {holidays.length ? <div className="payroll-check-list">{holidays.map((holiday) => <div className="payroll-check" key={holiday.id}><StatusBadge label={holiday.holiday_type} tone={holiday.holiday_type === "Regular Holiday" ? "ok" : "warning"} /><div><strong>{holiday.holiday_date}</strong><p>{holiday.name}</p></div></div>)}</div> : <p className="muted">No active holidays are configured inside {periodStart} to {periodEnd}.</p>}
           </div>
-        </section>
+        </section></MobileSection>
 
         <section className="payroll-overview">
-          <section className="payroll-panel"><header><div><h2>Validation status</h2><p>Resolve blockers before draft creation. Warnings remain visible for review.</p></div><StatusBadge label={blockers.length ? `${blockers.length} blocker${blockers.length === 1 ? "" : "s"}` : warnings.length ? `${warnings.length} warning${warnings.length === 1 ? "" : "s"}` : "Clear"} tone={blockers.length ? "danger" : warnings.length ? "warning" : "ok"} /></header><div className="payroll-panel-body"><div className="payroll-check-list">{preview.checks.map((check, index) => <div className="payroll-check" key={`${check.category}-${index}`}><StatusBadge label={check.severity} tone={severityTone(check.severity)} /><div><strong>{check.category}</strong><p>{check.issue}</p><p>{check.recommended_action}</p></div></div>)}{preview.checks.length === 0 ? <p className="muted">No payroll validation issues.</p> : null}</div></div></section>
-          <section className="payroll-panel"><header><div><h2>Workflow actions</h2><p>Keep calculation, approval, payment, and reporting as separate controlled stages.</p></div></header><div className="payroll-panel-body"><div className="payroll-next-list"><Link className="payroll-next" href="/cutoff"><div><strong>Create or review draft</strong><small>Open cutoff readiness and save the normal payroll run.</small></div><span>→</span></Link><Link className="payroll-next" href="/payroll/runs"><div><strong>Review saved runs</strong><small>Approve, revise, reopen, or inspect audit history.</small></div><span>→</span></Link><Link className="payroll-next" href="/payslips"><div><strong>Payslip distribution</strong><small>Open employee payslips for completed runs.</small></div><span>→</span></Link></div></div></section>
+          {session.role_key === "payroll" && preview.checks.some((check) => check.category === "Attendance") ? <p className="form-feedback">Attendance decisions require an Owner or General Manager.</p> : null}
+          <section className="payroll-panel"><header><div><h2>Validation status</h2><p>Resolve blockers before draft creation. Warnings remain visible for review.</p></div><StatusBadge label={blockers.length ? `${blockers.length} blocker${blockers.length === 1 ? "" : "s"}` : warnings.length ? `${warnings.length} warning${warnings.length === 1 ? "" : "s"}` : "Clear"} tone={blockers.length ? "danger" : warnings.length ? "warning" : "ok"} /></header><div className="payroll-panel-body"><div className="payroll-check-list">{blockers.map((check, index) => <div className="payroll-check" key={`${check.category}-${index}`}><StatusBadge label={check.severity} tone={severityTone(check.severity)} /><div><strong>{check.category}</strong><p>{check.issue}</p><p>{check.recommended_action}</p><Link href={payrollCheckHref(check.category, session.role_key, periodStart, periodEnd)}>Open resolution screen →</Link></div></div>)}{warnings.length ? <MobileSection title={`${warnings.length} payroll warning${warnings.length === 1 ? "" : "s"}`} description="Review non-blocking checks">{warnings.map((check, index) => <div className="payroll-check" key={`${check.category}-${index}`}><StatusBadge label={check.severity} tone={severityTone(check.severity)} /><div><strong>{check.category}</strong><p>{check.issue}</p><p>{check.recommended_action}</p><Link href={payrollCheckHref(check.category, session.role_key, periodStart, periodEnd)}>Open resolution screen →</Link></div></div>)}</MobileSection> : null}{preview.checks.length === 0 ? <p className="muted">No payroll validation issues.</p> : null}</div></div></section>
+          <MobileSection title="Payroll workflow" description="Saved runs, cutoff processing, and payslip distribution"><section className="payroll-panel"><header><div><h2>Workflow actions</h2><p>Keep calculation, approval, payment, and reporting as separate controlled stages.</p></div></header><div className="payroll-panel-body"><div className="payroll-next-list"><Link className="payroll-next" href="/cutoff"><div><strong>Latest completed cutoff</strong><small>Open the latest completed period to prepare its payroll draft.</small></div><span>→</span></Link><Link className="payroll-next" href="/payroll/runs"><div><strong>Review saved runs</strong><small>Approve, revise, reopen, or inspect audit history.</small></div><span>→</span></Link><Link className="payroll-next" href="/payslips"><div><strong>Payslip distribution</strong><small>Open employee payslips for completed runs.</small></div><span>→</span></Link></div></div></section></MobileSection>
         </section>
 
-        <section className="payroll-table-panel"><header><div><h2>Employee payroll lines</h2><p>Holiday Pay is shown separately from regular pay and leave pay. Open an employee to inspect earnings, deductions, cash advance deduction, and warnings.</p></div><StatusBadge label={`${preview.items.length} employees`} /></header><PayrollEmployeeLines items={preview.items} /></section>
+        <section className="payroll-table-panel"><header><div><h2>Employee payroll lines</h2><p>Tap an employee to inspect earnings, deductions, and warnings.</p></div><StatusBadge label={`${preview.items.length} employees`} /></header><PayrollEmployeeLines items={preview.items} /></section>
       </div>
     </Shell>
   );

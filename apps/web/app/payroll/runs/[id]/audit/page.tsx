@@ -1,3 +1,4 @@
+import { formatBusinessDateTime as fmt } from "@/lib/period";
 import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -26,12 +27,6 @@ async function getAuditEvents(runId: number): Promise<AuditEvent[]> {
   return data.items || [];
 }
 
-function fmt(value?: string | null) {
-  if (!value) return "Not recorded";
-  const date = new Date(value.replace(" ", "T"));
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" });
-}
 
 function statusTone(status: string): "ok" | "warning" | "danger" {
   if (status === "Approved" || status === "Paid" || status === "Released") return "ok";
@@ -128,7 +123,7 @@ export default async function PayrollRunAuditPage({ params }: { params: Promise<
 
         <section className="card">
           <div className="panel-title"><div><h2>Corrections</h2><p className="muted">Recorded, applied, or voided entries.</p></div></div>
-          <div className="table-wrap"><table><thead><tr><th>Created</th><th>Employee</th><th>Type</th><th>Status</th><th>Amount</th><th>Reason</th></tr></thead><tbody>{corrections.items.map((item) => (<tr key={item.id}><td>{item.created_at || "—"}</td><td>{item.employee_name || `Employee ${item.employee_id}`}</td><td>{item.adjustment_type}</td><td>{item.status || "Recorded"}</td><td>{item.adjustment_type === "Note" ? "—" : peso(item.amount)}</td><td>{item.reason}</td></tr>))}{corrections.items.length === 0 ? <tr><td colSpan={6}>No corrections recorded.</td></tr> : null}</tbody></table></div>
+          <div className="table-wrap"><table><thead><tr><th>Created</th><th>Employee</th><th>Type</th><th>Status</th><th>Amount</th><th>Reason</th></tr></thead><tbody>{corrections.items.map((item) => (<tr key={item.id}><td>{fmt(item.created_at)}</td><td>{item.employee_name || `Employee ${item.employee_id}`}</td><td>{item.adjustment_type}</td><td>{item.status || "Recorded"}</td><td>{item.adjustment_type === "Note" ? "—" : peso(item.amount)}</td><td>{item.reason}</td></tr>))}{corrections.items.length === 0 ? <tr><td colSpan={6}>No corrections recorded.</td></tr> : null}</tbody></table></div>
         </section>
       </div>
     </Shell>

@@ -1,0 +1,88 @@
+.mobile-section, .mobile-section-content { display: contents; }
+.mobile-section-toggle { display: none; }
+
+@media screen and (max-width: 720px) {
+  html { scroll-padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+  main .page { gap: 14px; padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+  main .page h1 { font-size: 26px; line-height: 1.2; }
+  main .page h2 { font-size: 18px; line-height: 1.3; }
+  main .page h3 { font-size: 16px; line-height: 1.35; }
+  main .page p, main .page small, main .page label, main .page .muted { font-size: 14px; line-height: 1.45; }
+  main .page input:not([type="checkbox"]):not([type="radio"]), main .page select, main .page textarea { font-size: 16px !important; min-height: 44px; min-width: 0; max-width: 100%; }
+  main .page input[type="checkbox"], main .page input[type="radio"] { width: 20px; height: 20px; flex-shrink: 0; }
+  main .page .button, main .page .primary-button, main .page .secondary-button, main .page summary { min-height: 44px; font-size: 14px; }
+  main .page summary { align-content: center; }
+  main .page .badge, main .page .status-badge { font-size: 12px; line-height: 1.3; }
+  main .page .eyebrow { font-size: 11px; }
+  main .page :is(button, a, input, select, textarea) { scroll-margin-block: 90px; }
+  main .page :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+  .mobile-section { display: block; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+  .mobile-section-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 56px; padding: 14px; text-align: left; color: var(--text); border: 0; background: transparent; cursor: pointer; }
+  .mobile-section-toggle > span:first-child { display: grid; gap: 4px; min-width: 0; }
+  .mobile-section-toggle strong { font-size: 16px; }
+  .mobile-section-toggle small { color: var(--muted); }
+  .mobile-section-chevron { font-size: 22px; transition: transform .15s; }
+  .mobile-section[data-expanded="true"] > .mobile-section-toggle .mobile-section-chevron { transform: rotate(180deg); }
+  .mobile-section-content { display: none; }
+  .mobile-section[data-expanded="true"] > .mobile-section-content { display: grid; gap: 12px; padding: 12px; border-top: 1px solid var(--line); }
+  .mobile-section-content > :is(.card, .staff-section, .staff-payslip-panel, .payroll-panel, .hr-panel) { box-shadow: none; border: 0; }
+  .mobile-section-content > .hr-panel > header { display: none; }
+  .mobile-section-content > #my-requests > .panel-title { display: none; }
+
+  .staff-portal > .staff-hero { padding: 14px; }
+  .staff-hero .staff-actions { margin-top: 8px; }
+  .staff-quick-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .staff-quick-grid .staff-quick-link { padding: 12px 4px; text-align: center; min-height: 44px; }
+  .staff-quick-link strong { font-size: 12px; }
+  .staff-quick-link span { display: none; }
+  .staff-schedule-print .badge-row > .badge { white-space: normal; text-align: left; max-width: 100%; flex-shrink: 1; overflow-wrap: anywhere; }
+  .staff-schedule-print .panel-title { flex-wrap: wrap; }
+  .staff-schedule-print .panel-title > .print-actions { min-height: 44px; }
+  .staff-section-body, .staff-payslip-panel > header { padding: 14px; }
+  .staff-balance-row { gap: 12px; align-items: start; }
+  .staff-balance-row > strong { text-align: right; }
+  .staff-table td, .staff-payslip-table td { font-size: 14px; }
+  .responsive-records > tbody > tr > td[data-label]::before { font-size: 12px; }
+
+  .payroll-page .payroll-toolbar form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .payroll-toolbar-label { grid-column: 1 / -1; }
+  .payroll-kpis .payroll-kpi { padding: 12px; }
+  .payroll-kpi span, .people-kpi span, .cash-summary-card span { font-size: 12px; }
+  .payroll-kpi strong { font-size: 22px; }
+  .payroll-check { grid-template-columns: minmax(0, 1fr); }
+  .payroll-check > .badge { justify-self: start; }
+  .payroll-check strong { font-size: 15px; }
+  .payroll-check a { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; }
+  .payroll-employee-summary { padding: 14px; }
+  .payroll-employee-summary small, .payroll-detail-grid span { font-size: 12px; }
+  .payroll-employee-summary strong { font-size: 15px; }
+  .payroll-employee-summary > .payroll-employee-main strong { font-size: 16px; }
+  .payroll-expand-mark { width: 32px; height: 32px; }
+  main .page .payroll-employee-summary { position: relative; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 8px; }
+  main .page .payroll-employee-summary > .payroll-employee-main { grid-column: 1 / -1; padding-right: 38px; }
+  main .page .payroll-employee-summary > :is(.payroll-gross, .payroll-deductions, .payroll-net) { display: grid; grid-template-columns: 1fr; grid-column: auto; gap: 4px; }
+  main .page .payroll-employee-summary > :is(.payroll-holiday, .payroll-ca) { display: none; }
+  main .page .payroll-employee-summary > .payroll-expand-mark { position: absolute; right: 14px; top: 14px; }
+  .payroll-employee-summary .payroll-net strong { color: var(--accent); }
+  .payroll-panel > header, .payroll-table-panel > header { gap: 10px; flex-wrap: wrap; }
+  .payroll-hero p { max-width: 40ch; }
+  .hr-stack { gap: 12px; }
+  .hr-stack > .card { margin: 0; }
+  .hr-stack > .card > details > summary { flex-wrap: wrap; }
+  .hr-balance-row { gap: 12px; }
+  .cash-advance-page .cash-summary-card span { font-size: 12px; }
+  .cash-advance-page .cash-card-list { min-width: 0; }
+  main .page .people-filter { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; flex: 1 0 100%; }
+  .people-filter > label:first-child { grid-column: 1 / -1; }
+  .people-tabs a { min-height: 44px; font-size: 14px; }
+  .people-table td { font-size: 14px; }
+  .people-table td[data-label="Benefits"] { grid-column: 1 / -1; }
+  .people-table .people-actions { justify-content: stretch; }
+  .people-table .people-actions a { width: 100%; }
+}
+
+@media print {
+  .mobile-section, .mobile-section-content { display: contents !important; }
+  .mobile-section-toggle { display: none !important; }
+}

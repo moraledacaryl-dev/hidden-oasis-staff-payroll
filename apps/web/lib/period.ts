@@ -93,3 +93,13 @@ export function mondayOfWeek(today = todayInManilaIso()): string {
   date.setUTCDate(date.getUTCDate() - weekDay + 1);
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
 }
+
+/** Legacy timestamps are business-local; offset-bearing timestamps keep their instant. */
+export function formatBusinessDateTime(value?: string | null): string {
+  if (!value) return "Not recorded";
+  const normalized = value.trim().replace(" ", "T");
+  const withZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized) ? normalized : `${normalized}+08:00`;
+  const date = new Date(withZone);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }).format(date)} PHT`;
+}

@@ -1,3 +1,4 @@
+import { MobileSection } from "@/components/MobileSection";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CashAdvanceBalanceCorrection } from "@/components/CashAdvanceBalanceCorrection";
@@ -88,7 +89,7 @@ export default async function CashAdvancesPage() {
       <div className="cash-summary-card"><span>Proposed next deductions</span><strong>{peso(proposedDeduction)}</strong></div>
       <div className="cash-summary-card"><span>Credits to settle</span><strong>{peso(creditToSettle)}</strong></div>
     </section>
-    <section><CashAdvanceForm employees={employees} isOwner={isOwner} /></section>
+    <MobileSection title="Add cash advance" description="Open the form to record an employee advance"><section><CashAdvanceForm employees={employees} isOwner={isOwner} /></section></MobileSection>
     <section className="cash-card-list">
       {advances.map((item) => {
         const original = Number(item.amount || 0);

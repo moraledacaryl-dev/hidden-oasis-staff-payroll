@@ -34,6 +34,8 @@ class EmployeeEditorPayload(BaseModel):
     )
     standard_shift_hours: float | None = Field(default=None, ge=0, le=24)
     unpaid_break_minutes: int | None = Field(default=None, ge=0, le=1440)
+    hourly_rate: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    declared_monthly_base: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     benefits_sss: int | None = Field(default=None, ge=0, le=1)
     benefits_philhealth: int | None = Field(default=None, ge=0, le=1)
     benefits_pagibig: int | None = Field(default=None, ge=0, le=1)
@@ -83,7 +85,9 @@ def _duplicate_employee(
     )
 
 
-PAYROLL_FIELDS = {
+MONEY_FIELDS = {"hourly_rate", "declared_monthly_base"}
+
+PAYROLL_FIELDS = MONEY_FIELDS | {
     "benefits_sss",
     "benefits_philhealth",
     "benefits_pagibig",
@@ -115,7 +119,7 @@ def _employee_values(
     if include_payroll_fields:
         candidates.update(
             {
-                field: int(bool(getattr(payload, field)))
+                field: getattr(payload, field) if field in MONEY_FIELDS else int(bool(getattr(payload, field)))
                 for field in PAYROLL_FIELDS
                 if getattr(payload, field) is not None
             }
@@ -160,7 +164,7 @@ def add_employee(
         if not can_manage_payroll and PAYROLL_FIELDS.intersection(payload.model_fields_set):
             raise HTTPException(
                 status_code=403,
-                detail="General Managers cannot change payroll benefit settings.",
+                detail="General Managers cannot change payroll compensation or benefit settings.",
             )
         values = _employee_values(
             conn,
@@ -220,7 +224,7 @@ def edit_employee(
         if not can_manage_payroll and PAYROLL_FIELDS.intersection(payload.model_fields_set):
             raise HTTPException(
                 status_code=403,
-                detail="General Managers cannot change payroll benefit settings.",
+                detail="General Managers cannot change payroll compensation or benefit settings.",
             )
         values = _employee_values(
             conn,

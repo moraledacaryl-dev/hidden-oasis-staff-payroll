@@ -1,4 +1,7 @@
 "use client";
+import { formatBusinessDateTime } from "@/lib/period";
+
+import { clientRequest } from "@/lib/client-request";
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -20,7 +23,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
   async function createUser() {
     if (!displayName.trim()) { setMessage("Enter a login name."); return; }
     setCreating(true); setMessage(""); setTemporaryPassword("");
-    const createResponse = await fetch("/api/settings/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ display_name: displayName.trim(), role, employee_id: employeeId ? Number(employeeId) : null }) });
+    const createResponse = await clientRequest("/api/settings/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ display_name: displayName.trim(), role, employee_id: employeeId ? Number(employeeId) : null }) });
     const created = await createResponse.json().catch(() => ({}));
     setCreating(false);
     if (!createResponse.ok || !created.ok) {
@@ -39,7 +42,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
     setBusy(userId);
     setMessage("");
     setTemporaryPassword("");
-    const response = await fetch(`/api/settings/users/${userId}/reset-password`, { method: "POST" });
+    const response = await clientRequest(`/api/settings/users/${userId}/reset-password`, { method: "POST" });
     const data = await response.json().catch(() => ({}));
     setBusy(null);
     if (!response.ok || !data.ok) {
@@ -54,7 +57,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
   async function setActive(userId: number, active: boolean) {
     setBusy(userId);
     setMessage("");
-    const response = await fetch(`/api/settings/users/${userId}/active`, {
+    const response = await clientRequest(`/api/settings/users/${userId}/active`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active }),
@@ -72,7 +75,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
   async function setEmployee(userId: number, employeeId: string) {
     setBusy(userId);
     setMessage("");
-    const response = await fetch(`/api/settings/users/${userId}/employee`, {
+    const response = await clientRequest(`/api/settings/users/${userId}/employee`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ employee_id: employeeId ? Number(employeeId) : null }),
@@ -90,7 +93,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
   async function setRoleForUser(userId: number, nextRole: string) {
     setBusy(userId);
     setMessage("");
-    const response = await fetch(`/api/settings/users/${userId}/role`, {
+    const response = await clientRequest(`/api/settings/users/${userId}/role`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: nextRole }),
@@ -108,7 +111,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
   async function viewAs(user: AppUser) {
     setBusy(user.id);
     setMessage("");
-    const response = await fetch("/api/session/impersonate", {
+    const response = await clientRequest("/api/session/impersonate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ target_user_id: user.id }),
@@ -128,7 +131,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
         <div className="panel-title"><div><span className="eyebrow">Owner only</span><h2>Create user</h2></div></div>
         <div className="form-grid">
           <label><span>Login name</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Employee login name" /></label>
-          <label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value)}><option value="Staff">Staff</option><option value="General Manager">General Manager</option><option value="Payroll">Payroll</option><option value="Owner">Owner</option></select></label>
+          <label><span>Role</span><select value={role} onChange={(event) => setRole(event.target.value)}><option value="Staff">Staff</option><option value="General Manager">General Manager</option><option value="Payroll">Payroll Admin</option><option value="Owner">Owner</option></select></label>
           <label><span>Employee</span><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Not linked</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}</select></label>
         </div>
         <div className="action-row"><button className="button" type="button" disabled={creating} onClick={createUser}>{creating ? "Creating…" : "Create user"}</button></div>
@@ -140,7 +143,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
           <p className="copy-box">{temporaryPassword}</p>
         </section>
       ) : null}
-      {message ? <p className="muted" role="status">{message}</p> : null}
+      {message ? <p className="form-feedback" role="status">{message}</p> : null}
       <div className="table-wrap user-table">
         <table>
           <thead><tr><th>User</th><th>Role</th><th>Employee</th><th>Active</th><th>Password</th><th>MFA</th><th>Last login</th><th>Actions</th></tr></thead>
@@ -152,7 +155,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
                   <select aria-label={`Role for ${user.display_name}`} defaultValue={user.role_key} disabled={busy === user.id} onChange={(event) => setRoleForUser(user.id, event.target.value)}>
                     <option value="staff">Staff</option>
                     <option value="supervisor">General Manager</option>
-                    <option value="payroll">Payroll</option>
+                    <option value="payroll">Payroll Admin</option>
                     <option value="owner">Owner</option>
                   </select>
                 </td>
@@ -165,7 +168,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
                 <td>{user.active ? "Yes" : "No"}</td>
                 <td>{user.must_change_password ? "Change required" : "Set"}</td>
                 <td>{user.mfa_enabled ? "On" : "Off"}</td>
-                <td>{user.last_login_at || "—"}</td>
+                <td>{formatBusinessDateTime(user.last_login_at)}</td>
                 <td>
                   <div className="action-row">
                     <button className="button small ghost" type="button" disabled={busy === user.id} onClick={() => resetPassword(user.id)}>Reset password</button>

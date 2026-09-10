@@ -1,3 +1,4 @@
+import { MobileSection } from "@/components/MobileSection";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, CalendarDays, FileClock, Users } from "lucide-react";
@@ -143,16 +144,16 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className={`page ${styles.page}`}>
         <header className={styles.pageHeading}>
-          <div><span className="eyebrow">Operations</span><h1>Weekly schedule</h1><p>Click any employee-day cell to edit it. Drag a shift card to another employee/date, then choose Move or Copy.</p></div>
+          <div><span className="eyebrow">Operations</span><h1>Weekly schedule</h1><p>Open an employee’s day to review shifts, leave, rest days, and actual attendance.</p></div>
           <div className={styles.headingActions}><PrintButton label="Print / Save PDF" /><ScheduleCopyWeekForm currentWeekStart={week.week_start} previousWeekStart={previousWeekStart} /><ScheduleAddShiftButton /></div>
         </header>
 
-        <section className={styles.kpiGrid}>
+        <MobileSection title="Week summary" description="Staff coverage, gaps, and schedule changes"><section className={styles.kpiGrid}>
           <Kpi icon={<CalendarDays size={18} />} label="Week" value={weekLabel(week.week_start, week.week_end)} foot={`${week.week_start} to ${week.week_end}`} />
           <Kpi icon={<Users size={18} />} label="Scheduled staff" value={scheduledStaff} foot={`${approvedLeaveStaff} staff with recorded leave`} />
           <Kpi icon={<AlertTriangle size={18} />} label="Coverage gaps" value={coverageGaps} foot={coverageGaps ? "Unassigned shifts require staffing" : "No unassigned shifts"} badge={coverageGaps ? "Needs action" : "Clear"} warning={coverageGaps > 0} />
           <Kpi icon={<FileClock size={18} />} label="Schedule changes" value={plannedChanges} foot="Current planned rows" badge="Audited" />
-        </section>
+        </section></MobileSection>
 
         <section className={styles.controlsCard}>
           <div className={styles.controlsHead}>
@@ -174,7 +175,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
         <section className={styles.riskSection}><ScheduleRiskPanel days={days} shifts={filteredItems} employees={employees} /></section>
         <div className={styles.planNotice}><AlertTriangle size={18} /><div><strong>Planned state and actual attendance remain separate</strong><p>Shift, Rest Day, and Leave define the plan. Actual time comes from upload or manual correction, and the backend derives lateness, early out, partial attendance, overtime, missing punches, or absence.</p></div></div>
 
-        <section className={styles.printSchedule}><div className={styles.printHeader}><div><span>Hidden Oasis</span><h2>Weekly Schedule</h2><p>{week.week_start} to {week.week_end}</p></div><div><strong>{selectedDepartment === "all" ? "All Departments" : selectedDepartment}</strong><p>{selectedPosition === "all" ? "All Positions" : selectedPosition}</p></div></div><table className={styles.printTable}><thead><tr><th>Employee</th>{days.map((day) => <th key={day}>{formatIsoDay(day)}<br />{day}</th>)}</tr></thead><tbody>{printRows.map(({ employee, days: rowDays }) => <tr key={employee.id}><td><strong>{employee.full_name}</strong><br /><span>{employee.department || "—"} · {employee.position || "—"}</span></td>{rowDays.map((shifts, index) => <td key={`${employee.id}-${index}`}>{scheduleCellText(shifts)}</td>)} </tr>)}{printRows.length === 0 ? <tr><td colSpan={8}>No scheduled shifts for this filter.</td></tr> : null}</tbody></table></section>
+        <section className={styles.printSchedule}><div className={styles.printHeader}><div><span>Hidden Oasis</span><h2>Weekly Schedule</h2><p>{week.week_start} to {week.week_end}</p></div><div><strong>{selectedDepartment === "all" ? "All Departments" : selectedDepartment}</strong><p>{selectedPosition === "all" ? "All Positions" : selectedPosition}</p></div></div><table className={styles.printTable}><thead><tr><th>Employee</th>{days.map((day) => <th key={day}>{formatIsoDay(day)}<br />{day}</th>)}</tr></thead><tbody>{printRows.map(({ employee, days: rowDays }) => <tr key={employee.id}><td><strong>{employee.full_name}</strong><br /><span>{employee.department || "—"} · {employee.position || "—"}</span></td>{rowDays.map((shifts, index) => <td key={`${employee.id}-${index}`}>{scheduleCellText(shifts)}</td>)}</tr>)}{printRows.length === 0 ? <tr><td colSpan={8}>No scheduled shifts for this filter.</td></tr> : null}</tbody></table></section>
       </div>
     </Shell>
   );

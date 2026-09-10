@@ -46,6 +46,16 @@ function useSurfaceLifecycle(open: boolean, onClose: () => void, surfaceRef: Ref
     body.style.overflowX = "hidden";
     body.style.overscrollBehavior = "none";
 
+    const inertSiblings: Array<[HTMLElement, boolean]> = [];
+    let ancestor = surfaceRef.current?.parentElement;
+    while (ancestor && ancestor !== body) {
+      for (const sibling of Array.from(ancestor.parentElement?.children || [])) {
+        if (sibling !== ancestor && sibling instanceof HTMLElement) {
+          inertSiblings.push([sibling, sibling.inert]); sibling.inert = true;
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
     const focusFrame = window.requestAnimationFrame(() => {
       const surface = surfaceRef.current;
       if (!surface) return;
@@ -65,7 +75,7 @@ function useSurfaceLifecycle(open: boolean, onClose: () => void, surfaceRef: Ref
       const surface = surfaceRef.current;
       if (!surface) return;
       const focusable = Array.from(surface.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-        .filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true");
+        .filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true" && element.getClientRects().length > 0);
 
       if (!focusable.length) {
         event.preventDefault();
@@ -75,10 +85,10 @@ function useSurfaceLifecycle(open: boolean, onClose: () => void, surfaceRef: Ref
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (event.shiftKey && (document.activeElement === first || !surface.contains(document.activeElement))) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (document.activeElement === last || !surface.contains(document.activeElement))) {
         event.preventDefault();
         first.focus();
       }
@@ -94,6 +104,7 @@ function useSurfaceLifecycle(open: boolean, onClose: () => void, surfaceRef: Ref
       body.style.overflowX = previousBodyOverflowX;
       body.style.overscrollBehavior = previousBodyOverscroll;
       document.removeEventListener("keydown", onKeyDown);
+      inertSiblings.forEach(([element, wasInert]) => { element.inert = wasInert; });
       previousFocus?.focus();
     };
   }, [open, surfaceRef]);

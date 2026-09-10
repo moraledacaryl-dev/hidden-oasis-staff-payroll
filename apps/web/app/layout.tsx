@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { SidebarScrollMemory } from "@/components/SidebarScrollMemory";
 import { ViewportScrollRecovery } from "@/components/ViewportScrollRecovery";
 import "./globals.css";
+import "./cash-advance-editor.css";
 import "./auth.css";
 import "./print-payslips.css";
 import "./responsive-quality.css";
@@ -21,6 +22,9 @@ import "./pass7-integration.css";
 import "./responsive-grid-track.css";
 import "./p2-mobile-records.css";
 import "./payroll/runs/[id]/payroll-review-hierarchy.css";
+import "./ui-audit-fixes.css";
+import "./payroll-employee-lines.css";
+import "./mobile-refinement.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",

@@ -651,6 +651,8 @@ def review_payroll_run(
             full_name = employee.get("full_name") or employee.get("name") or employee.get("employee_name") or f"Employee {item.get('employee_id')}"
             row = {field: item.get(field) for field in PAYROLL_ITEM_FIELDS}
             row["employee_name"] = full_name
+            row["employee_code"] = employee.get("employee_code") or employee.get("code") or ""
+            row["position"] = employee.get("position") or ""
             row["department"] = employee.get("department") or employee.get("department_name") or "Unassigned"
             row["payroll_run_id"] = run_id
             row["leave_summary"] = _leave_summaries(conn, employee_id, period_start, period_end)

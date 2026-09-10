@@ -1,0 +1,51 @@
+.print-only { display: none; }
+.form-feedback { padding: 12px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: var(--surface-soft); color: var(--text); line-height: 1.5; }
+[aria-invalid="true"] { border-color: var(--danger); outline-color: var(--danger); }
+.badge, .status-badge { flex-shrink: 0; white-space: nowrap; word-break: normal; }
+.payroll-check > .badge { align-self: start; }
+.payroll-overview > .form-feedback { grid-column: 1 / -1; }
+.staff-status-row > div, .staff-quick-link { display: grid; gap: 6px; }
+.cash-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+[id^="my-"] { scroll-margin-top: 72px; }
+@media (max-width: 720px) {
+  .staff-summary, .staff-quick-grid, .cash-summary-grid, .metric-grid, .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .staff-summary-card { padding: 12px; min-height: 0; }
+  .staff-summary-card strong { font-size: 1.05rem; }
+  .staff-quick-link { padding: 12px; }
+  .staff-quick-link span { font-size: .75rem; }
+  .staff-hero { padding: 16px; }
+  .staff-hero h1 { font-size: 1.5rem; }
+  .staff-hero p { font-size: .85rem; line-height: 1.4; }
+  .responsive-records { display: block; min-width: 0 !important; width: 100%; }
+  .responsive-records > thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .responsive-records > tbody { display: grid; gap: 12px; padding: 10px; }
+  .responsive-records > tbody > tr { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--surface); }
+  .responsive-records > tbody > tr > td { display: block; min-width: 0; width: auto; white-space: normal !important; overflow-wrap: anywhere; border: 0; padding: 7px; }
+  .responsive-records > tbody > tr > td[data-label]::before { content: attr(data-label); display: block; color: var(--muted); font-size: .7rem; font-weight: 700; margin-bottom: 4px; }
+  .responsive-records > tbody > tr > td button { min-height: 40px; }
+  .payslip-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payslip-columns, .payslip-top { grid-template-columns: 1fr; }
+}
+@media print { .print-only { display: block; } }
+
+@media(min-width:1101px){.payroll-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media(max-width:720px){.payroll-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.payroll-kpis>:last-child{grid-column:1/-1}}
+
+.schedule-phone-view { display:none; }
+@media(max-width:720px){
+  .schedule-phone-view{display:grid;gap:12px;padding:12px;min-width:0;width:100%}
+  .schedule-phone-view>label{display:grid;gap:6px}
+  .schedule-phone-worker{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+  .schedule-phone-worker header,.schedule-phone-shift{display:grid;gap:6px}
+  .schedule-phone-worker small{color:var(--muted)}
+  .schedule-phone-shift{text-align:left;border:1px solid var(--line);border-radius:6px;padding:12px;background:var(--surface-soft);color:var(--text);white-space:normal}
+  .schedule-desktop-matrix,.schedule-floating-header{display:none!important}
+}
+@media print{.schedule-phone-view{display:none}.schedule-desktop-matrix{display:grid!important}}
+
+.people-list-row>span{display:grid;gap:5px}.people-filter{grid-template-columns:minmax(180px,1fr) 160px 160px auto auto}
+@media(max-width:1100px){.people-filter{grid-template-columns:1fr 1fr}}
+@media(max-width:720px){.people-filter{grid-template-columns:1fr}.people-kpis,.review-cycle{grid-template-columns:repeat(2,minmax(0,1fr))}.people-kpi,.review-kpi{padding:12px}}
+
+.form-feedback.is-error{border-left-color:var(--danger);color:var(--danger)}.form-feedback.is-success{border-left-color:var(--accent)}
+@media(max-width:720px){.table-wrap:has(>.responsive-records){max-height:none;overflow:visible}.responsive-records>tbody>tr{grid-template-columns:repeat(2,minmax(0,1fr))}.responsive-records>tbody>tr>td:first-child,.responsive-records>tbody>tr>td:last-child,.responsive-records>tbody>tr>td[data-label="Notes"],.responsive-records>tbody>tr>td[data-label="Reason"],.responsive-records>tbody>tr>td[colspan]{grid-column:1/-1}}

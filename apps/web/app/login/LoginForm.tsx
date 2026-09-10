@@ -1,5 +1,7 @@
 "use client";
 
+import { clientRequest } from "@/lib/client-request";
+
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LogIn } from "lucide-react";
@@ -25,7 +27,7 @@ export function LoginForm() {
     event.preventDefault();
     setError("");
     setBusy(true);
-    const response = await fetch("/api/session/login", {
+    const response = await clientRequest("/api/session/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -48,7 +50,8 @@ export function LoginForm() {
       setBusy(false);
       return;
     }
-    const data = await response.json();
+    const data = await response.json().catch(() => null);
+    if (!data?.user) { setBusy(false); setError("The server response could not be read. Please try again."); return; }
     const actualRole = (data.user?.role_key || "staff") as RoleKey;
     const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : null;
     const destination = data.user?.mfa_setup_required
