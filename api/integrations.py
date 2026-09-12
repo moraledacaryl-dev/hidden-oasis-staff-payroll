@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.main import configured_db_path
 from api.security import require_api_key, require_roles
 from core.db import fetchall, fetchone, get_conn, now_iso
-from core.integration_outbox import DESTINATION_ENV, ensure_integration_schema, process_due_events
+from core.integration_outbox import DESTINATION_ENV, ensure_integration_schema
+from core.operations_v2_adapter import process_due_events
 
 router = APIRouter(prefix="/api/v1/integrations", dependencies=[Depends(require_api_key)])
 
