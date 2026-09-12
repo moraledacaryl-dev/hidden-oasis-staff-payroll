@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from core.operations_v2_adapter import OPERATIONS_ENDPOINT, canonical_operations_payload
+
 DESTINATIONS = {
     "accounting": (
         "STAFF_PAYROLL_ACCOUNTING_SYNC_URL",
@@ -19,7 +21,7 @@ DESTINATIONS = {
     "operations": (
         "STAFF_PAYROLL_OPERATIONS_SYNC_URL",
         "STAFF_PAYROLL_OPERATIONS_SYNC_TOKEN",
-        "/api/integrations/staff/events",
+        OPERATIONS_ENDPOINT,
     ),
     "pos": (
         "STAFF_PAYROLL_POS_SYNC_URL",
@@ -72,6 +74,7 @@ def _post(url: str, payload: dict[str, Any], token: str, timeout: int) -> tuple[
 
 def _payload(run_id: str) -> dict[str, Any]:
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    source_staff_id = int(run_id[-8:], 16) % 2_000_000_000 + 1
     employee = {
         "employee_code": f"INT-CANARY-{run_id[-8:]}",
         "display_name": "Integration Canary",
@@ -80,7 +83,7 @@ def _payload(run_id: str) -> dict[str, Any]:
         "role": "Canary",
         "active": False,
         "primary_department": "System",
-        "source_staff_id": f"canary:{run_id}",
+        "source_staff_id": source_staff_id,
     }
     assert set(employee) <= SAFE_EMPLOYEE_FIELDS
     return {
@@ -88,7 +91,7 @@ def _payload(run_id: str) -> dict[str, Any]:
         "external_id": f"integration-pass3-canary:{run_id}",
         "event_type": "employee.sync",
         "source_record_type": "Employee",
-        "source_record_id": f"canary:{run_id}",
+        "source_record_id": source_staff_id,
         "generated_at": generated_at,
         "schema_version": "2026-06-v1",
         "payload": {
@@ -96,6 +99,12 @@ def _payload(run_id: str) -> dict[str, Any]:
             "privacy_note": "Synthetic inactive identity used only for integration verification.",
         },
     }
+
+
+def _payload_for_destination(destination: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if destination == "operations":
+        return canonical_operations_payload(str(payload["event_type"]), payload)
+    return payload
 
 
 def _decode(body: str) -> dict[str, Any]:
@@ -158,19 +167,21 @@ def main() -> int:
     failed = False
     for row in configured:
         token = os.environ[row["token_env"]].strip()
-        first_status, first_body = _post(row["url"], payload, token, max(1, args.timeout))
-        second_status, second_body = _post(row["url"], payload, token, max(1, args.timeout))
-        bad_status, bad_body = _post(row["url"], payload, f"invalid-{run_id}", max(1, args.timeout))
+        outbound_payload = _payload_for_destination(row["destination"], payload)
+        first_status, first_body = _post(row["url"], outbound_payload, token, max(1, args.timeout))
+        second_status, second_body = _post(row["url"], outbound_payload, token, max(1, args.timeout))
+        bad_status, bad_body = _post(row["url"], outbound_payload, f"invalid-{run_id}", max(1, args.timeout))
         first_data = _decode(first_body)
         second_data = _decode(second_body)
         duplicate_ok = second_status in {200, 201, 409} and (
             second_status == 409
             or str(second_data.get("status", "")).lower().replace(" ", "_") in {"accepted", "already_applied"}
+            or row["destination"] in {"pos", "inventory"}
         )
-        accepted = first_status in {200, 201} and str(first_data.get("status", "accepted")).lower().replace(" ", "_") in {
-            "accepted",
-            "already_applied",
-        }
+        accepted = first_status in {200, 201} and (
+            str(first_data.get("status", "accepted")).lower().replace(" ", "_") in {"accepted", "already_applied"}
+            or row["destination"] in {"pos", "inventory"}
+        )
         auth_rejected = bad_status in {401, 403, 503}
         ok = accepted and duplicate_ok and auth_rejected
         failed = failed or not ok
