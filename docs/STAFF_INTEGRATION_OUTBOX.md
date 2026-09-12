@@ -37,6 +37,8 @@ Receivers must also enforce their own idempotency. A receiver response with HTTP
 
 ## Envelope
 
+The durable Staff outbox stores the canonical Staff envelope:
+
 ```json
 {
   "external_source": "hidden_oasis_staff_payroll",
@@ -50,14 +52,11 @@ Receivers must also enforce their own idempotency. A receiver response with HTTP
 }
 ```
 
+The Operations adapter translates this durable envelope into the Operations v2 event contract at delivery time. POS, Inventory, and the Accounting employee receiver continue to receive the Staff envelope directly.
+
 ## Destination authentication
 
-Each destination uses a separate secret. The worker sends both headers during the compatibility rollout:
-
-```text
-Authorization: Bearer <destination secret>
-X-Integration-Api-Key: <destination secret>
-```
+Each destination uses a separate secret. The worker sends the destination-compatible integration headers during the compatibility rollout.
 
 Required environment pairs:
 
@@ -85,13 +84,35 @@ Do not commit real secrets. Do not use one shared secret for all destinations in
 - `cash_advance.released`
 - `cash_advance.repaid`
 
+Accounting employee identity sync uses `/api/integrations/payroll/employees`. Financial events use the Accounting service-intake contract.
+
 ### Operations
 
-Staff operational events use `/api/integrations/staff/events`. Destination receiver completion is part of integration Pass 2.
+Staff operational events are delivered through the Operations v2 receiver:
 
-### POS and Inventory
+```text
+/api/integrations/v2/events/hidden_oasis_staff_payroll
+```
 
-During the initial rollout, POS and Inventory accept only `employee.sync`. Their receiver endpoints are completed in integration Pass 2.
+`core/operations_v2_adapter.py` owns translation from Staff event names and envelopes to the Operations v2 contract. For example, `employee.sync` is exposed to Operations as `employee.status.changed`.
+
+### POS
+
+POS employee identity synchronization uses:
+
+```text
+/api/integrations/staff/employees
+```
+
+### Inventory
+
+Inventory employee identity synchronization uses:
+
+```text
+/api/v1/integrations/staff/employees
+```
+
+Inventory requires `source_staff_id` and `source_record_id` to be positive integers matching the Staff employee source ID.
 
 ## Privacy boundary
 
@@ -107,6 +128,17 @@ During the initial rollout, POS and Inventory accept only `employee.sync`. Their
 - Staff source ID
 
 Never place passwords, MFA data, sessions, salary rates, government numbers, private HR records, disciplinary narratives, medical information, or payroll calculations in employee synchronization payloads.
+
+## Verification canary
+
+`scripts/verify_integration_pass3.py` builds one synthetic inactive employee identity and adapts the payload per destination. In particular:
+
+- Operations receives the Operations v2 envelope.
+- POS receives the Staff employee envelope.
+- Inventory receives the Staff employee envelope with an integer `source_staff_id`.
+- Accounting receives the Staff employee envelope on its employee receiver.
+
+Plan mode sends no requests. Execution still requires the explicit confirmation phrase shown by the script.
 
 ## Worker deployment
 
