@@ -39,6 +39,19 @@ class IntegrationContractAlignmentTests(unittest.TestCase):
         self.assertIs(VERIFY["_payload_for_destination"]("pos", payload), payload)
         self.assertIs(VERIFY["_payload_for_destination"]("accounting", payload), payload)
 
+    def test_all_integration_processors_use_v2_aware_dispatcher(self):
+        for relative_path in (
+            "scripts/run_integration_worker.py",
+            "scripts/process_integration_events.py",
+            "api/integrations.py",
+        ):
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn("from core.operations_v2_adapter import process_due_events", source)
+            self.assertNotIn(
+                "from core.integration_outbox import ensure_integration_schema, process_due_events",
+                source,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
