@@ -130,6 +130,7 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         self.assertEqual(result.approved_ot_hours, 2.0)
         self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.ot_pay, 250.0)
+        self.assertEqual(result.night_diff_hours, 8.0)
 
     def test_approved_time_outside_a_split_shift_is_still_ot(self) -> None:
         first = self.add_shift('2026-08-20', '05:00', '13:00')
@@ -144,6 +145,28 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.ot_pay, 125.0)
 
+    def test_unapproved_late_time_after_ten_does_not_create_night_diff(self) -> None:
+        shift = self.add_shift('2026-08-20', '13:00', '21:00')
+        self.add_log('2026-08-20', '13:00', '22:30', shift, approved_ot_hours=0.0)
+
+        result = self.result()
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.night_diff_hours, 0.0)
+        self.assertEqual(result.night_diff_pay, 0.0)
+
+    def test_approved_late_ot_only_gets_nd_for_approved_night_portion(self) -> None:
+        shift = self.add_shift('2026-08-20', '13:00', '21:00')
+        self.add_log('2026-08-20', '13:00', '22:30', shift, approved_ot_hours=1.5)
+
+        result = self.result()
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.approved_ot_hours, 1.5)
+        self.assertEqual(result.night_diff_hours, 0.5)
+        self.assertEqual(result.night_diff_pay, 6.25)
+
     def test_no_schedule_does_not_auto_create_ot(self) -> None:
         self.add_log('2026-08-19', '08:00', '17:01', None)
 
@@ -154,6 +177,16 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         self.assertEqual(result.regular_pay, 800.0)
         self.assertEqual(result.ot_pay, 0.0)
         self.assertTrue(any('no OT was explicitly approved' in w for w in result.warnings or []))
+
+    def test_no_schedule_unapproved_late_time_does_not_create_night_diff(self) -> None:
+        self.add_log('2026-08-19', '13:00', '22:30', None)
+
+        result = self.result()
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.night_diff_hours, 0.0)
+        self.assertEqual(result.night_diff_pay, 0.0)
 
     def test_no_schedule_can_pay_explicitly_approved_excess_ot(self) -> None:
         self.add_log(
