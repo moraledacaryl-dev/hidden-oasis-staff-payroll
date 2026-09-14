@@ -113,22 +113,27 @@ def install() -> None:
             )
             auto_ot, _ = holiday._take_hours(remaining_inside, inside_ot, "ot")
 
+            # approved_ot_hours is a quantity, not a direction. Hidden Oasis' OT
+            # approval workflow records ordinary post-shift overtime in this field.
+            # Consume post-shift outside time first so an early biometric clock-in
+            # cannot steal the approval and manufacture 22:00-06:00 ND. Only use
+            # pre-shift outside time if the approval exceeds all post-shift time.
             outside_raw: list[Any] = []
-            if a_start < s_start:
-                outside_raw.extend(
-                    holiday._paid_segments(
-                        a_start,
-                        min(a_end, s_start),
-                        holiday._raw_hours(a_start, min(a_end, s_start)),
-                        "outside",
-                    )
-                )
             if a_end > s_end:
                 outside_raw.extend(
                     holiday._paid_segments(
                         max(a_start, s_end),
                         a_end,
                         holiday._raw_hours(max(a_start, s_end), a_end),
+                        "outside",
+                    )
+                )
+            if a_start < s_start:
+                outside_raw.extend(
+                    holiday._paid_segments(
+                        a_start,
+                        min(a_end, s_start),
+                        holiday._raw_hours(a_start, min(a_end, s_start)),
                         "outside",
                     )
                 )
