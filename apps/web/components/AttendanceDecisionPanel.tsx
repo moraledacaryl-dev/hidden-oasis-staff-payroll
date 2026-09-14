@@ -7,29 +7,32 @@ import { StatusBadge } from "@/components/StatusBadge";
 import type { AttendanceException } from "@/lib/api";
 import styles from "./AttendanceDecisionPanel.module.css";
 
-type Decision = "Approve" | "Reject" | "Excused" | "Unexcused";
+type Decision = "Approved" | "Rejected" | "Needs Correction";
 type Props = { item: AttendanceException; triggerLabel?: string };
 
 const decisions: Array<{ value: Decision; label: string; detail: string }> = [
-  { value: "Approve", label: "Approve record", detail: "Accept the attendance and current overtime values." },
-  { value: "Reject", label: "Return for correction", detail: "Keep it unresolved and require a source correction." },
-  { value: "Excused", label: "Mark excused", detail: "Record the exception without an attendance penalty." },
-  { value: "Unexcused", label: "Mark unexcused", detail: "Record the exception as an attendance infraction." },
+  { value: "Approved", label: "Approve record", detail: "Accept the attendance and confirmed overtime values." },
+  { value: "Needs Correction", label: "Return for correction", detail: "Keep it unresolved and require a source correction." },
+  { value: "Rejected", label: "Reject record", detail: "Reject this attendance record with a documented reason." },
 ];
 
 export function AttendanceDecisionPanel({ item, triggerLabel = "Review" }: Props) {
   const router = useRouter();
+  const detectedOtHours = Number(item.detected_ot_hours || 0);
+  const recordedOtHours = Number(item.approved_ot_hours || 0);
+  const effectiveOtHours = Math.max(detectedOtHours, recordedOtHours);
+  const otStatus = recordedOtHours > 0 ? "Approved" : (item.ot_status || (detectedOtHours > 0 ? "Detected" : "None"));
   const [open, setOpen] = useState(false);
-  const [decision, setDecision] = useState<Decision>("Approve");
+  const [decision, setDecision] = useState<Decision>("Approved");
   const [reason, setReason] = useState("");
-  const [approvedOt, setApprovedOt] = useState(String(item.approved_ot_hours || 0));
+  const [approvedOt, setApprovedOt] = useState(String(effectiveOtHours));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [success, setSuccess] = useState(false);
 
   async function submit() {
     const cleanReason = reason.trim();
-    if (decision !== "Approve" && cleanReason.length < 8) {
+    if (decision !== "Approved" && cleanReason.length < 8) {
       setMessage("Enter a reason with at least 8 characters for this decision.");
       setSuccess(false);
       return;
@@ -59,7 +62,7 @@ export function AttendanceDecisionPanel({ item, triggerLabel = "Review" }: Props
       >
         <SurfaceContext>
           <div><span className="eyebrow">Actual in</span><strong>{item.actual_in || "Missing"}</strong><small>{item.employee_code}</small></div>
-          <div><span className="eyebrow">Actual out</span><strong>{item.actual_out || "Missing"}</strong><small>{Number(item.detected_ot_hours || 0).toFixed(2)} h detected OT</small></div>
+          <div><span className="eyebrow">Actual out</span><strong>{item.actual_out || "Missing"}</strong><small>{effectiveOtHours.toFixed(2)} h {recordedOtHours > 0 ? "approved" : "detected"} OT</small></div>
           <div><span className="eyebrow">Detected state</span><StatusBadge label={item.is_absent ? item.absence_type || "Absent" : item.attendance_status || "Needs Review"} tone={item.is_absent ? "danger" : "warning"} /></div>
         </SurfaceContext>
 
@@ -69,8 +72,8 @@ export function AttendanceDecisionPanel({ item, triggerLabel = "Review" }: Props
           <div className={styles.summary}>
             <div className={styles.fact}><span>Status</span><strong>{item.attendance_status || "Needs Review"}</strong></div>
             <div className={styles.fact}><span>Absence</span><strong>{item.is_absent ? item.absence_type || "Absent" : "No"}</strong></div>
-            <div className={styles.fact}><span>OT status</span><strong>{item.ot_status || "None"}</strong></div>
-            <div className={styles.fact}><span>Detected OT</span><strong>{Number(item.detected_ot_hours || 0).toFixed(2)} h</strong></div>
+            <div className={styles.fact}><span>OT status</span><strong>{otStatus}</strong></div>
+            <div className={styles.fact}><span>OT hours</span><strong>{effectiveOtHours.toFixed(2)} h</strong></div>
           </div>
         </SurfaceSection>
 
@@ -81,7 +84,7 @@ export function AttendanceDecisionPanel({ item, triggerLabel = "Review" }: Props
         <SurfaceSection number="3" title="Overtime and documentation" description="Confirm approved overtime and record the decision rationale.">
           <div className={styles.form}>
             <label>Approved OT hours<input type="number" min="0" step="0.25" value={approvedOt} onChange={(event) => setApprovedOt(event.target.value)} /></label>
-            <label>Decision reason<textarea rows={4} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={decision === "Approve" ? "Optional approval note" : "Required explanation"} /></label>
+            <label>Decision reason<textarea rows={4} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={decision === "Approved" ? "Optional approval note" : "Required explanation"} /></label>
           </div>
         </SurfaceSection>
       </AppDrawer>
