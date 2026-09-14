@@ -8,6 +8,15 @@ import { getAttendanceExceptions, getAttendanceReviews } from "@/lib/api";
 import { currentCutoff, mondayOfWeek, formatBusinessDateTime } from "@/lib/period";
 import { currentSession } from "@/lib/session";
 
+function ReviewNote({ notes }: { notes?: string | null }) {
+  if (!notes) return <>—</>;
+  const parts = notes.split("|").map((part) => part.trim()).filter(Boolean);
+  const reviewPart = parts.find((part) => part.startsWith("Review:"));
+  const primary = reviewPart ? reviewPart.replace(/^Review:\s*/, "") : parts[0];
+  const metadata = parts.filter((part) => part !== reviewPart && part !== primary);
+  return <><span>{primary}</span>{metadata.length ? <><br /><span className="muted">{metadata.join(" · ")}</span></> : null}</>;
+}
+
 export default async function AttendanceReviewPage({ searchParams }: { searchParams: Promise<{ start?: string; end?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
@@ -54,7 +63,7 @@ export default async function AttendanceReviewPage({ searchParams }: { searchPar
           <SectionHeader title="Decision queue" description={`${start} to ${end}. Each action writes an attendance review record.`} actions={<StatusBadge label={exceptions.length ? `${exceptions.length} open` : "Clear"} tone={exceptions.length ? "warning" : "ok"} />} />
           <SectionBody flush>
             <div className="table-wrap"><table className="responsive-records "><thead><tr><th>Employee</th><th>Date</th><th>Actual</th><th>Detected issue</th><th>Overtime</th><th>Notes</th><th>Decision</th></tr></thead><tbody>
-              {exceptions.map((item) => <tr key={item.id}><td data-label="Employee"><strong>{item.full_name}</strong><br /><span className="muted">{item.employee_code} · {item.department || "—"}</span></td><td data-label="Date">{item.work_date}</td><td data-label="Actual">{item.actual_in || "Missing"} → {item.actual_out || "Missing"}</td><td data-label="Detected issue"><StatusBadge label={item.is_absent ? item.absence_type || "Absent" : item.attendance_status || "Needs Review"} tone={item.is_absent ? "danger" : "warning"} /></td><td data-label="Overtime">{Number(item.detected_ot_hours || 0).toFixed(2)} h detected<br /><span className="muted">{item.ot_status || "None"}</span></td><td data-label="Notes">{item.notes || "—"}</td><td data-label="Decision"><AttendanceDecisionPanel item={item} /></td></tr>)}
+              {exceptions.map((item) => { const otHours = Number(item.detected_ot_hours || 0); return <tr key={item.id}><td data-label="Employee"><strong>{item.full_name}</strong><br /><span className="muted">{item.employee_code} · {item.department || "—"}</span></td><td data-label="Date">{item.work_date}</td><td data-label="Actual">{!item.actual_in && !item.actual_out ? "No punches" : <>{item.actual_in || "Missing"} → {item.actual_out || "Missing"}</>}</td><td data-label="Detected issue"><StatusBadge label={item.is_absent ? item.absence_type || "Absent" : item.attendance_status || "Needs Review"} tone={item.is_absent ? "danger" : "warning"} /></td><td data-label="Overtime">{otHours.toFixed(2)} h{otHours > 0 || item.ot_status ? <><br /><span className="muted">{item.ot_status || "Detected"}</span></> : null}</td><td data-label="Notes"><ReviewNote notes={item.notes} /></td><td data-label="Decision" style={{ minWidth: 88 }}><AttendanceDecisionPanel item={item} /></td></tr>; })}
               {exceptions.length === 0 ? <tr><td colSpan={7}>No attendance exceptions for this period.</td></tr> : null}
             </tbody></table></div>
           </SectionBody>
