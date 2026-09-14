@@ -1,6 +1,13 @@
 import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import { NextResponse } from "next/server";
 
+function normalizeDecision(value: unknown) {
+  const decision = String(value || "").trim();
+  if (decision === "Approve") return "Approved";
+  if (decision === "Reject") return "Rejected";
+  return decision;
+}
+
 export async function POST(request: Request) {
   const body = await request.json();
   const headers = {
@@ -11,7 +18,7 @@ export async function POST(request: Request) {
     method: "POST",
     headers,
     body: JSON.stringify({
-      decision: body.decision,
+      decision: normalizeDecision(body.decision),
       reason: body.reason || "Reviewed from the attendance queue.",
       approved_ot_hours: Number(body.approved_ot_hours || 0),
     }),
