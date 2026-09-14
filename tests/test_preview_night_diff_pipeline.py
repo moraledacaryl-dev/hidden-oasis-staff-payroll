@@ -105,6 +105,20 @@ class PreviewNightDiffPipelineTests(unittest.TestCase):
         self.assertEqual(result.night_diff_hours, 0.5)
         self.assertEqual(result.night_diff_pay, 6.25)
 
+    def test_early_clockin_does_not_steal_approved_post_shift_ot_into_nd(self) -> None:
+        # Production-shaped case: 06:00-15:00 shift, employee clocks in at 05:44
+        # and works approved OT after the shift. The scalar approved OT amount must
+        # attach to the 15:00+ interval first, not the unapproved 05:44-06:00 time.
+        shift = self.add_shift('2026-08-20', '06:00', '15:00', break_minutes=60)
+        self.add_log('2026-08-20', '05:44', '18:24', shift, approved_ot_hours=2.25)
+
+        result = self.preview_result()
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.approved_ot_hours, 2.25)
+        self.assertEqual(result.night_diff_hours, 0.0)
+        self.assertEqual(result.night_diff_pay, 0.0)
+
 
 if __name__ == '__main__':
     unittest.main()
