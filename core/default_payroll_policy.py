@@ -20,6 +20,8 @@ def install() -> None:
     base_compute_payroll = engine.compute_payroll
 
     def compute_payroll(conn: Any, period_start: str, period_end: str) -> list[Any]:
+        from .night_diff_policy import apply_payable_night_diff
+
         results = base_compute_payroll(conn, period_start, period_end)
         adjusted: list[Any] = []
         for result in results:
@@ -34,6 +36,13 @@ def install() -> None:
                 != "freelance"
             ):
                 result = policy.apply_independent_split_shift_allocation(
+                    conn,
+                    result,
+                    employee,
+                    period_start,
+                    period_end,
+                )
+                result = apply_payable_night_diff(
                     conn,
                     result,
                     employee,
