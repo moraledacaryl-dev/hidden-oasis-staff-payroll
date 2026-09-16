@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-
-NON_PAYROLL_STATUSES = {"inactive", "terminated", "resigned", "separated"}
+from .active_employee_status import is_active_employee_status
 
 
 def install() -> None:
@@ -33,9 +32,7 @@ def install() -> None:
                 "SELECT * FROM employees WHERE id=?",
                 (int(result.employee_id),),
             )
-            if not employee:
-                continue
-            if str(employee.get("status") or "").strip().lower() in NON_PAYROLL_STATUSES:
+            if not employee or not is_active_employee_status(employee.get("status")):
                 continue
             if str(employee.get("employment_type") or "").lower() != "freelance":
                 result = policy.apply_independent_split_shift_allocation(
