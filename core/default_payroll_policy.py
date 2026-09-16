@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 
+NON_PAYROLL_STATUSES = {"inactive", "terminated", "resigned", "separated"}
+
+
 def install() -> None:
     """Make independent scheduled-shift allocation the canonical payroll path.
 
@@ -30,11 +33,11 @@ def install() -> None:
                 "SELECT * FROM employees WHERE id=?",
                 (int(result.employee_id),),
             )
-            if (
-                employee
-                and str(employee.get("employment_type") or "").lower()
-                != "freelance"
-            ):
+            if not employee:
+                continue
+            if str(employee.get("status") or "").strip().lower() in NON_PAYROLL_STATUSES:
+                continue
+            if str(employee.get("employment_type") or "").lower() != "freelance":
                 result = policy.apply_independent_split_shift_allocation(
                     conn,
                     result,
