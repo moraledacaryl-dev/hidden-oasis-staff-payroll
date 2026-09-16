@@ -686,7 +686,7 @@ def schedule_employees(authorization: str | None = Header(default=None, alias="A
         status_col = first_existing(cols, ["employment_status", "status"])
         status_expr = f"{status_col} AS employment_status" if status_col else "'Active' AS employment_status"
         where = (
-            f"WHERE lower(COALESCE({status_col}, 'active')) NOT IN ('inactive', 'terminated', 'resigned')"
+            f"WHERE lower(COALESCE({status_col}, 'active')) NOT IN ('inactive', 'terminated', 'resigned', 'separated')"
             if status_col
             else ""
         )
