@@ -98,7 +98,12 @@ def employee_select_sql(conn) -> str:
     code_expr = "employee_code" if "employee_code" in cols else "'' AS employee_code"
     dept_expr = "department" if "department" in cols else "'' AS department"
     pos_expr = "position" if "position" in cols else "'' AS position"
-    status_where = "WHERE COALESCE(employment_status, 'active') NOT IN ('inactive', 'terminated', 'resigned')" if "employment_status" in cols else ""
+    status_col = "employment_status" if "employment_status" in cols else ("status" if "status" in cols else None)
+    status_where = (
+        f"WHERE lower(COALESCE({status_col}, 'active')) NOT IN ('inactive', 'terminated', 'resigned', 'separated')"
+        if status_col
+        else ""
+    )
     return f"""
         SELECT id, {code_expr}, {name_col} AS full_name, {dept_expr}, {pos_expr}
         FROM employees
