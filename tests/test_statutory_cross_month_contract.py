@@ -16,8 +16,8 @@ class StatutoryCrossMonthContractTests(unittest.TestCase):
     def test_supersession_safe_history_is_available_for_migration(self) -> None:
         source = (ROOT / "core" / "statutory_history.py").read_text(encoding="utf-8")
         self.assertIn("superseded_by_run_id IS NULL", source)
-        self.assertIn('"Draft"', source)
-        self.assertIn("deliberately excluded", source)
+        self.assertNotIn('"Draft",', source)
+        self.assertIn("Draft runs are deliberately excluded", source)
 
 
 if __name__ == "__main__":
