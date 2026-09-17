@@ -13,19 +13,11 @@ class StatutoryCrossMonthContractTests(unittest.TestCase):
         self.assertIn("calendar_month_segments", source)
         self.assertIn("callers must not classify the entire cutoff", source)
 
-    def test_known_legacy_single_anchor_paths_remain_visible_until_migrated(self) -> None:
-        """Fail loudly if a migration deletes the legacy signatures without replacing this guard.
-
-        This test is intentionally temporary while the behavioral migration is developed on
-        this branch.  It records the exact debt that the next commit must remove from both
-        recomputation paths rather than allowing a one-path hotfix.
-        """
-        engine = (ROOT / "core" / "payroll_engine.py").read_text(encoding="utf-8")
-        fractional = (ROOT / "core" / "payroll_fractional_leave.py").read_text(encoding="utf-8")
-        boundary = (ROOT / "api" / "active_money_boundary_closure.py").read_text(encoding="utf-8")
-        self.assertIn('get_month_previous_contribs(conn, int(emp["id"]), period_start)', engine)
-        self.assertIn('get_month_previous_contribs(conn, int(emp["id"]), period_start)', fractional)
-        self.assertIn('get_month_previous_contribs(conn, int(emp["id"]), period_start)', boundary)
+    def test_supersession_safe_history_is_available_for_migration(self) -> None:
+        source = (ROOT / "core" / "statutory_history.py").read_text(encoding="utf-8")
+        self.assertIn("superseded_by_run_id IS NULL", source)
+        self.assertIn('"Draft"', source)
+        self.assertIn("deliberately excluded", source)
 
 
 if __name__ == "__main__":
