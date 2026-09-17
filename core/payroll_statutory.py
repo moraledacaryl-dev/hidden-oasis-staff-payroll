@@ -24,11 +24,13 @@ def apply_calendar_month_statutory(
     gross_by_month: Mapping[date, float],
     get_sss_share: Callable[[Any, float], tuple[float, float, float]],
 ) -> dict[date, dict[str, float]]:
-    """Apply statutory contributions from exact calendar-month earnings.
+    """Apply statutory contributions from exact dated earnings by calendar month.
 
-    The returned mapping is the immutable per-month snapshot payload that the
-    payroll draft persistence layer must store with the payroll item.  Prior
-    month-to-date values come only from settled, non-superseded snapshots.
+    ``gross_by_month`` must be derived from dated earnings, never from a
+    proportional allocation of the cutoff's aggregate gross.  The returned
+    mapping is the immutable per-month snapshot payload that the payroll draft
+    persistence layer must store with the payroll item.  Prior month-to-date
+    values come only from settled, non-superseded snapshots.
     """
     segments = calendar_month_segments(period_start, period_end)
     expected_months = {segment.month_start for segment in segments}
