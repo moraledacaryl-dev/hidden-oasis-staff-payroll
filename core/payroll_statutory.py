@@ -9,6 +9,17 @@ from .statutory_history import month_previous_contribs
 from .statutory_periods import calendar_month_segments
 
 
+def _segment_target_fraction(segment: Any) -> float:
+    """Return the cumulative semi-monthly target reached by this segment.
+
+    A segment ending on/before the 15th reaches the first-half target; a segment
+    extending beyond the 15th reaches the full monthly target.  This is based on
+    the earning dates represented by the segment, never on the payroll run's
+    period_start alone.
+    """
+    return 0.5 if segment.end.day <= 15 else 1.0
+
+
 def apply_calendar_month_statutory(
     conn: Any,
     result: Any,
@@ -21,7 +32,7 @@ def apply_calendar_month_statutory(
 ) -> None:
     """Apply statutory contributions without inventing cross-month earnings.
 
-    ``gross_by_month`` is deliberately required.  A cross-month cutoff must be
+    ``gross_by_month`` is deliberately required. A cross-month cutoff must be
     backed by dated earnings; allocating aggregate gross by calendar-day ratio is
     financially unsafe and is therefore not supported here.
     """
@@ -29,7 +40,9 @@ def apply_calendar_month_statutory(
     expected_months = {segment.month_start for segment in segments}
     supplied_months = set(gross_by_month)
     if supplied_months != expected_months:
-        raise ValueError("gross_by_month must contain exactly every calendar month in the payroll cutoff")
+        raise ValueError(
+            "gross_by_month must contain exactly every calendar month in the payroll cutoff"
+        )
 
     allocated_gross = money(sum(float(value or 0) for value in gross_by_month.values()))
     if abs(allocated_gross - money(result.gross_pay)) > 0.005:
@@ -46,7 +59,10 @@ def apply_calendar_month_statutory(
     ph_rate = float(get_setting(conn, "philhealth_rate", "0.05") or 0.05)
     ph_floor = float(get_setting(conn, "philhealth_floor", "10000") or 10000)
     ph_ceiling = float(get_setting(conn, "philhealth_ceiling", "100000") or 100000)
-    ph_month_ee = min(max(declared or ph_floor, ph_floor), ph_ceiling) * ph_rate / 2.0
+    ph_month_total = min(max(declared or ph_floor, ph_floor), ph_ceiling) * ph_rate
+    ph_month_ee = ph_month_total / 2.0
+    ph_month_er = ph_month_total / 2.0
+
     pi_rate = float(get_setting(conn, "pagibig_rate", "0.02") or 0.02)
     pi_er_rate = float(get_setting(conn, "pagibig_employer_rate", "0.02") or 0.02)
     pi_ceiling = float(get_setting(conn, "pagibig_ceiling", "10000") or 10000)
@@ -58,25 +74,49 @@ def apply_calendar_month_statutory(
         current_gross = money(gross_by_month[segment.month_start])
         if current_gross <= 0.005:
             continue
-        prev = month_previous_contribs(conn, employee_id, segment.month_start, segment.start)
+        prev = month_previous_contribs(
+            conn,
+            employee_id,
+            segment.month_start,
+            segment.start,
+        )
 
         if int(emp.get("benefits_sss") or 0):
-            target_ee, target_er, target_ec = get_sss_share(conn, prev["gross"] + current_gross)
+            target_ee, target_er, target_ec = get_sss_share(
+                conn,
+                prev["gross"] + current_gross,
+            )
             result.sss_ee += max(0.0, target_ee - prev["sss"])
             result.sss_er += max(0.0, target_er - prev["sss_er"])
             result.sss_ec += max(0.0, target_ec - prev["sss_ec"])
 
-        fraction = 1.0 if segment.end.day > 15 else 0.5
+        fraction = _segment_target_fraction(segment)
         if int(emp.get("benefits_philhealth") or 0):
-            target = ph_month_ee * fraction
-            result.philhealth_ee += max(0.0, target - prev["philhealth"])
-            result.philhealth_er += max(0.0, target - prev["philhealth_er"])
+            result.philhealth_ee += max(
+                0.0,
+                (ph_month_ee * fraction) - prev["philhealth"],
+            )
+            result.philhealth_er += max(
+                0.0,
+                (ph_month_er * fraction) - prev["philhealth_er"],
+            )
         if int(emp.get("benefits_pagibig") or 0):
-            result.pagibig_ee += max(0.0, (pi_month_ee * fraction) - prev["pagibig"])
-            result.pagibig_er += max(0.0, (pi_month_er * fraction) - prev["pagibig_er"])
+            result.pagibig_ee += max(
+                0.0,
+                (pi_month_ee * fraction) - prev["pagibig"],
+            )
+            result.pagibig_er += max(
+                0.0,
+                (pi_month_er * fraction) - prev["pagibig_er"],
+            )
 
     for field in (
-        "sss_ee", "sss_er", "sss_ec", "philhealth_ee", "philhealth_er",
-        "pagibig_ee", "pagibig_er",
+        "sss_ee",
+        "sss_er",
+        "sss_ec",
+        "philhealth_ee",
+        "philhealth_er",
+        "pagibig_ee",
+        "pagibig_er",
     ):
         setattr(result, field, money(getattr(result, field)))
