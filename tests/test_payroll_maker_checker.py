@@ -74,9 +74,17 @@ class PayrollMakerCheckerTests(unittest.TestCase):
         )
         conn.commit()
 
+        def approve(c, run_id, status, actor):
+            c.execute(
+                "UPDATE payroll_runs SET status=?, approved_by=? WHERE id=?",
+                (status, actor, run_id),
+            )
+            c.commit()
+
         with (
             patch.object(service, "must_be_payroll_user", return_value={"role_key": "owner", "display_name": "Owner One"}),
             patch.object(service, "get_conn", return_value=conn),
+            patch.object(service, "update_payroll_status", side_effect=approve),
         ):
             response = service.approve_payroll_run(1, "token", "key")
 
