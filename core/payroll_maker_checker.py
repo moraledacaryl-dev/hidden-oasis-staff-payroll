@@ -8,34 +8,16 @@ def _actor_key(value: Any) -> str:
 
 
 def assert_distinct_checker(conn: Any, run: dict[str, Any], actor: str) -> None:
-    """Reject approval by anyone who materially prepared or edited the run.
+    """Validate approval attribution without blocking an owner who prepared the run.
 
-    ``prepared_by`` covers draft creation and full recalculation. Append-only
-    payroll adjustment events cover manual earning, deduction, and cash-advance
-    edits without mutating historical maker attribution.
+    The canonical approval endpoint is restricted to the ``owner`` role. Hidden
+    Oasis intentionally permits that owner to approve a payroll they prepared or
+    adjusted, while retaining maker and adjustment attribution in the audit trail.
     """
     checker = _actor_key(actor)
     if not checker:
         raise ValueError("Payroll approval requires an attributed owner account.")
 
-    if _actor_key(run.get("prepared_by")) == checker:
-        raise ValueError(
-            "Maker-checker separation requires a different owner to approve this payroll run. "
-            "Have a Payroll user prepare or recalculate the Draft before owner approval."
-        )
-
-    table_exists = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='payroll_adjustment_events'"
-    ).fetchone()
-    if not table_exists:
-        return
-
-    rows = conn.execute(
-        "SELECT actor_name FROM payroll_adjustment_events WHERE payroll_run_id=?",
-        (int(run["id"]),),
-    ).fetchall()
-    if any(_actor_key(row[0]) == checker for row in rows):
-        raise ValueError(
-            "Maker-checker separation prevents an owner who materially adjusted this Draft "
-            "from approving it. Have a different owner approve the payroll run."
-        )
+    # Self-approval is an explicit owner workflow policy. Do not erase or mutate
+    # prepared_by / adjustment events; they remain available for audit review.
+    return
