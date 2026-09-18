@@ -68,7 +68,17 @@ class DatedEarningsLedger:
         return {month: money(amount) for month, amount in totals.items()}
 
     def reconcile(self, gross_pay: float) -> Mapping[date, float]:
-        totals = self.gross_by_month()
-        if abs(money(sum(totals.values())) - money(gross_pay)) > 0.005:
+        totals = dict(self.gross_by_month())
+        target = money(gross_pay)
+        delta = money(target - money(sum(totals.values())))
+        if abs(delta) > 0.05:
             raise ValueError("dated earnings ledger must reconcile to payroll gross_pay")
+        if abs(delta) >= 0.005:
+            # Only absorb component-level centavo rounding drift.  Never use
+            # this path to allocate substantive cross-month aggregate gross.
+            if not self._amounts:
+                raise ValueError("dated earnings ledger has no earning date for rounding residual")
+            last_date = max(self._amounts)
+            month_start = last_date.replace(day=1)
+            totals[month_start] = money(totals[month_start] + delta)
         return totals
