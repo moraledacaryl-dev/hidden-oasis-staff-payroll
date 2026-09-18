@@ -10,6 +10,9 @@ from .corrections import eligible_corrections, mark_eligible_corrections_applied
 from .quality import build_payroll_preflight_checks, summarize_checks
 from .money import money
 from .schedule_source import trusted_schedule_rows
+from .dated_earnings import DatedEarningsLedger
+from .payroll_statutory import apply_calendar_month_statutory
+from .statutory_snapshots import replace_run_employee_snapshots
 
 TIME_FMT = "%H:%M"
 DATE_FMT = "%Y-%m-%d"
@@ -270,6 +273,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         full_name=str(emp["full_name"]),
         warnings=warnings,
     )
+    dated_earnings = DatedEarningsLedger.for_cutoff(period_start, period_end)
 
     if not is_freelance:
         logs = fetchall(
@@ -315,6 +319,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         log_dates = set()
 
         for log in logs:
+            earnings_before_log = result.regular_pay + result.ot_pay + result.night_diff_pay + result.holiday_pay
             if not log.get("actual_in") and not log.get("is_absent"):
                 warnings.append(f"Missing time-in on {log['work_date']}; no hours paid unless corrected.")
             if not log.get("actual_out") and not log.get("is_absent"):
@@ -322,7 +327,9 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             if log.get("is_absent"):
                 work_date = str(log["work_date"])
                 if work_date in regular_holidays:
-                    result.holiday_pay += standard_paid_hours * hourly_rate
+                    holiday_amount = standard_paid_hours * hourly_rate
+                    result.holiday_pay += holiday_amount
+                    dated_earnings.add(work_date, holiday_amount)
                     regular_holiday_base_paid_dates.add(work_date)
                     warnings.append(f"Regular holiday base pay on {work_date} was paid even though employee was absent.")
                 else:
@@ -459,6 +466,8 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             nd = round(min(raw_nd, payable_hours_for_nd), 4)
             result.night_diff_hours += nd
             result.night_diff_pay += nd * hourly_rate * nd_rate * base_multiplier
+            earnings_after_log = result.regular_pay + result.ot_pay + result.night_diff_pay + result.holiday_pay
+            dated_earnings.add(work_date, earnings_after_log - earnings_before_log)
             log_dates.add(log["work_date"])
 
         # Scheduled days without logs and without approved leave become unpaid absence warnings.
@@ -507,6 +516,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
                 else:
                     for d_iso in overlap_dates:
                         paid_leave_dates.add(d_iso)
+                        dated_earnings.add(d_iso, standard_paid_hours * hourly_rate)
                     result.paid_leave_days += paid_days_in_cutoff
                     result.paid_leave_pay += paid_days_in_cutoff * standard_paid_hours * hourly_rate
                     warnings.append(f"Paid leave '{lr['leave_name']}' pays {paid_days_in_cutoff:g} unique day(s) x {standard_paid_hours:g} standard hours.")
@@ -514,7 +524,9 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         for hol_date in regular_holidays:
             if hol_date in regular_holiday_base_paid_dates or hol_date in log_dates or hol_date in approved_leave_dates:
                 continue
-            result.holiday_pay += standard_paid_hours * hourly_rate
+            holiday_amount = standard_paid_hours * hourly_rate
+            result.holiday_pay += holiday_amount
+            dated_earnings.add(hol_date, holiday_amount)
             regular_holiday_base_paid_dates.add(hol_date)
             warnings.append(f"Regular holiday base pay on {hol_date} was paid even with no worked log.")
 
@@ -550,12 +562,13 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         """,
         (emp["id"], period_end, period_start),
     )
-    result.freelance_pay = money(
-        sum(
-            float(o["approved_qty"] or 0) * float(o["rate"] or 0)
-            for o in outputs
-        )
-    )
+    freelance_amounts = [
+        (o, float(o["approved_qty"] or 0) * float(o["rate"] or 0))
+        for o in outputs
+    ]
+    result.freelance_pay = money(sum(amount for _, amount in freelance_amounts))
+    for output, amount in freelance_amounts:
+        dated_earnings.add_single_month_span(output["week_start"], output["week_end"], amount)
 
     # Manual approved adjustments for the payroll period.
     adjustments = fetchall(
@@ -573,6 +586,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             result.other_deductions += amount
         else:
             result.other_earnings += amount
+            dated_earnings.add_single_month_span(adj["period_start"], adj["period_end"], amount)
 
     for correction in eligible_corrections(conn, int(emp["id"]), period_start):
         amount = abs(float(correction.get("amount") or 0))
@@ -582,6 +596,8 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             result.other_deductions += amount
         else:
             result.other_earnings += amount
+            # Corrections are paid in this cutoff; use its effective opening date rather than inventing a historical split.
+            dated_earnings.add(period_start, amount)
         warnings.append(
             f"Correction #{correction['id']} from payroll run {correction['payroll_run_id']} is included in this run."
         )
@@ -596,48 +612,18 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         + result.other_earnings
     )
 
-    prev = get_month_previous_contribs(conn, int(emp["id"]), period_start)
-    declared = float(emp.get("declared_monthly_base") or 0)
+    gross_by_month = dated_earnings.reconcile(result.gross_pay)
+    statutory_snapshots = apply_calendar_month_statutory(
+        conn,
+        result,
+        emp,
+        period_start,
+        period_end,
+        gross_by_month=gross_by_month,
+        get_sss_share=get_sss_share,
+    )
+    setattr(result, "_statutory_snapshots", statutory_snapshots)
     has_current_gross = result.gross_pay > 0.005
-
-    # SSS: preserve Caryl's intended actual month-to-date gross catch-up method.
-    # Employer share/EC use the same month-to-date catch-up structure so accounting can accrue the employer liability.
-    if has_current_gross and int(emp.get("benefits_sss") or 0):
-        month_gross_basis = prev["gross"] + result.gross_pay
-        sss_month_ee, sss_month_er, sss_month_ec = get_sss_share(conn, month_gross_basis)
-        result.sss_ee = money(max(0.0, sss_month_ee - prev["sss"]))
-        result.sss_er = money(max(0.0, sss_month_er - prev["sss_er"]))
-        result.sss_ec = money(max(0.0, sss_month_ec - prev["sss_ec"]))
-
-    # PhilHealth: declared monthly basis, split/catch up across cutoffs.
-    if has_current_gross and int(emp.get("benefits_philhealth") or 0):
-        ph_rate = float(get_setting(conn, "philhealth_rate", "0.05") or 0.05)
-        ph_floor = float(get_setting(conn, "philhealth_floor", "10000") or 10000)
-        ph_ceiling = float(get_setting(conn, "philhealth_ceiling", "100000") or 100000)
-        ph_base = min(max(declared or ph_floor, ph_floor), ph_ceiling)
-        ph_month_ee = (ph_base * ph_rate) / 2.0
-        ph_month_er = ph_month_ee
-        if parse_date(period_start).day <= 15:
-            result.philhealth_ee = money(ph_month_ee / 2.0)
-            result.philhealth_er = money(ph_month_er / 2.0)
-        else:
-            result.philhealth_ee = money(max(0.0, ph_month_ee - prev["philhealth"]))
-            result.philhealth_er = money(max(0.0, ph_month_er - prev["philhealth_er"]))
-
-    # Pag-IBIG: declared monthly basis with configurable ceiling, split/catch up.
-    if has_current_gross and int(emp.get("benefits_pagibig") or 0):
-        pi_rate = float(get_setting(conn, "pagibig_rate", "0.02") or 0.02)
-        pi_er_rate = float(get_setting(conn, "pagibig_employer_rate", "0.02") or 0.02)
-        pi_ceiling = float(get_setting(conn, "pagibig_ceiling", "10000") or 10000)
-        pi_base = min(declared, pi_ceiling)
-        pi_month_ee = pi_base * pi_rate
-        pi_month_er = pi_base * pi_er_rate
-        if parse_date(period_start).day <= 15:
-            result.pagibig_ee = money(pi_month_ee / 2.0)
-            result.pagibig_er = money(pi_month_er / 2.0)
-        else:
-            result.pagibig_ee = money(max(0.0, pi_month_ee - prev["pagibig"]))
-            result.pagibig_er = money(max(0.0, pi_month_er - prev["pagibig_er"]))
 
     if has_current_gross and int(emp.get("benefits_tax") or 0):
         taxable_comp = result.gross_pay - result.sss_ee - result.philhealth_ee - result.pagibig_ee
@@ -734,6 +720,12 @@ def save_payroll_draft(
         placeholders = ",".join(["?"] * len(cols))
         cur2 = conn.execute(f"INSERT INTO payroll_items({','.join(cols)}) VALUES({placeholders})", values)
         add_payroll_lines(conn, cur2.lastrowid, r)
+        replace_run_employee_snapshots(
+            conn,
+            int(run_id),
+            int(r.employee_id),
+            getattr(r, "_statutory_snapshots", {}),
+        )
     mark_eligible_corrections_applied(conn, int(run_id), period_start)
     conn.commit()
     return int(run_id)
