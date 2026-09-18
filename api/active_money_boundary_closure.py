@@ -20,12 +20,17 @@ def _install_fractional_leave_money_policy() -> None:
         result: Any,
         emp: dict[str, Any],
         period_start: str,
-        period_end: str,
+        period_end: str | None = None,
     ) -> None:
-        # Money-boundary closure must not fork statutory policy. Delegate to
-        # the canonical calendar-month recomputation installed by the core
-        # fractional-leave module.
+        # Preserve the legacy four-argument hook for callers outside the
+        # fractional-leave wrapper. Same-month callers can derive period_end
+        # safely; cross-month callers must provide it explicitly.
+        if period_end is None:
+            period_end = period_start
         original_recompute(conn, result, emp, period_start, period_end)
+        # Keep the money-boundary guarantee explicit at this integration
+        # boundary even though the canonical recompute already rounds it.
+        result.net_pay = money(result.gross_pay - result.total_deductions)
 
     def apply_fractional_paid_leave_adjustment(
         conn: Any,
