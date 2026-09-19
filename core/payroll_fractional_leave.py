@@ -59,73 +59,57 @@ def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, per
     return round(total, 4)
 
 
-def _recompute_statutory_and_net(conn: Any, result: Any, emp: dict[str, Any], period_start: str) -> None:
-    from core.payroll_engine import (
-        compute_semi_monthly_withholding_tax,
-        get_month_previous_contribs,
-        get_sss_share,
-        parse_date,
-    )
+def _recompute_statutory_and_net(
+    conn: Any,
+    result: Any,
+    emp: dict[str, Any],
+    period_start: str,
+    period_end: str,
+) -> None:
+    """Recompute a post-processing adjustment without reintroducing cutoff-month logic.
 
-    result.gross_pay = round(
+    Same-month adjustments are unambiguous.  A cross-month post-processing
+    change needs dated source detail; fail closed rather than allocating its
+    delta to an arbitrary month.
+    """
+    from core.money import money
+    from core.payroll_engine import compute_semi_monthly_withholding_tax, get_sss_share
+    from core.payroll_statutory import apply_calendar_month_statutory
+    from core.statutory_periods import calendar_month_segments
+
+    result.gross_pay = money(
         result.regular_pay
         + result.ot_pay
         + result.night_diff_pay
         + result.holiday_pay
         + result.paid_leave_pay
         + result.freelance_pay
-        + result.other_earnings,
-        2,
+        + result.other_earnings
     )
+    segments = calendar_month_segments(period_start, period_end)
+    if len(segments) != 1:
+        raise ValueError(
+            "cross-month post-processing adjustment requires dated earning detail before statutory recomputation"
+        )
+    gross_by_month = {segments[0].month_start: result.gross_pay}
+    snapshots = apply_calendar_month_statutory(
+        conn,
+        result,
+        emp,
+        period_start,
+        period_end,
+        gross_by_month=gross_by_month,
+        get_sss_share=get_sss_share,
+    )
+    setattr(result, "_statutory_snapshots", snapshots)
 
-    result.sss_ee = result.sss_er = result.sss_ec = 0.0
-    result.philhealth_ee = result.philhealth_er = 0.0
-    result.pagibig_ee = result.pagibig_er = 0.0
     result.tax = 0.0
-
-    prev = get_month_previous_contribs(conn, int(emp["id"]), period_start)
-    declared = float(emp.get("declared_monthly_base") or 0)
     has_current_gross = result.gross_pay > 0.005
-
-    if has_current_gross and int(emp.get("benefits_sss") or 0):
-        month_gross_basis = prev["gross"] + result.gross_pay
-        sss_month_ee, sss_month_er, sss_month_ec = get_sss_share(conn, month_gross_basis)
-        result.sss_ee = round(max(0.0, sss_month_ee - prev["sss"]), 2)
-        result.sss_er = round(max(0.0, sss_month_er - prev["sss_er"]), 2)
-        result.sss_ec = round(max(0.0, sss_month_ec - prev["sss_ec"]), 2)
-
-    if has_current_gross and int(emp.get("benefits_philhealth") or 0):
-        ph_rate = float(get_setting(conn, "philhealth_rate", "0.05") or 0.05)
-        ph_floor = float(get_setting(conn, "philhealth_floor", "10000") or 10000)
-        ph_ceiling = float(get_setting(conn, "philhealth_ceiling", "100000") or 100000)
-        ph_base = min(max(declared, ph_floor), ph_ceiling)
-        ph_month_total = ph_base * ph_rate
-        if parse_date(period_start).day <= 15:
-            result.philhealth_ee = round(ph_month_total / 4.0, 2)
-            result.philhealth_er = round(ph_month_total / 4.0, 2)
-        else:
-            result.philhealth_ee = round(max(0.0, (ph_month_total / 2.0) - prev["philhealth"]), 2)
-            result.philhealth_er = round(max(0.0, (ph_month_total / 2.0) - prev["philhealth_er"]), 2)
-
-    if has_current_gross and int(emp.get("benefits_pagibig") or 0):
-        pi_rate = float(get_setting(conn, "pagibig_rate", "0.02") or 0.02)
-        pi_er_rate = float(get_setting(conn, "pagibig_employer_rate", "0.02") or 0.02)
-        pi_ceiling = float(get_setting(conn, "pagibig_ceiling", "10000") or 10000)
-        pi_base = min(declared, pi_ceiling)
-        pi_month_ee = pi_base * pi_rate
-        pi_month_er = pi_base * pi_er_rate
-        if parse_date(period_start).day <= 15:
-            result.pagibig_ee = round(pi_month_ee / 2.0, 2)
-            result.pagibig_er = round(pi_month_er / 2.0, 2)
-        else:
-            result.pagibig_ee = round(max(0.0, pi_month_ee - prev["pagibig"]), 2)
-            result.pagibig_er = round(max(0.0, pi_month_er - prev["pagibig_er"]), 2)
-
     if has_current_gross and int(emp.get("benefits_tax") or 0):
         taxable_comp = result.gross_pay - result.sss_ee - result.philhealth_ee - result.pagibig_ee
         result.tax = compute_semi_monthly_withholding_tax(taxable_comp)
 
-    statutory_and_manual = (
+    statutory_and_manual = money(
         result.sss_ee
         + result.philhealth_ee
         + result.pagibig_ee
@@ -151,9 +135,9 @@ def _recompute_statutory_and_net(conn: Any, result: Any, emp: dict[str, Any], pe
             continue
         amount = min(float(ca["outstanding_balance"]), scheduled, ca_capacity - ca_deduction)
         ca_deduction += amount
-    result.cash_advance_deduction = round(ca_deduction, 2)
-    result.total_deductions = round(statutory_and_manual + result.cash_advance_deduction, 2)
-    result.net_pay = round(result.gross_pay - result.total_deductions, 2)
+    result.cash_advance_deduction = money(ca_deduction)
+    result.total_deductions = money(statutory_and_manual + result.cash_advance_deduction)
+    result.net_pay = money(result.gross_pay - result.total_deductions)
 
 
 def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start: str, period_end: str) -> Any:
@@ -186,7 +170,7 @@ def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start:
             f"Paid leave was prorated from {old_days:g} to {corrected_days:g} day(s) for this cutoff."
         )
     if holiday_changed or abs(old_pay - result.paid_leave_pay) > 0.004:
-        _recompute_statutory_and_net(conn, result, emp, period_start)
+        _recompute_statutory_and_net(conn, result, emp, period_start, period_end)
     return result
 
 
@@ -335,7 +319,7 @@ def apply_preview_schedule_leave_adjustment(conn: Any, result: Any, period_start
         result.warnings.append(
             "Preview paid leave from schedule/leave records: " + "; ".join(labels[:4])
         )
-    _recompute_statutory_and_net(conn, result, emp, period_start)
+    _recompute_statutory_and_net(conn, result, emp, period_start, period_end)
     return result
 
 
