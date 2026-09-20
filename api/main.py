@@ -531,7 +531,7 @@ def build_app() -> FastAPI:
                 return {"month": month, "items": [], "message": "No monthly statutory snapshots are available yet."}
             run_columns = table_columns(conn, "payroll_runs")
             superseded = " AND pr.superseded_by_run_id IS NULL" if "superseded_by_run_id" in run_columns else ""
-            rows = fetchall(conn, f"""
+            rows = clean_rows(fetchall(conn, f"""
                 SELECT sm.*, e.employee_code, e.full_name, pr.period_start, pr.period_end,
                        pr.status AS run_status, pr.id AS run_id
                 FROM payroll_statutory_months sm
@@ -541,7 +541,7 @@ def build_app() -> FastAPI:
                   AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
                   {superseded}
                 ORDER BY e.full_name, pr.period_start, pr.id
-            """, (month_start,))
+            """, (month_start,)))
         grouped: dict[int, dict[str, Any]] = {}
         for row in rows:
             employee_id = int(row["employee_id"])
