@@ -47,7 +47,7 @@ export type ProductionHealth = {
   counts?: Record<string, number>;
   secrets_configured: Record<string, boolean>;
 };
-export type MonthlyBenefitItem = { employee_id: number; employee_code?: string | null; full_name: string; month: string; gross_pay: number; sss_ee: number; philhealth_ee: number; pagibig_ee: number; sss_er: number; sss_ec: number; philhealth_er: number; pagibig_er: number; covered_through?: string | null; missing_from?: string | null; status: "Complete" | "Pending next cutoff"; runs: { run_id: number; period_start: string; period_end: string; status: string }[] };
+export type BenefitContributionAmounts = { sss_ee: number; philhealth_ee: number; pagibig_ee: number; sss_er: number; sss_ec: number; philhealth_er: number; pagibig_er: number };\nexport type MonthlyBenefitItem = { employee_id: number; employee_code?: string | null; full_name: string; month: string; gross_pay: number; sss_ee: number; philhealth_ee: number; pagibig_ee: number; sss_er: number; sss_ec: number; philhealth_er: number; pagibig_er: number; paid: BenefitContributionAmounts; due: BenefitContributionAmounts; covered_through?: string | null; missing_from?: string | null; status: "Complete" | "Pending next cutoff"; runs: { run_id: number; period_start: string; period_end: string; status: string }[] };
 export type MonthlyBenefitsResponse = { month: string; month_start?: string; month_end?: string; items: MonthlyBenefitItem[]; message?: string };
 
 export type PayrollRunChange = { id: number; change_type: string; entity_type: string; entity_id?: number | null; employee_id?: number | null; work_date?: string | null; payroll_run_id?: number | null; changed_by?: string | null; changed_at: string; undone_at?: string | null };
