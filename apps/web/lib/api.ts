@@ -47,6 +47,9 @@ export type ProductionHealth = {
   counts?: Record<string, number>;
   secrets_configured: Record<string, boolean>;
 };
+export type MonthlyBenefitItem = { employee_id: number; employee_code?: string | null; full_name: string; month: string; gross_pay: number; sss_ee: number; philhealth_ee: number; pagibig_ee: number; sss_er: number; sss_ec: number; philhealth_er: number; pagibig_er: number; covered_through?: string | null; missing_from?: string | null; status: "Complete" | "Pending next cutoff"; runs: { run_id: number; period_start: string; period_end: string; status: string }[] };
+export type MonthlyBenefitsResponse = { month: string; month_start?: string; month_end?: string; items: MonthlyBenefitItem[]; message?: string };
+
 export type PayrollRunChange = { id: number; change_type: string; entity_type: string; entity_id?: number | null; employee_id?: number | null; work_date?: string | null; payroll_run_id?: number | null; changed_by?: string | null; changed_at: string; undone_at?: string | null };
 export type PayrollRunChangeDelta = { ok: boolean; run_id: number; changed: boolean; change_count: number; changes: PayrollRunChange[] };
 
@@ -71,6 +74,7 @@ export function getEmployees(): Promise<Employee[]> { return apiGet<Employee[]>(
 export function getAttendanceExceptions(periodStart: string, periodEnd: string): Promise<AttendanceException[]> { return apiGet<AttendanceException[]>(`/api/v1/attendance/exceptions?start_date=${periodStart}&end_date=${periodEnd}`, true); }
 export function getAttendanceReviews(periodStart: string, periodEnd: string): Promise<AttendanceReview[]> { return apiGet<AttendanceReview[]>(`/api/v1/attendance/reviews?start_date=${periodStart}&end_date=${periodEnd}`, true); }
 export function getSchedules(periodStart: string, periodEnd: string): Promise<ScheduleRow[]> { return apiGet<ScheduleRow[]>(`/api/v1/schedules?start_date=${periodStart}&end_date=${periodEnd}`, true); }
+export function getMonthlyBenefits(month: string): Promise<MonthlyBenefitsResponse> { return apiGet<MonthlyBenefitsResponse>(`/api/v1/payroll/benefits/monthly?month=${encodeURIComponent(month)}`, true); }
 export function getPayrollRuns(): Promise<PayrollRun[]> { return apiGet<PayrollRun[]>("/api/v1/payroll/runs", true); }
 export function getPayrollRunReview(runId: number): Promise<PayrollRunReview> { return apiGet<PayrollRunReview>(`/api/v1/payroll/runs/${runId}/review`, true); }
 export function getPayrollRunChangeDelta(runId: number): Promise<PayrollRunChangeDelta> { return apiGet<PayrollRunChangeDelta>(`/api/v1/payroll/runs/${runId}/change-delta`, true); }
