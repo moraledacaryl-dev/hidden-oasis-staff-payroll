@@ -11,7 +11,7 @@ export default async function BenefitsPage({ searchParams }: { searchParams: Pro
   const session = await currentSession();
   if (!session) redirect("/login");
   const allowed: ("owner" | "payroll" | "supervisor")[] = ["owner","payroll","supervisor"];
-  if (!allowed.includes(session.role_key)) return <Shell allowedRoles={allowed}><div /></Shell>;
+  if (session.role_key !== "owner" && session.role_key !== "payroll" && session.role_key !== "supervisor") return <Shell allowedRoles={allowed}><div /></Shell>;
   const query = await searchParams;
   const month = /^\d{4}-\d{2}$/.test(query.month || "") ? query.month! : currentMonth();
   const ledger = await getMonthlyBenefits(month);
