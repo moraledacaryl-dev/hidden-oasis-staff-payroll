@@ -10,7 +10,7 @@ function currentMonth() { return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia
 export default async function BenefitsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
-  const allowed = ["owner","payroll","supervisor"];
+  const allowed: ("owner" | "payroll" | "supervisor")[] = ["owner","payroll","supervisor"];
   if (!allowed.includes(session.role_key)) return <Shell allowedRoles={allowed}><div /></Shell>;
   const query = await searchParams;
   const month = /^\d{4}-\d{2}$/.test(query.month || "") ? query.month! : currentMonth();
