@@ -522,7 +522,7 @@ def build_app() -> FastAPI:
 
     @app.get(f"{API_PREFIX}/payroll/benefits/monthly", dependencies=[Depends(require_api_key)])
     def monthly_benefits_ledger(
-        month: str = Query(..., pattern=r"^\\d{4}-\\d{2}$"),
+        month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
         user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR)),
     ) -> dict[str, Any]:
         month_start = f"{month}-01"
