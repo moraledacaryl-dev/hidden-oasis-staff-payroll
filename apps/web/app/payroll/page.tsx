@@ -53,7 +53,7 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
       <div className="page payroll-page">
         <header className="payroll-hero">
           <div><span className="eyebrow">Payroll workflow</span><h1>Payroll preview</h1><p className="muted">Review pay and resolve blockers before saving a payroll run.</p></div>
-          <div className="payroll-actions"><Link className="button secondary" href="/cutoff">Latest completed cutoff</Link><Link className="button" href="/payroll/runs">Payroll runs</Link></div>
+          <div className="payroll-actions"><Link className="button secondary" href="/cutoff">Latest completed cutoff</Link><Link className="button secondary" href="/payroll/benefits">Monthly benefits</Link><Link className="button" href="/payroll/runs">Payroll runs</Link></div>
         </header>
 
         <section className="payroll-toolbar" data-payroll-preview-selector="true">
