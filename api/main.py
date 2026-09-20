@@ -520,6 +520,58 @@ def build_app() -> FastAPI:
             for row in rows: row.setdefault("department_id", None); row.setdefault("department_name", None)
             return rows
 
+    @app.get(f"{API_PREFIX}/payroll/benefits/monthly", dependencies=[Depends(require_api_key)])
+    def monthly_benefits_ledger(
+        month: str = Query(..., pattern=r"^\\d{4}-\\d{2}$"),
+        user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR)),
+    ) -> dict[str, Any]:
+        month_start = f"{month}-01"
+        with db_conn(read_only=True) as conn:
+            if not table_exists(conn, "payroll_statutory_months"):
+                return {"month": month, "items": [], "message": "No monthly statutory snapshots are available yet."}
+            run_columns = table_columns(conn, "payroll_runs")
+            superseded = " AND pr.superseded_by_run_id IS NULL" if "superseded_by_run_id" in run_columns else ""
+            rows = fetchall(conn, f"""
+                SELECT sm.*, e.employee_code, e.full_name, pr.period_start, pr.period_end,
+                       pr.status AS run_status, pr.id AS run_id
+                FROM payroll_statutory_months sm
+                JOIN payroll_runs pr ON pr.id=sm.payroll_run_id
+                JOIN employees e ON e.id=sm.employee_id
+                WHERE sm.month_start=?
+                  AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
+                  {superseded}
+                ORDER BY e.full_name, pr.period_start, pr.id
+            """, (month_start,))
+        grouped: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            employee_id = int(row["employee_id"])
+            item = grouped.setdefault(employee_id, {
+                "employee_id": employee_id, "employee_code": row.get("employee_code"),
+                "full_name": row.get("full_name"), "month": month,
+                "gross_pay": 0.0, "sss_ee": 0.0, "philhealth_ee": 0.0, "pagibig_ee": 0.0,
+                "sss_er": 0.0, "sss_ec": 0.0, "philhealth_er": 0.0, "pagibig_er": 0.0,
+                "covered_through": None, "runs": [],
+            })
+            for field in ("gross_pay","sss_ee","philhealth_ee","pagibig_ee","sss_er","sss_ec","philhealth_er","pagibig_er"):
+                item[field] = round(float(item[field]) + float(row.get(field) or 0), 2)
+            start = max(str(row["period_start"]), month_start)
+            end = str(row["period_end"])
+            item["covered_through"] = max(item["covered_through"] or start, end)
+            item["runs"].append({"run_id": row["run_id"], "period_start": row["period_start"], "period_end": row["period_end"], "status": row["run_status"]})
+        month_end = date.fromisoformat(month_start)
+        if month_end.month == 12:
+            next_month = date(month_end.year + 1, 1, 1)
+        else:
+            next_month = date(month_end.year, month_end.month + 1, 1)
+        from datetime import timedelta
+        last_day = (next_month - timedelta(days=1)).isoformat()
+        for item in grouped.values():
+            covered = min(str(item["covered_through"] or ""), last_day)
+            item["covered_through"] = covered or None
+            item["missing_from"] = None if covered >= last_day else (date.fromisoformat(covered) + timedelta(days=1)).isoformat() if covered else month_start
+            item["status"] = "Complete" if covered >= last_day else "Pending next cutoff"
+        return {"month": month, "month_start": month_start, "month_end": last_day, "items": list(grouped.values())}
+
     @app.get(f"{API_PREFIX}/payroll/preflight", dependencies=[Depends(require_api_key)])
     def payroll_preflight(period_start: date, period_end: date, user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict[str, Any]:
         start, end = parse_date_order(period_start, period_end)
