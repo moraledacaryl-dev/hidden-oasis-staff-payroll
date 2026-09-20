@@ -526,45 +526,78 @@ def build_app() -> FastAPI:
         user: dict[str, Any] = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL, ROLE_SUPERVISOR)),
     ) -> dict[str, Any]:
         month_start = f"{month}-01"
+        month_date = date.fromisoformat(month_start)
+        if month_date.month == 12:
+            next_month = date(month_date.year + 1, 1, 1)
+        else:
+            next_month = date(month_date.year, month_date.month + 1, 1)
+        from datetime import timedelta
+        last_day = (next_month - timedelta(days=1)).isoformat()
+
         with db_conn(read_only=True) as conn:
-            if not table_exists(conn, "payroll_statutory_months"):
-                return {"month": month, "items": [], "message": "No monthly statutory snapshots are available yet."}
             run_columns = table_columns(conn, "payroll_runs")
             superseded = " AND pr.superseded_by_run_id IS NULL" if "superseded_by_run_id" in run_columns else ""
+            has_snapshots = table_exists(conn, "payroll_statutory_months")
+            snapshot_join = """
+                LEFT JOIN payroll_statutory_months sm
+                  ON sm.payroll_run_id=pr.id AND sm.employee_id=pi.employee_id AND sm.month_start=?
+            """ if has_snapshots else ""
+            # Prefer immutable monthly snapshots. For payrolls created before snapshots existed,
+            # fall back to payroll_items only when the whole cutoff belongs to this month.
+            select_values = (
+                "COALESCE(sm.gross_pay, pi.gross_pay)" if has_snapshots else "pi.gross_pay",
+                "COALESCE(sm.sss_ee, pi.sss_ee)" if has_snapshots else "pi.sss_ee",
+                "COALESCE(sm.philhealth_ee, pi.philhealth_ee)" if has_snapshots else "pi.philhealth_ee",
+                "COALESCE(sm.pagibig_ee, pi.pagibig_ee)" if has_snapshots else "pi.pagibig_ee",
+                "COALESCE(sm.sss_er, pi.sss_er)" if has_snapshots else "pi.sss_er",
+                "COALESCE(sm.sss_ec, pi.sss_ec)" if has_snapshots else "pi.sss_ec",
+                "COALESCE(sm.philhealth_er, pi.philhealth_er)" if has_snapshots else "pi.philhealth_er",
+                "COALESCE(sm.pagibig_er, pi.pagibig_er)" if has_snapshots else "pi.pagibig_er",
+            )
             rows = clean_rows(fetchall(conn, f"""
-                SELECT sm.*, e.employee_code, e.full_name, pr.period_start, pr.period_end,
-                       pr.status AS run_status, pr.id AS run_id
-                FROM payroll_statutory_months sm
-                JOIN payroll_runs pr ON pr.id=sm.payroll_run_id
-                JOIN employees e ON e.id=sm.employee_id
-                WHERE sm.month_start=?
+                SELECT pi.employee_id, e.employee_code, e.full_name,
+                       pr.period_start, pr.period_end, pr.status AS run_status, pr.id AS run_id,
+                       {select_values[0]} AS gross_pay,
+                       {select_values[1]} AS sss_ee,
+                       {select_values[2]} AS philhealth_ee,
+                       {select_values[3]} AS pagibig_ee,
+                       {select_values[4]} AS sss_er,
+                       {select_values[5]} AS sss_ec,
+                       {select_values[6]} AS philhealth_er,
+                       {select_values[7]} AS pagibig_er
+                FROM payroll_items pi
+                JOIN payroll_runs pr ON pr.id=pi.payroll_run_id
+                JOIN employees e ON e.id=pi.employee_id
+                {snapshot_join}
+                WHERE pr.period_start>=? AND pr.period_end<=?
                   AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
                   {superseded}
                 ORDER BY e.full_name, pr.period_start, pr.id
-            """, (month_start,)))
+            """, ((month_start,) if has_snapshots else ()) + (month_start, last_day)))
+
         grouped: dict[int, dict[str, Any]] = {}
+        fields = ("gross_pay","sss_ee","philhealth_ee","pagibig_ee","sss_er","sss_ec","philhealth_er","pagibig_er")
+        contribution_fields = ("sss_ee","philhealth_ee","pagibig_ee","sss_er","sss_ec","philhealth_er","pagibig_er")
         for row in rows:
             employee_id = int(row["employee_id"])
             item = grouped.setdefault(employee_id, {
                 "employee_id": employee_id, "employee_code": row.get("employee_code"),
                 "full_name": row.get("full_name"), "month": month,
-                "gross_pay": 0.0, "sss_ee": 0.0, "philhealth_ee": 0.0, "pagibig_ee": 0.0,
-                "sss_er": 0.0, "sss_ec": 0.0, "philhealth_er": 0.0, "pagibig_er": 0.0,
+                **{field: 0.0 for field in fields},
+                "paid": {field: 0.0 for field in contribution_fields},
+                "due": {field: 0.0 for field in contribution_fields},
                 "covered_through": None, "runs": [],
             })
-            for field in ("gross_pay","sss_ee","philhealth_ee","pagibig_ee","sss_er","sss_ec","philhealth_er","pagibig_er"):
+            is_paid = str(row["run_status"]) in ("Paid", "Locked")
+            bucket = "paid" if is_paid else "due"
+            for field in fields:
                 item[field] = round(float(item[field]) + float(row.get(field) or 0), 2)
-            start = max(str(row["period_start"]), month_start)
+            for field in contribution_fields:
+                item[bucket][field] = round(float(item[bucket][field]) + float(row.get(field) or 0), 2)
             end = str(row["period_end"])
-            item["covered_through"] = max(item["covered_through"] or start, end)
+            item["covered_through"] = max(item["covered_through"] or end, end)
             item["runs"].append({"run_id": row["run_id"], "period_start": row["period_start"], "period_end": row["period_end"], "status": row["run_status"]})
-        month_end = date.fromisoformat(month_start)
-        if month_end.month == 12:
-            next_month = date(month_end.year + 1, 1, 1)
-        else:
-            next_month = date(month_end.year, month_end.month + 1, 1)
-        from datetime import timedelta
-        last_day = (next_month - timedelta(days=1)).isoformat()
+
         for item in grouped.values():
             covered = min(str(item["covered_through"] or ""), last_day)
             item["covered_through"] = covered or None
