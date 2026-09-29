@@ -77,7 +77,21 @@ def previous_month_snapshot_totals(
     before_date: date,
 ) -> dict[str, float]:
     """Read authoritative settled snapshots before a date within one month."""
-    ensure_statutory_snapshot_schema(conn)
+    # Read paths must remain side-effect free. Schema creation belongs to startup/migrations.
+    snapshot_table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='payroll_statutory_months'"
+    ).fetchone()
+    if snapshot_table_exists is None:
+        return {
+            "gross": 0.0,
+            "sss": 0.0,
+            "philhealth": 0.0,
+            "pagibig": 0.0,
+            "sss_er": 0.0,
+            "sss_ec": 0.0,
+            "philhealth_er": 0.0,
+            "pagibig_er": 0.0,
+        }
     run_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(payroll_runs)").fetchall()}
     superseded_filter = ""
     if "superseded_by_run_id" in run_columns:
