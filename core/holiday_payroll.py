@@ -225,7 +225,7 @@ def _paid_segments(
         paid = round(max(0.0, paid), 6)
         if paid > 0:
             segment = PaySegment(a, b, paid, kind)
-            segment.shift_work_date = shift_work_date
+            segment.shift_work_date = origin_date
             result.append(segment)
         remaining = max(0.0, remaining - paid)
     return result
@@ -284,7 +284,7 @@ def _log_segments(
     if not log.get("actual_in") or not log.get("actual_out") or log.get("is_absent"):
         return []
     work_date = str(log["work_date"])
-    shift_work_date = str(sched.get("work_date") or work_date) if sched else work_date
+    origin_date = str(sched.get("work_date") or work_date) if sched else work_date
     if sched:
         break_mins = int(sched.get("break_minutes") if sched.get("break_minutes") is not None else emp.get("unpaid_break_minutes") or 0)
         s_start, s_end = shift_window(work_date, str(sched["shift_start"]), str(sched["shift_end"]))
@@ -319,17 +319,17 @@ def _log_segments(
     inside_start = max(a_start, s_start)
     inside_end = min(a_end, s_end)
     inside_segments = _paid_segments(
-        inside_start, inside_end, inside_paid, "inside", shift_work_date=shift_work_date
+        inside_start, inside_end, inside_paid, "inside", shift_work_date=origin_date
     ) if inside_end > inside_start else []
     regular, remaining_inside = _take_hours(inside_segments, regular_hours, "regular")
     # Keep rest-day ownership tied to the originating scheduled shift.
     # Reassert it here because these are the canonical paid segments returned
     # by this function after regular/OT allocation.
     for segment in regular:
-        segment.shift_work_date = shift_work_date
+        segment.shift_work_date = origin_date
     auto_ot, _ = _take_hours(remaining_inside, inside_ot, "ot")
     for segment in auto_ot:
-        segment.shift_work_date = shift_work_date
+        segment.shift_work_date = origin_date
 
     outside_raw: list[PaySegment] = []
     if a_start < s_start:
@@ -338,7 +338,7 @@ def _log_segments(
             min(a_end, s_start),
             _raw_hours(a_start, min(a_end, s_start)),
             "outside",
-            shift_work_date=shift_work_date,
+            shift_work_date=origin_date,
         ))
     if a_end > s_end:
         outside_raw.extend(_paid_segments(
@@ -346,11 +346,11 @@ def _log_segments(
             a_end,
             _raw_hours(max(a_start, s_end), a_end),
             "outside",
-            shift_work_date=shift_work_date,
+            shift_work_date=origin_date,
         ))
     outside_ot, _ = _take_hours(outside_raw, approved_outside, "ot")
     for segment in outside_ot:
-        segment.shift_work_date = shift_work_date
+        segment.shift_work_date = origin_date
     return regular + auto_ot + outside_ot
 
 
