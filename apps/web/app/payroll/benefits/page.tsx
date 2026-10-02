@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getMonthlyBenefits, peso } from "@/lib/api";
-import { currentSession } from "@/lib/session";\nimport { OutsideBenefitPayment } from "@/components/OutsideBenefitPayment";
+import { currentSession } from "@/lib/session";
+import { OutsideBenefitPayment } from "@/components/OutsideBenefitPayment";
 
 function currentMonth() {
   const parts = new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Manila",year:"numeric",month:"2-digit"}).formatToParts(new Date());
