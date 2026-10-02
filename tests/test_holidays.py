@@ -277,6 +277,20 @@ class HolidayPayrollTests(unittest.TestCase):
             "break_minutes": 0,
         }
         debug_segments = _log_segments(self.conn, emp, log, sched, {})
+        from core.holiday_payroll import _paid_segments
+        from core.payroll_engine import shift_window
+        from datetime import datetime
+        direct_segments = _paid_segments(
+            datetime(2026, 8, 30, 22, 0),
+            datetime(2026, 8, 31, 6, 0),
+            8.0,
+            "inside",
+            shift_work_date="2026-08-30",
+        )
+        self.assertEqual(
+            [(seg.work_date, seg.shift_work_date, seg.paid_hours) for seg in direct_segments],
+            [("2026-08-30", "2026-08-30", 2.0), ("2026-08-31", "2026-08-30", 6.0)],
+        )
         self.assertEqual(
             [(seg.work_date, seg.shift_work_date, seg.paid_hours) for seg in debug_segments],
             [("2026-08-30", "2026-08-30", 2.0), ("2026-08-31", "2026-08-30", 6.0)],
