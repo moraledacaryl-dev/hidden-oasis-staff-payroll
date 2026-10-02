@@ -9,6 +9,7 @@ from .db import fetchall, fetchone, get_setting, now_iso
 from .corrections import eligible_corrections, mark_eligible_corrections_applied
 from .quality import build_payroll_preflight_checks, summarize_checks
 from .money import money
+from .payroll_revision_lifecycle import assert_current_payroll_version
 from .schedule_source import trusted_schedule_rows
 from .dated_earnings import DatedEarningsLedger
 from .payroll_statutory import apply_calendar_month_statutory
@@ -908,6 +909,10 @@ def update_payroll_status(conn: sqlite3.Connection, run_id: int, status: str, ac
     old_status_raw = str(run["status"])
     old_status = normalize_payroll_status(old_status_raw)
     status = normalize_payroll_status(status)
+    if status != old_status:
+        assert_current_payroll_version(run)
+    if status == "Paid" and int(run.get("revision_of_run_id") or 0):
+        raise ValueError("Payroll revisions must be marked paid through the controlled revision payment workflow.")
     allowed = {
         "Draft": {REVIEW_STATUS},
         REVIEW_STATUS: {"Approved", "Draft"},
