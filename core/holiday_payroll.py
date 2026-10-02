@@ -19,6 +19,7 @@ class PaySegment:
     end: datetime
     paid_hours: float
     kind: str  # regular | ot
+    shift_work_date: str | None = None
 
     @property
     def work_date(self) -> str:
@@ -69,9 +70,18 @@ def is_rest_day(conn: Any, employee_id: int, work_date: str) -> bool:
     return bool(row)
 
 
-def day_multiplier(conn: Any, employee_id: int, work_date: str) -> tuple[float, str, str | None]:
+def day_multiplier(
+    conn: Any,
+    employee_id: int,
+    work_date: str,
+    *,
+    rest_work_date: str | None = None,
+) -> tuple[float, str, str | None]:
     holiday = active_holiday(conn, work_date)
-    rest = is_rest_day(conn, employee_id, work_date)
+    # Holiday classification follows the actual calendar date. Rest-day
+    # classification follows the scheduled shift's originating work date so an
+    # ordinary overnight shift does not become rest-day work merely at midnight.
+    rest = is_rest_day(conn, employee_id, rest_work_date or work_date)
     if holiday and holiday["holiday_type"] == REGULAR and rest:
         return float(get_setting(conn, "regular_holiday_rest_day_multiplier", "2.60") or 2.60), f"Regular Holiday + Rest Day: {holiday['name']}", REGULAR
     if holiday and holiday["holiday_type"] == SPECIAL and rest:
@@ -225,10 +235,10 @@ def _take_hours(segments: list[PaySegment], hours: float, kind: str) -> tuple[li
         ratio = take / seg.paid_hours if seg.paid_hours > 0 else 0.0
         cut = seg.start + (seg.end - seg.start) * min(1.0, ratio)
         if take > 0:
-            taken.append(PaySegment(seg.start, cut, take, kind))
+            taken.append(PaySegment(seg.start, cut, take, kind, seg.shift_work_date))
         rem = seg.paid_hours - take
         if rem > 0:
-            leftover.append(PaySegment(cut, seg.end, rem, seg.kind))
+            leftover.append(PaySegment(cut, seg.end, rem, seg.kind, seg.shift_work_date))
         remaining -= take
     return taken, leftover
 
@@ -304,7 +314,10 @@ def _log_segments(
     if a_end > s_end:
         outside_raw.extend(_paid_segments(max(a_start, s_end), a_end, _raw_hours(max(a_start, s_end), a_end), "outside"))
     outside_ot, _ = _take_hours(outside_raw, approved_outside, "ot")
-    return regular + auto_ot + outside_ot
+    result = regular + auto_ot + outside_ot
+    for segment in result:
+        segment.shift_work_date = work_date
+    return result
 
 
 def apply_holiday_payroll_adjustment(
@@ -390,7 +403,7 @@ def apply_holiday_payroll_adjustment(
     regular_multiplier_by_date: dict[str, float] = {}
 
     for seg in segments:
-        multiplier, label, holiday_type = day_multiplier(conn, employee_id, seg.work_date)
+        multiplier, label, holiday_type = day_multiplier(conn, employee_id, seg.work_date, rest_work_date=seg.shift_work_date)
         nd_hours = _night_paid_hours(seg)
         new_nd_hours += nd_hours
         if seg.kind == "ot":
