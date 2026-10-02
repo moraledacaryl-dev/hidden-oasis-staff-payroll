@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.security import current_user_from_token, require_api_key
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from api.statutory_settlements import catchup_lines, catchup_total
 from api.payroll_drafts import totals
 from api.payroll_review import PAYROLL_ITEM_FIELDS, _leave_summaries
 
@@ -122,6 +123,8 @@ def payslip_run_detail(run_id: int, authorization: str | None = Header(default=N
             row["manual_earning_label"] = str(item.get("manual_earning_label") or "").strip() or None
             row["manual_deduction_amount"] = round(float(item.get("manual_deduction_amount") or 0), 2)
             row["manual_deduction_label"] = str(item.get("manual_deduction_label") or "").strip() or None
+            row["statutory_catchups"] = catchup_lines(conn, run_id, int(item.get("employee_id") or 0))
+            row["statutory_catchup_total"] = catchup_total(conn, run_id, int(item.get("employee_id") or 0))
             row["leave_summary"] = _leave_summaries(conn, int(item.get("employee_id") or 0), str(run.get("period_start")), str(run.get("period_end")))
             row["distribution"] = {
                 "distributed": bool(item.get("distributed_at")),

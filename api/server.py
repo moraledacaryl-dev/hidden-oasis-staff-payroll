@@ -70,6 +70,7 @@ from api.staff_attachment_security import ensure_attachment_schema
 from api.staff_attachment_security import router as staff_attachment_router
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
+from api.statutory_settlements import ensure_statutory_settlement_schema, router as statutory_settlements_router
 from api.users import router as users_router
 from core.corrections import ensure_payroll_corrections_schema
 from core.db import get_conn, init_db
@@ -104,6 +105,7 @@ def initialize_runtime() -> None:
         # upgraded before the API accepts traffic. Historically the first
         # payroll-adjustment request could execute CREATE/ALTER statements.
         ensure_payroll_adjustment_schema(conn)
+        ensure_statutory_settlement_schema(conn)
         # Payroll correction listing is a read surface. Ensure its compatibility
         # schema before accepting traffic so GET requests never become writers.
         ensure_payroll_corrections_schema(conn)
@@ -302,6 +304,7 @@ ROUTERS = (
     performance_reviews_router,
     payroll_adjustments_router,
     payroll_recalculate_router,
+    statutory_settlements_router,
     staff_attachment_router,
 )
 

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Header, HTTPException
 from api.payroll_drafts import must_be_payroll_user, now_iso, totals
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.money import money
+from api.statutory_settlements import catchup_total
 from core.payroll_engine import add_payroll_lines
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustments
 from core.payroll_split_shift_policy import compute_payroll_per_shift
@@ -31,7 +32,14 @@ def _adjustments(conn: Any, run_id: int) -> dict[int, dict[str, Any]]:
         "SELECT * FROM payroll_item_adjustments WHERE payroll_run_id=?",
         (run_id,),
     ) if fetchone(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name='payroll_item_adjustments'") else []
-    return {int(row["employee_id"]): row for row in rows}
+    result = {int(row["employee_id"]): row for row in rows}
+    employee_rows = fetchall(conn, "SELECT employee_id FROM payroll_items WHERE payroll_run_id=?", (run_id,))
+    for employee_row in employee_rows:
+        employee_id = int(employee_row["employee_id"])
+        catchup = catchup_total(conn, run_id, employee_id)
+        if catchup or employee_id in result:
+            result.setdefault(employee_id, {})["statutory_catchup"] = catchup
+    return result
 
 
 def _apply_manual(result: Any, adjustment: dict[str, Any] | None) -> Any:
@@ -39,11 +47,12 @@ def _apply_manual(result: Any, adjustment: dict[str, Any] | None) -> Any:
         return result
     earning = money(adjustment.get("additional_earning") or 0)
     other = money(adjustment.get("other_deduction") or 0)
+    statutory_catchup = money(adjustment.get("statutory_catchup") or 0)
     cash = money(adjustment.get("cash_advance_amount") or 0)
 
     result.other_earnings = money(money(result.other_earnings or 0) + earning)
     result.gross_pay = money(money(result.gross_pay or 0) + earning)
-    result.other_deductions = money(money(result.other_deductions or 0) + other)
+    result.other_deductions = money(money(result.other_deductions or 0) + other + statutory_catchup)
     result.cash_advance_deduction = cash
     statutory = (
         money(result.sss_ee or 0)

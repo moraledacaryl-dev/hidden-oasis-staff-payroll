@@ -1,6 +1,6 @@
 import { numberText, peso } from "@/lib/api";
 import type { PayrollReviewItem, PayrollRun } from "@/lib/api";
-export type PayslipItem = Pick<PayrollReviewItem, "employee_name" | "department" | "regular_hours" | "approved_ot_hours" | "night_diff_hours" | "net_pay" | "regular_pay" | "ot_pay" | "night_diff_pay" | "holiday_pay" | "paid_leave_pay" | "freelance_pay" | "other_earnings" | "gross_pay" | "sss_ee" | "philhealth_ee" | "pagibig_ee" | "tax" | "cash_advance_deduction" | "other_deductions" | "total_deductions" | "leave_summary">;
+export type PayslipItem = Pick<PayrollReviewItem, "employee_name" | "department" | "regular_hours" | "approved_ot_hours" | "night_diff_hours" | "net_pay" | "regular_pay" | "ot_pay" | "night_diff_pay" | "holiday_pay" | "paid_leave_pay" | "freelance_pay" | "other_earnings" | "gross_pay" | "sss_ee" | "philhealth_ee" | "pagibig_ee" | "tax" | "cash_advance_deduction" | "other_deductions" | "total_deductions" | "leave_summary"> & { statutory_catchups?: { id: number; label: string; amount: number }[]; statutory_catchup_total?: number };
 export type PayslipRun = Pick<PayrollRun, "id" | "period_start" | "period_end" | "payout_date">;
 
 function mandatoryDeductions(item: { sss_ee: number; philhealth_ee: number; pagibig_ee: number }) {
@@ -50,7 +50,7 @@ export function PayslipCopy({ item, run, copyLabel, companyCopy = false }: { ite
           <p><span>Pag-IBIG</span><strong>{peso(item.pagibig_ee)}</strong></p>
           <p><span>Withholding tax</span><strong>{peso(item.tax)}</strong></p>
           <p><span>Cash advance</span><strong>{peso(item.cash_advance_deduction)}</strong></p>
-          <p><span>Other deductions</span><strong>{peso(item.other_deductions)}</strong></p>
+          {(item.statutory_catchups || []).map((line) => <p key={line.id}><span>{line.label}</span><strong>{peso(line.amount)}</strong></p>)}\n          <p><span>Other deductions{Number(item.statutory_catchup_total || 0) > 0 ? " (excluding benefit catch-ups)" : ""}</span><strong>{peso(Math.max(0, Number(item.other_deductions || 0) - Number(item.statutory_catchup_total || 0)))}</strong></p>
           <p className="total-line"><span>Total deductions</span><strong>{peso(item.total_deductions)}</strong></p>
         </section>
       </div>
