@@ -12,6 +12,7 @@ from core.cash_advance_payroll import (
 )
 from core.db import DB_PATH, fetchone, get_conn, now_iso
 from core.payroll_engine import create_accounting_queue_for_payroll
+from core.payroll_revision_lifecycle import revision_parent_for_payment
 from core.quality import build_payroll_preflight_checks
 
 router = APIRouter(prefix="/api/v1")
@@ -43,6 +44,10 @@ def mark_payroll_run_paid(
             raise HTTPException(status_code=409, detail="Only approved payroll runs can be marked paid.")
         if run.get("paid_at"):
             raise HTTPException(status_code=409, detail="Payroll run is already marked paid.")
+        try:
+            revision_parent, revision_treatment = revision_parent_for_payment(conn, run)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         checks = build_payroll_preflight_checks(conn, run["period_start"], run["period_end"])
         blockers = [check for check in checks if check.get("severity") == "Blocker"]
         if blockers:
@@ -53,15 +58,7 @@ def mark_payroll_run_paid(
         paid_at = now_iso()
 
         revision_of_run_id = int(run.get("revision_of_run_id") or 0)
-        if revision_of_run_id:
-            original = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (revision_of_run_id,))
-            if not original:
-                raise HTTPException(status_code=409, detail="Original payroll run for this revision no longer exists.")
-            if original.get("status") not in {"Paid", "Locked", "Released"}:
-                raise HTTPException(status_code=409, detail="A paid revision can only supersede an already paid payroll run.")
-            if original.get("superseded_by_run_id") not in (None, run_id):
-                raise HTTPException(status_code=409, detail=f"Original payroll run is already superseded by run #{original['superseded_by_run_id']}.")
-
+        if revision_parent and revision_treatment == "adjust_paid":
             reverse_payroll_cash_advance_repayments(
                 conn,
                 revision_of_run_id,
@@ -80,6 +77,18 @@ def mark_payroll_run_paid(
                     "payroll_runs",
                     revision_of_run_id,
                     f"superseded_by_run_id={run_id}; prior cash-advance repayments reversed",
+                    paid_at,
+                ),
+            )
+        elif revision_parent and revision_treatment == "replace_unpaid":
+            conn.execute(
+                "INSERT INTO audit_logs(actor, action, table_name, record_id, details, created_at) VALUES(?,?,?,?,?,?)",
+                (
+                    actor,
+                    "Unpaid payroll replacement finalized",
+                    "payroll_runs",
+                    revision_of_run_id,
+                    f"superseded_by_run_id={run_id}; original remained unpaid",
                     paid_at,
                 ),
             )
