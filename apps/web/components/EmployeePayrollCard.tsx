@@ -1,6 +1,6 @@
 "use client";
 
-import { PayrollAdjustmentEditor } from "@/components/PayrollAdjustmentEditor";
+import { PayrollAdjustmentEditor } from "@/components/PayrollAdjustmentEditor";\nimport { BenefitCatchupEditor } from "@/components/BenefitCatchupEditor";
 
 function peso(value?: number | null): string {
   return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(value || 0));
@@ -123,7 +123,7 @@ export function EmployeePayrollCard({ runId, item, editable, open, onOpenChange 
 
           <div className="employee-payroll-adjustments">
             <div><h3>Final adjustments</h3><p className="muted">Open one adjustment type, preview its net-pay effect, then save the employee&apos;s complete adjustment state.</p></div>
-            <PayrollAdjustmentEditor runId={runId} employeeId={item.employee_id} employeeName={item.employee_name} currentNetPay={Number(item.net_pay || 0)} disabled={!editable} />
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><PayrollAdjustmentEditor runId={runId} employeeId={item.employee_id} employeeName={item.employee_name} currentNetPay={Number(item.net_pay || 0)} disabled={!editable} /><BenefitCatchupEditor runId={runId} employeeId={item.employee_id} employeeName={item.employee_name} disabled={!editable} /></div>
           </div>
         </div>
       ) : null}
