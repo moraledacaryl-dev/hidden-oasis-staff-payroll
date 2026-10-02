@@ -598,7 +598,37 @@ def build_app() -> FastAPI:
             item["covered_through"] = max(item["covered_through"] or end, end)
             item["runs"].append({"run_id": row["run_id"], "period_start": row["period_start"], "period_end": row["period_end"], "status": row["run_status"]})
 
+        with db_conn(read_only=True) as conn:
+            settlement_rows = clean_rows(fetchall(conn, """
+                SELECT s.*, e.full_name, pr.status AS payroll_status
+                FROM statutory_employee_settlements s
+                JOIN employees e ON e.id=s.employee_id
+                LEFT JOIN payroll_runs pr ON pr.id=s.payroll_run_id
+                WHERE s.contribution_month=?
+                  AND (s.payroll_run_id IS NULL OR COALESCE(pr.superseded_by_run_id,0)=0)
+                ORDER BY e.full_name, s.program, s.created_at
+            """, (month_start,))) if table_exists(conn, "statutory_employee_settlements") else []
+        for row in settlement_rows:
+            employee_id = int(row["employee_id"])
+            if employee_id not in grouped:
+                employee = next((r for r in rows if int(r["employee_id"]) == employee_id), None)
+                if employee is None:
+                    continue
+            item = grouped[employee_id]
+            item.setdefault("settlements", []).append(row)
+            item.setdefault("settled_separately", {"philhealth": 0.0, "pagibig": 0.0})
+            item.setdefault("catchup", {"philhealth": 0.0, "pagibig": 0.0})
+            program = str(row.get("program") or "")
+            amount = round(float(row.get("amount") or 0), 2)
+            if row.get("collection_method") == "outside_payment":
+                item["settled_separately"][program] = round(float(item["settled_separately"].get(program) or 0) + amount, 2)
+            elif row.get("collection_method") == "payroll_catchup":
+                item["catchup"][program] = round(float(item["catchup"].get(program) or 0) + amount, 2)
+
         for item in grouped.values():
+            item.setdefault("settlements", [])
+            item.setdefault("settled_separately", {"philhealth": 0.0, "pagibig": 0.0})
+            item.setdefault("catchup", {"philhealth": 0.0, "pagibig": 0.0})
             covered = min(str(item["covered_through"] or ""), last_day)
             item["covered_through"] = covered or None
             item["missing_from"] = None if covered >= last_day else (date.fromisoformat(covered) + timedelta(days=1)).isoformat() if covered else month_start
