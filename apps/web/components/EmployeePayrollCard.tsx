@@ -1,6 +1,7 @@
 "use client";
 
-import { PayrollAdjustmentEditor } from "@/components/PayrollAdjustmentEditor";\nimport { BenefitCatchupEditor } from "@/components/BenefitCatchupEditor";
+import { PayrollAdjustmentEditor } from "@/components/PayrollAdjustmentEditor";
+import { BenefitCatchupEditor } from "@/components/BenefitCatchupEditor";
 
 function peso(value?: number | null): string {
   return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(value || 0));
