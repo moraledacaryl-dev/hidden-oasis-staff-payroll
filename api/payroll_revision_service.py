@@ -47,4 +47,4 @@ def ensure_workflow_schema(conn) -> None:
 
 def is_paid_run(run: dict[str, Any]) -> bool:
     status = str(run.get("status") or "").strip().lower()
-    return bool(run.get("paid_at")) or status in {"paid", "released"}
+    return bool(run.get("paid_at")) or status in {"paid", "locked", "released"}

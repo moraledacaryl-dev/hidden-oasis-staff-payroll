@@ -136,7 +136,7 @@ export default async function PayrollRunReviewPage({
               <Link className="button ghost" href={`/payroll/runs/${run.id}/audit`}>Audit timeline</Link>
               <Link className="button ghost" href={`/payroll/runs/${run.id}/corrections`}>Corrections</Link>
               <Link className="button ghost" href={`/payroll/runs/${run.id}/payslips`}>Payslips</Link>
-              {session.role_key === "owner" && run.status === "Approved" && !run.paid_at ? <MarkPaidButton runId={run.id} /> : null}
+              {session.role_key === "owner" && run.status === "Approved" && !run.paid_at && !run.superseded_by_run_id ? <MarkPaidButton runId={run.id} /> : null}
             </div>
             {canRecalculate ? <p className="muted">Use Recalculate Draft after changing Schedule, Attendance, OT, Leave, employee payroll settings, or cash advances. Manual employee adjustments are preserved.</p> : null}
             {run.status === "Draft" ? <p className="muted">When all figures are correct, submit the run for owner review.</p> : null}
