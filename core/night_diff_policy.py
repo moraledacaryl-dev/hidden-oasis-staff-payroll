@@ -113,5 +113,5 @@ def apply_payable_night_diff(
     # same statutory-contribution, cash-advance, deduction, and net-pay rebuild.
     from core.payroll_fractional_leave import _recompute_statutory_and_net
 
-    _recompute_statutory_and_net(conn, result, employee, period_start)
+    _recompute_statutory_and_net(conn, result, employee, period_start, period_end)
     return result
