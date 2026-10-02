@@ -84,7 +84,17 @@ def _settled_amount(conn: Any, employee_id: int, program: str, month_start: str,
             OR (s.collection_method='payroll_catchup' AND COALESCE(pr.superseded_by_run_id,0)=0)
           )
     """, params)
-    return money((row or {}).get("amount") or 0)
+    explicit = money((row or {}).get("amount") or 0)
+    column = PROGRAM_COLUMNS[program]
+    paid = fetchone(conn, f"""
+        SELECT COALESCE(SUM(sm.{column}),0) AS amount
+        FROM payroll_statutory_months sm
+        JOIN payroll_runs pr ON pr.id=sm.payroll_run_id
+        WHERE sm.employee_id=? AND sm.month_start=?
+          AND pr.status IN ('Paid','Locked')
+          AND COALESCE(pr.superseded_by_run_id,0)=0
+    """, (employee_id, month_start))
+    return money(explicit + float((paid or {}).get("amount") or 0))
 
 
 def _validate_not_overcollected(conn: Any, employee_id: int, program: str, month_start: str, amount: float, *, exclude_id: int | None = None) -> None:
