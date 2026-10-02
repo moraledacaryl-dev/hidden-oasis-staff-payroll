@@ -7,7 +7,7 @@ import type { RoleKey } from "@/lib/types";
 
 type PayrollAction = "lock" | "approve" | "paid" | "reopen";
 
-export function PayrollLifecycleButtons({ runId, status, role = "owner" }: { runId: number; status: string; role?: RoleKey }) {
+export function PayrollLifecycleButtons({ runId, status, role = "owner", supersededByRunId = null }: { runId: number; status: string; role?: RoleKey; supersededByRunId?: number | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -67,30 +67,31 @@ export function PayrollLifecycleButtons({ runId, status, role = "owner" }: { run
     <>
       <div className="payroll-lifecycle-control">
         <div className="action-row">
-          {status === "Draft" ? (
+          {!supersededByRunId && status === "Draft" ? (
             <button className="button small" disabled={!!busy} onClick={() => submit("lock")}>
               {busy === "lock" ? "Locking..." : "Lock"}
             </button>
           ) : null}
 
-          {role === "owner" && status === "For Owner Review" ? (
+          {!supersededByRunId && role === "owner" && status === "For Owner Review" ? (
             <button className="button small" disabled={!!busy} onClick={() => submit("approve")}>
               {busy === "approve" ? "Approving..." : "Approve"}
             </button>
           ) : null}
 
-          {role === "owner" && status === "Approved" ? (
+          {!supersededByRunId && role === "owner" && status === "Approved" ? (
             <button className="button small" disabled={!!busy} onClick={() => setPaidConfirmOpen(true)}>
               {busy === "paid" ? "Marking paid..." : "Mark Paid"}
             </button>
           ) : null}
 
-          {role === "owner" && (status === "For Owner Review" || status === "Approved" || status === "Paid") ? (
+          {!supersededByRunId && role === "owner" && (status === "For Owner Review" || status === "Approved" || status === "Paid") ? (
             <button className="button small ghost" disabled={!!busy} onClick={() => setReopenOpen(true)}>
               {busy === "reopen" ? "Reopening..." : "Reopen"}
             </button>
           ) : null}
 
+          {supersededByRunId ? <span className="muted">Superseded by run #{supersededByRunId}; history only.</span> : null}
           {message ? <span className="muted">{message}</span> : null}
         </div>
 
