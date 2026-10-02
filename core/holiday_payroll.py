@@ -224,7 +224,9 @@ def _paid_segments(
             paid = min(remaining, paid_total * (raw / raw_total))
         paid = round(max(0.0, paid), 6)
         if paid > 0:
-            result.append(PaySegment(a, b, paid, kind, shift_work_date))
+            segment = PaySegment(a, b, paid, kind)
+            segment.shift_work_date = shift_work_date
+            result.append(segment)
         remaining = max(0.0, remaining - paid)
     return result
 
@@ -242,10 +244,14 @@ def _take_hours(segments: list[PaySegment], hours: float, kind: str) -> tuple[li
         ratio = take / seg.paid_hours if seg.paid_hours > 0 else 0.0
         cut = seg.start + (seg.end - seg.start) * min(1.0, ratio)
         if take > 0:
-            taken.append(PaySegment(seg.start, cut, take, kind, seg.shift_work_date))
+            taken_seg = PaySegment(seg.start, cut, take, kind)
+            taken_seg.shift_work_date = seg.shift_work_date
+            taken.append(taken_seg)
         rem = seg.paid_hours - take
         if rem > 0:
-            leftover.append(PaySegment(cut, seg.end, rem, seg.kind, seg.shift_work_date))
+            leftover_seg = PaySegment(cut, seg.end, rem, seg.kind)
+            leftover_seg.shift_work_date = seg.shift_work_date
+            leftover.append(leftover_seg)
         remaining -= take
     return taken, leftover
 
