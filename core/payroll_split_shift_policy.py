@@ -260,7 +260,7 @@ def apply_independent_split_shift_allocation(
 
     from core.payroll_fractional_leave import _recompute_statutory_and_net
 
-    _recompute_statutory_and_net(conn, result, employee, period_start)
+    _recompute_statutory_and_net(conn, result, employee, period_start, period_end)
     return result
 
 
