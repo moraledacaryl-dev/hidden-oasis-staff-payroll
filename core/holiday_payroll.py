@@ -225,7 +225,7 @@ def _paid_segments(
         paid = round(max(0.0, paid), 6)
         if paid > 0:
             segment = PaySegment(a, b, paid, kind)
-            segment.shift_work_date = origin_date
+            segment.shift_work_date = shift_work_date
             result.append(segment)
         remaining = max(0.0, remaining - paid)
     return result
