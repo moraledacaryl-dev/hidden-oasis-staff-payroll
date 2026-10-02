@@ -90,6 +90,7 @@ def apply_payable_night_diff(
             conn,
             employee_id,
             segment.work_date,
+            rest_work_date=segment.shift_work_date,
         )
         if segment.kind == "ot":
             pay_multiplier = holiday.overtime_multiplier(conn, multiplier)
