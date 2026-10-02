@@ -20,7 +20,6 @@ from api.payroll_service import (
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.money import money
-from core.payroll_engine import update_payroll_status
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
 from core.payroll_split_shift_policy import compute_payroll_per_shift
 from core.quality import build_payroll_preflight_checks, summarize_checks
@@ -214,25 +213,16 @@ def mark_payroll_run_paid(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
-    user = must_be_payroll_user(authorization, x_api_key)
-    if user.get("role_key") != "owner":
-        raise HTTPException(status_code=403, detail="Only owner can mark payroll as paid.")
-    conn = get_conn(DB_PATH)
-    try:
-        run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
-        if not run:
-            raise HTTPException(status_code=404, detail="Payroll run not found.")
-        if run.get("status") != "Approved":
-            raise HTTPException(status_code=409, detail="Only approved payroll runs can be marked paid.")
-        try:
-            update_payroll_status(conn, run_id, "Paid", str(user.get("display_name") or "Owner"))
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        updated = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
-        updated["totals"] = totals(conn, run_id)
-        return {"ok": True, "run": updated, "mode": "paid_cash_advances_applied"}
-    finally:
-        conn.close()
+    # Compatibility endpoint: keep all final-payment semantics in the canonical
+    # mark-paid workflow so revision ancestry and supersession checks cannot diverge.
+    from api.payroll_mark_paid import MarkPaidRequest, mark_payroll_run_paid as canonical_mark_paid
+
+    return canonical_mark_paid(
+        run_id,
+        MarkPaidRequest(confirmation="MARK PAID"),
+        authorization,
+        x_api_key,
+    )
 
 
 @router.post("/payroll/runs/{run_id}/lock")
