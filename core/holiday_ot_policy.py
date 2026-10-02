@@ -26,6 +26,7 @@ def install() -> None:
                 return []
 
             work_date = str(log["work_date"])
+            origin_date = str(sched.get("work_date") or work_date) if sched else work_date
             if sched:
                 break_mins = int(
                     sched.get("break_minutes")
@@ -102,7 +103,7 @@ def install() -> None:
             inside_start = max(a_start, s_start)
             inside_end = min(a_end, s_end)
             inside_segments = (
-                holiday._paid_segments(inside_start, inside_end, inside_paid, "inside")
+                holiday._paid_segments(inside_start, inside_end, inside_paid, "inside", shift_work_date=origin_date)
                 if inside_end > inside_start
                 else []
             )
@@ -126,6 +127,7 @@ def install() -> None:
                         a_end,
                         holiday._raw_hours(max(a_start, s_end), a_end),
                         "outside",
+                        shift_work_date=origin_date,
                     )
                 )
             if a_start < s_start:

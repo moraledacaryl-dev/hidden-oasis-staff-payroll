@@ -12,7 +12,7 @@ from api.holidays import HolidayPayload, _save
 from api.schedule_rest_days import ensure_schema as ensure_rest_day_schema
 from api.schedules import ensure_schema as ensure_schedule_schema
 from core.db import fetchone, get_conn, init_db, now_iso
-from core.holiday_payroll import day_multiplier, regular_holiday_eligibility
+from core.holiday_payroll import _log_segments, day_multiplier, regular_holiday_eligibility
 from core.payroll_engine import compute_payroll, save_payroll_draft
 from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 
@@ -263,6 +263,55 @@ class HolidayPayrollTests(unittest.TestCase):
         result = self.result("2026-08-16", "2026-08-31")
         self.assertEqual(result.holiday_pay, 0.0)
         self.assertTrue(any("No unworked regular-holiday base pay" in warning for warning in result.warnings or []))
+
+    def test_overnight_shift_does_not_gain_rest_day_premium_after_midnight(self) -> None:
+        self.mark_rest_day("2026-08-31")
+        shift = self.add_shift("2026-08-30", "22:00", "06:00")
+        log_id = self.add_log("2026-08-30", "22:00", "06:00", shift_id=shift)
+        emp = fetchone(self.conn, "SELECT * FROM employees WHERE id=?", (self.employee_id,))
+        log = fetchone(self.conn, "SELECT * FROM time_logs WHERE id=?", (log_id,))
+        sched = {
+            "work_date": "2026-08-30",
+            "shift_start": "22:00",
+            "shift_end": "06:00",
+            "break_minutes": 0,
+        }
+        debug_segments = _log_segments(self.conn, emp, log, sched, {})
+        from core.holiday_payroll import _paid_segments
+        from core.payroll_engine import shift_window
+        from datetime import datetime
+        direct_segments = _paid_segments(
+            datetime(2026, 8, 30, 22, 0),
+            datetime(2026, 8, 31, 6, 0),
+            8.0,
+            "inside",
+            shift_work_date="2026-08-30",
+        )
+        self.assertEqual(
+            [(seg.work_date, seg.shift_work_date, seg.paid_hours) for seg in direct_segments],
+            [("2026-08-30", "2026-08-30", 2.0), ("2026-08-31", "2026-08-30", 6.0)],
+        )
+        self.assertEqual(str(sched.get("work_date") or log["work_date"]), "2026-08-30")
+        self.assertEqual(
+            [(seg.work_date, seg.shift_work_date, seg.paid_hours) for seg in debug_segments],
+            [("2026-08-30", "2026-08-30", 2.0), ("2026-08-31", "2026-08-30", 6.0)],
+        )
+        self.assertEqual(day_multiplier(self.conn, self.employee_id, "2026-08-31", rest_work_date="2026-08-30")[0], 1.0)
+        result = self.result("2026-08-16", "2026-08-31")
+        self.assertEqual(result.regular_pay, 800.0)
+        self.assertEqual(result.holiday_pay, 0.0)
+        self.assertEqual(result.night_diff_hours, 8.0)
+        self.assertEqual(result.night_diff_pay, 80.0)
+
+    def test_shift_starting_on_rest_day_keeps_rest_day_premium_after_midnight(self) -> None:
+        self.mark_rest_day("2026-08-30")
+        shift = self.add_shift("2026-08-30", "22:00", "06:00")
+        self.add_log("2026-08-30", "22:00", "06:00", shift_id=shift)
+        result = self.result("2026-08-16", "2026-08-31")
+        self.assertEqual(result.regular_pay, 800.0)
+        self.assertEqual(result.holiday_pay, 240.0)
+        self.assertEqual(result.night_diff_hours, 8.0)
+        self.assertEqual(result.night_diff_pay, 104.0)
 
     def test_overnight_shift_applies_special_holiday_only_after_midnight(self) -> None:
         self.add_holiday("2026-08-31", "Special Non-Working Day")
