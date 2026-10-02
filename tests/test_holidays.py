@@ -291,6 +291,7 @@ class HolidayPayrollTests(unittest.TestCase):
             [(seg.work_date, seg.shift_work_date, seg.paid_hours) for seg in direct_segments],
             [("2026-08-30", "2026-08-30", 2.0), ("2026-08-31", "2026-08-30", 6.0)],
         )
+        self.assertEqual(str(sched.get("work_date") or log["work_date"]), "2026-08-30")
         self.assertEqual(
             [(seg.work_date, seg.shift_work_date, seg.paid_hours) for seg in debug_segments],
             [("2026-08-30", "2026-08-30", 2.0), ("2026-08-31", "2026-08-30", 6.0)],
