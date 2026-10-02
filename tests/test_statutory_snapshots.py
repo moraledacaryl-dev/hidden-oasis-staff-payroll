@@ -60,6 +60,20 @@ class StatutorySnapshotTests(unittest.TestCase):
         self.assertEqual(got["gross"], 5200)
 
 
+    def test_post_processing_recompute_calls_include_period_end(self) -> None:
+        for path in ("core/night_diff_policy.py", "core/payroll_split_shift_policy.py"):
+            source = Path(path).read_text(encoding="utf-8")
+            self.assertIn(
+                "_recompute_statutory_and_net(conn, result, employee, period_start, period_end)",
+                source,
+                path,
+            )
+            self.assertNotIn(
+                "_recompute_statutory_and_net(conn, result, employee, period_start)\n",
+                source,
+                path,
+            )
+
     def test_production_startup_initializes_snapshot_schema(self) -> None:
         server_source = Path("api/server.py").read_text(encoding="utf-8")
         self.assertIn(
