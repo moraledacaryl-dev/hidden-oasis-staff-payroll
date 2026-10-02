@@ -80,6 +80,7 @@ from core.observability import utc_storage_iso
 from core.payroll_fractional_leave import compute_payroll_with_fractional_leave
 from core.quality import build_payroll_preflight_checks, summarize_checks
 from core.runtime_guard import validate_runtime_environment
+from core.statutory_snapshots import ensure_statutory_snapshot_schema
 
 # api.main retains a compatibility-local now_iso helper. The canonical
 # production entrypoint binds it to the central aware UTC serializer before
@@ -106,6 +107,10 @@ def initialize_runtime() -> None:
         # payroll-adjustment request could execute CREATE/ALTER statements.
         ensure_payroll_adjustment_schema(conn)
         ensure_statutory_settlement_schema(conn)
+        # Calendar-month payroll previews read this ledger in read-only mode.
+        # Initialize it at startup so production never silently falls back to
+        # treating prior monthly statutory deductions as absent.
+        ensure_statutory_snapshot_schema(conn)
         # Payroll correction listing is a read surface. Ensure its compatibility
         # schema before accepting traffic so GET requests never become writers.
         ensure_payroll_corrections_schema(conn)
