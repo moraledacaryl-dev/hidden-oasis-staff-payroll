@@ -199,7 +199,14 @@ def _raw_hours(start: datetime, end: datetime) -> float:
     return max(0.0, (end - start).total_seconds() / 3600.0)
 
 
-def _paid_segments(start: datetime, end: datetime, paid_hours: float, kind: str) -> list[PaySegment]:
+def _paid_segments(
+    start: datetime,
+    end: datetime,
+    paid_hours: float,
+    kind: str,
+    *,
+    shift_work_date: str | None = None,
+) -> list[PaySegment]:
     pieces = _split_interval(start, end)
     raw_total = sum(_raw_hours(a, b) for a, b in pieces)
     if raw_total <= 0 or paid_hours <= 0:
@@ -217,7 +224,7 @@ def _paid_segments(start: datetime, end: datetime, paid_hours: float, kind: str)
             paid = min(remaining, paid_total * (raw / raw_total))
         paid = round(max(0.0, paid), 6)
         if paid > 0:
-            result.append(PaySegment(a, b, paid, kind))
+            result.append(PaySegment(a, b, paid, kind, shift_work_date))
         remaining = max(0.0, remaining - paid)
     return result
 
@@ -304,20 +311,31 @@ def _log_segments(
 
     inside_start = max(a_start, s_start)
     inside_end = min(a_end, s_end)
-    inside_segments = _paid_segments(inside_start, inside_end, inside_paid, "inside") if inside_end > inside_start else []
+    inside_segments = _paid_segments(
+        inside_start, inside_end, inside_paid, "inside", shift_work_date=work_date
+    ) if inside_end > inside_start else []
     regular, remaining_inside = _take_hours(inside_segments, regular_hours, "regular")
     auto_ot, _ = _take_hours(remaining_inside, inside_ot, "ot")
 
     outside_raw: list[PaySegment] = []
     if a_start < s_start:
-        outside_raw.extend(_paid_segments(a_start, min(a_end, s_start), _raw_hours(a_start, min(a_end, s_start)), "outside"))
+        outside_raw.extend(_paid_segments(
+            a_start,
+            min(a_end, s_start),
+            _raw_hours(a_start, min(a_end, s_start)),
+            "outside",
+            shift_work_date=work_date,
+        ))
     if a_end > s_end:
-        outside_raw.extend(_paid_segments(max(a_start, s_end), a_end, _raw_hours(max(a_start, s_end), a_end), "outside"))
+        outside_raw.extend(_paid_segments(
+            max(a_start, s_end),
+            a_end,
+            _raw_hours(max(a_start, s_end), a_end),
+            "outside",
+            shift_work_date=work_date,
+        ))
     outside_ot, _ = _take_hours(outside_raw, approved_outside, "ot")
-    result = regular + auto_ot + outside_ot
-    for segment in result:
-        segment.shift_work_date = work_date
-    return result
+    return regular + auto_ot + outside_ot
 
 
 def apply_holiday_payroll_adjustment(
