@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import unittest
 from datetime import date
+from pathlib import Path
 
 from core.statutory_snapshots import (
     ensure_statutory_snapshot_schema,
@@ -57,6 +58,16 @@ class StatutorySnapshotTests(unittest.TestCase):
         replace_run_employee_snapshots(self.conn, 6, 3, {date(2026, 9, 1): {"gross_pay": 9999}})
         got = previous_month_snapshot_totals(self.conn, 3, date(2026, 9, 1), date(2026, 9, 30))
         self.assertEqual(got["gross"], 5200)
+
+
+    def test_production_startup_initializes_snapshot_schema(self) -> None:
+        server_source = Path("api/server.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "from core.statutory_snapshots import ensure_statutory_snapshot_schema",
+            server_source,
+        )
+        initialize_body = server_source.split("def initialize_runtime()", 1)[1].split("@asynccontextmanager", 1)[0]
+        self.assertIn("ensure_statutory_snapshot_schema(conn)", initialize_body)
 
 
 if __name__ == "__main__":
