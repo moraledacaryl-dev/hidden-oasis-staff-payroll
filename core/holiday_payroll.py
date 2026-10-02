@@ -322,7 +322,14 @@ def _log_segments(
         inside_start, inside_end, inside_paid, "inside", shift_work_date=shift_work_date
     ) if inside_end > inside_start else []
     regular, remaining_inside = _take_hours(inside_segments, regular_hours, "regular")
+    # Keep rest-day ownership tied to the originating scheduled shift.
+    # Reassert it here because these are the canonical paid segments returned
+    # by this function after regular/OT allocation.
+    for segment in regular:
+        segment.shift_work_date = shift_work_date
     auto_ot, _ = _take_hours(remaining_inside, inside_ot, "ot")
+    for segment in auto_ot:
+        segment.shift_work_date = shift_work_date
 
     outside_raw: list[PaySegment] = []
     if a_start < s_start:
@@ -342,6 +349,8 @@ def _log_segments(
             shift_work_date=shift_work_date,
         ))
     outside_ot, _ = _take_hours(outside_raw, approved_outside, "ot")
+    for segment in outside_ot:
+        segment.shift_work_date = shift_work_date
     return regular + auto_ot + outside_ot
 
 
