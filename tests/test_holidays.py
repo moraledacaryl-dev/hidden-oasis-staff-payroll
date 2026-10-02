@@ -264,6 +264,26 @@ class HolidayPayrollTests(unittest.TestCase):
         self.assertEqual(result.holiday_pay, 0.0)
         self.assertTrue(any("No unworked regular-holiday base pay" in warning for warning in result.warnings or []))
 
+    def test_overnight_shift_does_not_gain_rest_day_premium_after_midnight(self) -> None:
+        self.mark_rest_day("2026-08-31")
+        shift = self.add_shift("2026-08-30", "22:00", "06:00")
+        self.add_log("2026-08-30", "22:00", "06:00", shift_id=shift)
+        result = self.result("2026-08-16", "2026-08-31")
+        self.assertEqual(result.regular_pay, 800.0)
+        self.assertEqual(result.holiday_pay, 0.0)
+        self.assertEqual(result.night_diff_hours, 8.0)
+        self.assertEqual(result.night_diff_pay, 80.0)
+
+    def test_shift_starting_on_rest_day_keeps_rest_day_premium_after_midnight(self) -> None:
+        self.mark_rest_day("2026-08-30")
+        shift = self.add_shift("2026-08-30", "22:00", "06:00")
+        self.add_log("2026-08-30", "22:00", "06:00", shift_id=shift)
+        result = self.result("2026-08-16", "2026-08-31")
+        self.assertEqual(result.regular_pay, 800.0)
+        self.assertEqual(result.holiday_pay, 240.0)
+        self.assertEqual(result.night_diff_hours, 8.0)
+        self.assertEqual(result.night_diff_pay, 104.0)
+
     def test_overnight_shift_applies_special_holiday_only_after_midnight(self) -> None:
         self.add_holiday("2026-08-31", "Special Non-Working Day")
         shift = self.add_shift("2026-08-30", "22:00", "06:00")
