@@ -19,13 +19,15 @@ const tokens = JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
 const pages = JSON.parse(
   process.env.BROWSER_SMOKE_PAGES_JSON ||
     JSON.stringify({
-      owner: ["/", "/cutoff", "/schedule", "/hr", "/backup", "/settings/users"],
-      supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances"],
+      owner: ["/", "/cutoff", "/schedule", "/hr", "/backup", "/settings/users", "/performance-reviews", "/payroll", "/payroll/runs", "/payroll/benefits", "/payslips", "/reports", "/staff", "/staff/manage"],
+      supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances", "/performance-reviews", "/staff"],
       staff: ["/me", "/settings/security"],
     }),
 );
 const viewports = [
+  { name: "narrow-mobile", width: 360, height: 800, mobile: true, scale: 2 },
   { name: "mobile", width: 390, height: 844, mobile: true, scale: 2 },
+  { name: "tablet", width: 820, height: 1180, mobile: true, scale: 2 },
   { name: "desktop", width: 1440, height: 900, mobile: false, scale: 1 },
 ];
 const visibleFailurePatterns = [
@@ -169,6 +171,15 @@ async function inspectPage(session, role, route, viewport) {
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && (rect.right > window.innerWidth + 2 || rect.left < -2);
       }).slice(0, 10).map((element) => ({ tag: element.tagName, className: String(element.className || "").slice(0, 100), text: String(element.textContent || "").trim().slice(0, 80) }));
+      const criticalClippingProblems = [...document.querySelectorAll(".roleSwitch, [class*='roleSwitch'], .employee-payroll-person strong, .request-person strong, .review-preview span")].filter((element) => {
+        if (isHiddenOffCanvas(element)) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        const clipped = element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1;
+        const intentionalClamp = Number.parseInt(style.webkitLineClamp || "0", 10) > 0;
+        return clipped && !intentionalClamp;
+      }).slice(0, 10).map((element) => ({ className: String(element.className || "").slice(0, 100), text: String(element.textContent || "").trim().slice(0, 100), clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight }));
       const scheduleClippingProblems = [...document.querySelectorAll("[data-schedule-cell-text]")].filter((element) => (
         element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1
       )).slice(0, 10).map((element) => ({
@@ -179,7 +190,7 @@ async function inspectPage(session, role, route, viewport) {
         clientHeight: element.clientHeight,
         scrollHeight: element.scrollHeight,
       }));
-      return { href: location.href, title: document.title, text, pageOverflow, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth, visibleProblems, scheduleClippingProblems, hasNextError: Boolean(document.querySelector("nextjs-portal")) };
+      return { href: location.href, title: document.title, text, pageOverflow, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth, visibleProblems, criticalClippingProblems, scheduleClippingProblems, hasNextError: Boolean(document.querySelector("nextjs-portal")) };
     })()`,
   });
   const result = evaluation.result?.value || {};
@@ -355,6 +366,7 @@ async function inspectPage(session, role, route, viewport) {
       !result.pageOverflow &&
       !result.hasNextError &&
       (result.visibleProblems || []).length === 0 &&
+      (result.criticalClippingProblems || []).length === 0 &&
       (result.scheduleClippingProblems || []).length === 0 &&
       !matchedFailureText &&
       (!scheduleDropPrompt || (
@@ -402,6 +414,7 @@ const failures = results.filter((result) => !result.ok);
 if (failures.length) {
   for (const failure of failures) {
     if ((failure.visibleProblems || []).length) console.error(`Visible layout problems on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.visibleProblems)}`);
+    if ((failure.criticalClippingProblems || []).length) console.error(`Critical text clipping on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.criticalClippingProblems)}`);
     if ((failure.scheduleClippingProblems || []).length) console.error(`Clipped schedule text on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleClippingProblems)}`);
     if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
     if (failure.scheduleDropPrompt) console.error(`Move/copy prompt problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleDropPrompt)}`);
