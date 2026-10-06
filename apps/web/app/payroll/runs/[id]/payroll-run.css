@@ -49,9 +49,13 @@
 }
 
 .employee-payroll-person strong {
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .employee-payroll-person small,
