@@ -86,3 +86,30 @@
   .mobile-section, .mobile-section-content { display: contents !important; }
   .mobile-section-toggle { display: none !important; }
 }
+
+/* Final hardening: identity, date, record, and touch-target resilience. */
+.cutoff-hero h1{overflow-wrap:normal;word-break:normal}
+.cutoff-hero h1,.cutoff-hero h1 *{font-variant-numeric:tabular-nums}
+.review-preview{max-width:38ch;line-height:1.4}
+.review-preview span{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow-wrap:anywhere}
+@media screen and (max-width:720px){
+  .cutoff-hero h1{font-size:clamp(20px,6vw,26px)!important;line-height:1.25!important;white-space:nowrap}
+  .user-table{overflow:visible}
+  .user-table table.responsive-records{min-width:0!important}
+  .user-table .responsive-records>tbody>tr{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .user-table .responsive-records>tbody>tr>td[data-label="User"],
+  .user-table .responsive-records>tbody>tr>td[data-label="Employee"],
+  .user-table .responsive-records>tbody>tr>td[data-label="Last login"],
+  .user-table .responsive-records>tbody>tr>td[data-label="Actions"]{grid-column:1/-1}
+  .user-table select{width:100%;max-width:100%;white-space:normal;text-overflow:clip}
+  .review-page .people-table{min-width:0!important}
+  .review-page .review-preview{max-width:none}
+  .review-page .responsive-records>tbody>tr>td[data-label="Employee"],
+  .review-page .responsive-records>tbody>tr>td[data-label="Previous review"],
+  .review-page .responsive-records>tbody>tr>td[data-label="Action"]{grid-column:1/-1}
+  .review-page .responsive-records>tbody>tr>td[data-label="Action"] .button{width:100%}
+  .surface-close,.app-drawer-close,[aria-label="Close dialog"],[aria-label="Close drawer"]{min-width:44px!important;min-height:44px!important}
+}
+@media screen and (max-width:360px){
+  .cutoff-hero h1{white-space:normal}
+}
