@@ -2,13 +2,15 @@
 @media screen and (max-width:720px){.dragHelp{display:none}.controlsHead p{display:none}.controlsCard{padding:14px}.headingActions{gap:8px}.weekNav{gap:8px}.legend{font-size:12px}.planNotice{padding:12px}.pageHeading{gap:12px}}
 
 @media screen and (max-width:420px){
-  .controlsCard{padding:12px;overflow:hidden}
-  .weekNav{display:grid;grid-template-columns:1fr;width:100%;max-width:100%}
-  .weekNav>*{grid-column:1!important;width:100%;max-width:100%;min-width:0;box-sizing:border-box}
-  .weekNav :global(.button),.weekNav a{justify-content:center;white-space:normal}
-  .publishInline{display:block;grid-column:1;width:100%;min-width:0;overflow:hidden}
-  .publishInline :global(.card),.publishInline :global(form),.publishInline :global(label),.publishInline :global(.action-row){width:100%;min-width:0;max-width:100%;box-sizing:border-box}
-  .publishInline :global(input){width:100%;min-width:0;max-width:100%;box-sizing:border-box}
-  .publishInline :global(.action-row){display:grid;grid-template-columns:1fr}
-  .publishInline :global(.button){width:100%;min-width:0;max-width:100%}
+  .controlsCard{padding:12px;overflow:visible}
+  .controlsHead{width:auto;max-width:100%;min-width:0}
+  .weekNav{display:flex;flex-direction:column;align-items:stretch;width:auto;max-width:100%;min-width:0}
+  .weekNav>*{width:auto!important;max-width:100%;min-width:0;box-sizing:border-box}
+  .weekNav :global(.button),.weekNav>a{display:flex;justify-content:center;white-space:normal}
+  .publishInline{display:block;width:auto!important;max-width:100%;min-width:0;overflow:visible}
+  .publishInline :global(.card),.publishInline :global(form),.publishInline :global(label),.publishInline :global(.action-row){width:auto;min-width:0;max-width:100%;box-sizing:border-box}
+  .publishInline :global(label){display:grid}
+  .publishInline :global(input){width:auto;min-width:0;max-width:100%;box-sizing:border-box}
+  .publishInline :global(.action-row){display:grid;grid-template-columns:minmax(0,1fr)}
+  .publishInline :global(.button){width:auto;min-width:0;max-width:100%;box-sizing:border-box}
 }
