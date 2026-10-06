@@ -350,3 +350,12 @@ th { overflow-wrap: anywhere; }
   overflow-wrap: normal;
   text-align: center;
 }
+
+/* Final desktop polish: keep independent HR columns content-sized and quiet the navigation scrollbar. */
+.hr-overview{align-items:start}
+.hr-overview>.hr-stack{align-self:start}
+.sidebar{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.24) transparent}
+.sidebar::-webkit-scrollbar{width:6px}
+.sidebar::-webkit-scrollbar-track{background:transparent}
+.sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:999px}
+.sidebar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.34)}

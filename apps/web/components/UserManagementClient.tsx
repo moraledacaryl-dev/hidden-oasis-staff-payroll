@@ -145,13 +145,13 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
       ) : null}
       {message ? <p className="form-feedback" role="status">{message}</p> : null}
       <div className="table-wrap user-table">
-        <table>
+        <table className="responsive-records">
           <thead><tr><th>User</th><th>Role</th><th>Employee</th><th>Active</th><th>Password</th><th>MFA</th><th>Last login</th><th>Actions</th></tr></thead>
           <tbody>
             {users.map((user) => (
               <tr key={user.id}>
-                <td>{user.display_name}</td>
-                <td>
+                <td data-label="User"><strong>{user.display_name}</strong></td>
+                <td data-label="Role">
                   <select aria-label={`Role for ${user.display_name}`} defaultValue={user.role_key} disabled={busy === user.id} onChange={(event) => setRoleForUser(user.id, event.target.value)}>
                     <option value="staff">Staff</option>
                     <option value="supervisor">General Manager</option>
@@ -159,17 +159,17 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
                     <option value="owner">Owner</option>
                   </select>
                 </td>
-                <td>
+                <td data-label="Employee">
                   <select aria-label={`Employee linked to ${user.display_name}`} defaultValue={user.employee_id || ""} disabled={busy === user.id} onChange={(event) => setEmployee(user.id, event.target.value)}>
                     <option value="">Not linked</option>
                     {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name}</option>)}
                   </select>
                 </td>
-                <td>{user.active ? "Yes" : "No"}</td>
-                <td>{user.must_change_password ? "Change required" : "Set"}</td>
-                <td>{user.mfa_enabled ? "On" : "Off"}</td>
-                <td>{formatBusinessDateTime(user.last_login_at)}</td>
-                <td>
+                <td data-label="Active">{user.active ? "Yes" : "No"}</td>
+                <td data-label="Password">{user.must_change_password ? "Change required" : "Set"}</td>
+                <td data-label="MFA">{user.mfa_enabled ? "On" : "Off"}</td>
+                <td data-label="Last login">{formatBusinessDateTime(user.last_login_at)}</td>
+                <td data-label="Actions">
                   <div className="action-row">
                     <button className="button small ghost" type="button" disabled={busy === user.id} onClick={() => resetPassword(user.id)}>Reset password</button>
                     <button className="button small ghost" type="button" disabled={busy === user.id} onClick={() => setActive(user.id, !user.active)}>{user.active ? "Deactivate" : "Activate"}</button>
