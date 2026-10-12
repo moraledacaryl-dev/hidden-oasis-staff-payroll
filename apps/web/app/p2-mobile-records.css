@@ -1,6 +1,6 @@
 /* P2 mobile record treatment for identity-critical and financial tables. */
 
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   .user-table {
     overflow: visible;
     border: 0;
