@@ -48,8 +48,8 @@ def main() -> int:
                 INSERT INTO employees(
                     employee_code, full_name, department, position, status,
                     created_at, updated_at
-                ) VALUES('SMOKE-GM','Browser General Manager','Operations',
-                         'General Manager','Active',?,?)
+                ) VALUES('SMOKE-GM','Browser General Manager With An Intentionally Long Hospitality Operations Name','Guest Experience and Resort Operations',
+                         'General Manager for Guest Experience and Resort Operations','Active',?,?)
                 """,
                 (created_at, created_at),
             ).lastrowid
@@ -60,16 +60,16 @@ def main() -> int:
                 INSERT INTO employees(
                     employee_code, full_name, department, position, status,
                     created_at, updated_at
-                ) VALUES('SMOKE-STAFF','Browser Staff','Operations',
-                         'Staff','Active',?,?)
+                ) VALUES('SMOKE-STAFF','Browser Staff Member With An Intentionally Long Front Office Name','Reservations and Guest Experience',
+                         'Front Desk Receptionist and Reservations Coordinator','Active',?,?)
                 """,
                 (created_at, created_at),
             ).lastrowid
         )
         users = (
             ("Browser Owner", "Owner", None, 1),
-            ("Browser General Manager", "General Manager", supervisor_employee_id, 1),
-            ("Browser Staff", "Staff", staff_employee_id, 0),
+            ("Browser General Manager With An Intentionally Long Hospitality Operations Name", "General Manager", supervisor_employee_id, 1),
+            ("Browser Staff Member With An Intentionally Long Front Office Name", "Staff", staff_employee_id, 0),
         )
         user_ids: dict[str, int] = {}
         for display_name, role, employee_id, mfa_enabled in users:
