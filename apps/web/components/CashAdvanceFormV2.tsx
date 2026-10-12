@@ -89,7 +89,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
   }
 
   const renderForm = () => (
-    <form onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; void submit(new FormData(form)).then((saved) => { if (saved && !item) { form.reset(); setAmount(0); setMethod("Payroll deduction"); } }); }} className={`cash-edit-panel${item ? " is-editing" : ""}`}>
+    <form id={item?.id ? `cash-advance-edit-${item.id}` : undefined} onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; void submit(new FormData(form)).then((saved) => { if (saved && !item) { form.reset(); setAmount(0); setMethod("Payroll deduction"); } }); }} className={`cash-edit-panel${item ? " is-editing" : ""}`}>
       {item ? <input type="hidden" name="employee_id" value={item.employee_id || ""} /> : null}
 
       {!item ? (
@@ -147,13 +147,10 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
         </section>
       ) : null}
 
-      <div className="cash-edit-actions">
+      {!item ? <div className="cash-edit-actions">
         {message ? <p role="status">{message}</p> : <span />}
-        <div>
-          {item ? <button className="button ghost" type="button" disabled={busy} onClick={() => setOpen(false)}>Close</button> : null}
-          <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : item ? "Save details" : "Add cash advance"}</button>
-        </div>
-      </div>
+        <div><button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Add cash advance"}</button></div>
+      </div> : message ? <p role="status">{message}</p> : null}
     </form>
   );
 
@@ -168,6 +165,7 @@ export function CashAdvanceFormV2({ employees, item = null, canEditExisting = fa
       description="Change repayment settings and internal details. Balance corrections and lifecycle changes remain separate controlled actions."
       onClose={() => { if (!busy) setOpen(false); }}
       closeLabel="Close cash advance editor"
+      footer={<><button className="button ghost" type="button" disabled={busy} onClick={() => setOpen(false)}>Close</button><button className="button" type="submit" form={`cash-advance-edit-${item.id}`} disabled={busy}>{busy ? "Saving…" : "Save details"}</button></>}
     >
       {renderForm()}
 
