@@ -160,8 +160,8 @@ export function ScheduleChangeReview() {
         eyebrow="Shift request"
         title={selected ? `${selected.request_type} · ${selected.employee_name}` : "Shift request"}
         description={selected ? `${selected.request_no} · submitted ${selected.submitted_at}` : undefined}
-        onClose={() => setSelected(null)}
-        footer={selected ? <><div>{pending ? <button className="button secondary" disabled={busy === selected.id} onClick={() => void decide("Rejected")} type="button">Reject</button> : null}</div><div className="badge-row"><button className="button ghost" onClick={() => setSelected(null)} type="button">Close</button>{pending ? <button className="button" disabled={busy === selected.id} onClick={() => void decide("Approved")} type="button">Approve request</button> : null}</div></> : null}
+        onClose={() => { if (busy === null) setSelected(null); }}
+        footer={selected ? <><div>{pending ? <button className="button secondary" disabled={busy === selected.id} onClick={() => void decide("Rejected")} type="button">Reject</button> : null}</div><div className="badge-row"><button className="button ghost" disabled={busy === selected.id} onClick={() => setSelected(null)} type="button">Close</button>{pending ? <button className="button" disabled={busy === selected.id} onClick={() => void decide("Approved")} type="button">Approve request</button> : null}</div></> : null}
       >
         {selected ? <>
           <SurfaceContext>
