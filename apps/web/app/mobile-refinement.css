@@ -119,4 +119,8 @@
   .payroll-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .payroll-kpi { min-width: 0; overflow-wrap: anywhere; }
   .payroll-kpi > :is(span, strong, small) { min-width: 0; max-width: 100%; }
+  .payroll-employee-summary { grid-template-columns: minmax(140px, 1.5fr) repeat(3, minmax(72px, 1fr)) 36px; gap: 10px; }
+  .payroll-employee-summary > :is(.payroll-employee-main, .payroll-gross, .payroll-deductions, .payroll-net) { min-width: 0; }
+  .payroll-employee-summary > :is(.payroll-holiday, .payroll-ca) { display: none; }
+  .payroll-employee-summary > :is(.payroll-gross, .payroll-deductions, .payroll-net) :is(small, strong) { display: block; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 }
