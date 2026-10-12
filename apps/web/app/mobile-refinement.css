@@ -113,3 +113,10 @@
 @media screen and (max-width:360px){
   .cutoff-hero h1{white-space:normal}
 }
+
+/* Tablet payroll totals must reflow before the desktop sidebar leaves the content column too narrow. */
+@media screen and (min-width: 721px) and (max-width: 1100px) {
+  .payroll-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payroll-kpi { min-width: 0; overflow-wrap: anywhere; }
+  .payroll-kpi > :is(span, strong, small) { min-width: 0; max-width: 100%; }
+}
