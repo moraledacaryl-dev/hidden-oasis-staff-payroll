@@ -235,7 +235,11 @@ async function inspectPage(session, role, route, viewport) {
     const promptEvaluation = await session.send("Runtime.evaluate", {
       returnByValue: true,
       expression: `(() => {
-        const dialog = document.querySelector('[role="dialog"][aria-labelledby="schedule-drop-title"]');
+        const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => {
+          const titleId = candidate.getAttribute("aria-labelledby");
+          const title = titleId ? document.getElementById(titleId) : null;
+          return title?.textContent?.trim() === "Move or copy shift?";
+        });
         const buttons = dialog ? [...dialog.querySelectorAll("button")].map((button) => button.textContent?.trim() || button.getAttribute("aria-label")) : [];
         const rect = dialog?.getBoundingClientRect();
         return {
