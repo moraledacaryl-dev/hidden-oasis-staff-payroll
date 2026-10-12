@@ -160,9 +160,20 @@ input[type="checkbox"], input[type="radio"] { width: 18px; min-width: 18px; heig
 .details-card > summary::after, details.card > summary::after { content: "+"; color: var(--muted); font-size: 1.2rem; line-height: 1; }
 .details-card[open] > summary::after, details.card[open] > summary::after { content: "−"; }
 .details-body { display: grid; gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-.user-table table { min-width: 1080px; }
-.user-table td:nth-child(2) select { min-width: 170px; }
-.user-table td:nth-child(3) select { min-width: 220px; }
+.user-table table { width: 100%; min-width: 980px; table-layout: fixed; }
+.user-table th:nth-child(1), .user-table td:nth-child(1) { width: 15%; }
+.user-table th:nth-child(2), .user-table td:nth-child(2) { width: 14%; }
+.user-table th:nth-child(3), .user-table td:nth-child(3) { width: 19%; }
+.user-table th:nth-child(4), .user-table td:nth-child(4) { width: 7%; }
+.user-table th:nth-child(5), .user-table td:nth-child(5) { width: 10%; }
+.user-table th:nth-child(6), .user-table td:nth-child(6) { width: 6%; }
+.user-table th:nth-child(7), .user-table td:nth-child(7) { width: 12%; }
+.user-table th:nth-child(8), .user-table td:nth-child(8) { width: 17%; }
+.user-table td { min-width: 0; overflow-wrap: anywhere; }
+.user-table td:nth-child(1) strong { display: block; min-width: 0; overflow-wrap: anywhere; }
+.user-table td select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.user-table td:nth-child(8) .action-row { align-items: stretch; }
+.user-table td:nth-child(8) .button { min-width: 0; white-space: normal; }
 .footer-note { padding: 14px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
 .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
 .tab { min-height: 34px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); color: var(--ink); font-weight: 800; }
