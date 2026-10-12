@@ -25,6 +25,7 @@ const pages = JSON.parse(
     }),
 );
 const viewports = [
+  { name: "compact-mobile", width: 320, height: 720, mobile: true, scale: 2 },
   { name: "narrow-mobile", width: 360, height: 800, mobile: true, scale: 2 },
   { name: "mobile", width: 390, height: 844, mobile: true, scale: 2 },
   { name: "tablet", width: 820, height: 1180, mobile: true, scale: 2 },
