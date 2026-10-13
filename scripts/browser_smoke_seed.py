@@ -162,6 +162,28 @@ def main() -> int:
                 ),
             ),
         )
+        shift_row = conn.execute(
+            "SELECT id FROM scheduled_shifts WHERE employee_id=? AND shift_date=? ORDER BY id LIMIT 1",
+            (staff_employee_id, monday),
+        ).fetchone()
+        conn.execute(
+            """
+            INSERT INTO shift_change_requests(
+                request_no, employee_id, shift_id, request_type,
+                original_date, original_start_time, original_end_time,
+                requested_date, requested_start_time, requested_end_time,
+                reason, status, emergency, accuracy_confirmed,
+                employee_notified, coverage_confirmed,
+                submitted_by_user_id, submitted_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 0, 1, 0, 0, ?, ?)
+            """,
+            (
+                "SMOKE-SHIFT-001", staff_employee_id, int(shift_row[0]), "Schedule adjustment",
+                monday, "08:15", "17:45", monday, "09:00", "18:00",
+                "Browser smoke request for responsive drawer verification only.",
+                user_ids["staff"], created_at,
+            ),
+        )
         conn.commit()
     finally:
         conn.close()
