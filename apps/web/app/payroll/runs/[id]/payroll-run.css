@@ -593,3 +593,38 @@
     contain: inline-size;
   }
 }
+
+@media (max-width: 640px) {
+  .cash-advance-content {
+    display: block;
+    width: auto;
+    min-width: 0;
+  }
+
+  .cash-advance-content > * + * {
+    margin-top: 14px;
+  }
+
+  .cash-advance-description,
+  .cash-advance-stats,
+  .cash-advance-stats > div,
+  .cash-advance-table-wrap,
+  .cash-advance-table,
+  .cash-advance-table tbody,
+  .cash-advance-table tr,
+  .cash-advance-table td {
+    box-sizing: border-box;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .cash-advance-stats {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cash-advance-stats > div {
+    overflow: hidden;
+  }
+}
