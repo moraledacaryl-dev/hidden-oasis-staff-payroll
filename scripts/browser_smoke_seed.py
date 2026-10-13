@@ -189,13 +189,13 @@ def main() -> int:
         conn.execute(
             """
             INSERT INTO cash_advances(
-                employee_id, request_date, advance_date, amount,
+                employee_id, request_date, amount,
                 outstanding_balance, remaining_balance, repayment_method,
                 deduction_per_payroll, status, reason, notes, approved_by, created_at, updated_at
-            ) VALUES(?, ?, ?, 2500, 1750, 1750, 'Payroll deduction', 500, 'Active', ?, ?, 'Browser Owner', ?, ?)
+            ) VALUES(?, ?, 2500, 1750, 1750, 'Payroll deduction', 500, 'Active', ?, ?, 'Browser Owner', ?, ?)
             """,
             (
-                staff_employee_id, monday, monday,
+                staff_employee_id, monday,
                 "Emergency transportation support with a deliberately descriptive reason.",
                 "Browser smoke fixture for responsive cash advance editor verification.",
                 created_at, created_at,
