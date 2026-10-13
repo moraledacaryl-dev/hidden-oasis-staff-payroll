@@ -49,3 +49,8 @@
 
 .form-feedback.is-error{border-left-color:var(--danger);color:var(--danger)}.form-feedback.is-success{border-left-color:var(--accent)}
 @media(max-width:720px){.table-wrap:has(>.responsive-records){max-height:none;overflow:visible}.responsive-records>tbody>tr{grid-template-columns:repeat(2,minmax(0,1fr))}.responsive-records>tbody>tr>td:first-child,.responsive-records>tbody>tr>td:last-child,.responsive-records>tbody>tr>td[data-label="Notes"],.responsive-records>tbody>tr>td[data-label="Reason"],.responsive-records>tbody>tr>td[colspan]{grid-column:1/-1}}
+
+@media (max-width: 340px) {
+  .grid.cols-4 { grid-template-columns: 1fr; }
+  .grid.cols-4 .metric-value { overflow-wrap: normal; word-break: normal; }
+}
