@@ -186,6 +186,45 @@ def main() -> int:
                 user_ids["staff"], created_at,
             ),
         )
+        payroll_run_id = int(
+            conn.execute(
+                """
+                INSERT INTO payroll_runs(
+                    period_start, period_end, payout_date, run_label, status,
+                    prepared_by, validation_summary, created_at
+                ) VALUES(?, ?, ?, 'Browser Smoke', 'Draft', 'Browser Owner', 'Smoke fixture ready for review.', ?)
+                """,
+                (monday, tuesday, (week_start + timedelta(days=2)).isoformat(), created_at),
+            ).lastrowid
+        )
+        for employee_id, gross, deductions, net, warning in (
+            (supervisor_employee_id, 6850.75, 975.25, 5875.50, "Review overnight overtime before approval."),
+            (staff_employee_id, 4325.50, 525.00, 3800.50, ""),
+        ):
+            conn.execute(
+                """
+                INSERT INTO payroll_items(
+                    payroll_run_id, employee_id, regular_hours, regular_pay,
+                    approved_ot_hours, ot_pay, night_diff_hours, night_diff_pay,
+                    gross_pay, sss_ee, philhealth_ee, pagibig_ee,
+                    total_deductions, net_pay, warnings, created_at
+                ) VALUES(?, ?, 16, ?, 1.25, 250, 2.5, 75, ?, 300, 175, 50, ?, ?, ?, ?)
+                """,
+                (payroll_run_id, gross - 325, gross, deductions, net, warning, created_at),
+            )
+        conn.execute(
+            """
+            INSERT INTO payroll_corrections(
+                payroll_run_id, employee_id, adjustment_type, amount, reason,
+                apply_to_next_run, status, created_by, created_at
+            ) VALUES(?, ?, 'Note', 0, ?, 0, 'Recorded', 'Browser Owner', ?)
+            """,
+            (
+                payroll_run_id, supervisor_employee_id,
+                "Browser smoke correction with intentionally descriptive audit text for responsive layout verification.",
+                created_at,
+            ),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -203,7 +242,7 @@ def main() -> int:
         )
         for role, user_id in user_ids.items()
     }
-    print(json.dumps(tokens, separators=(",", ":"), sort_keys=True))
+    print(json.dumps({"tokens": tokens, "payroll_run_id": payroll_run_id}, separators=(",", ":"), sort_keys=True))
     return 0
 
 
