@@ -277,6 +277,17 @@
   border-radius:10px;
   background:#fff;
 }
+.app-surface-context>div{min-width:0}
+.app-surface-context strong,
+.app-surface-context small{
+  display:block;
+  min-width:0;
+  max-width:100%;
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  overflow-wrap:anywhere;
+}
 .app-surface-section{
   overflow:hidden;
   margin-bottom:14px;
