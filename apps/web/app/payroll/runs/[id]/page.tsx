@@ -250,17 +250,17 @@ export default async function PayrollRunReviewPage({
                   <tbody>
                     {auditRows.map((row, index) => (
                       <tr key={`${row.employee_id || "employee"}-${row.cash_advance_id || index}`}>
-                        <td>
+                        <td data-label="Employee">
                           <strong>{row.name || "Employee"}</strong>
                           {row.reason ? <small>{row.reason}</small> : null}
                         </td>
-                        <td>{row.advance_date || "No date"}</td>
-                        <td>#{row.cash_advance_id || "—"}</td>
-                        <td className="amount">{peso(row.balance_before_run)}</td>
-                        <td className="amount">{peso(row.expected)}</td>
-                        <td className="amount">{peso(row.applied)}</td>
-                        <td className="amount">{peso(row.balance_after_run)}</td>
-                        <td>
+                        <td data-label="Date">{row.advance_date || "No date"}</td>
+                        <td data-label="CA #">#{row.cash_advance_id || "—"}</td>
+                        <td className="amount" data-label="Balance">{peso(row.balance_before_run)}</td>
+                        <td className="amount" data-label="Expected">{peso(row.expected)}</td>
+                        <td className="amount" data-label="Applied">{peso(row.applied)}</td>
+                        <td className="amount" data-label="After">{peso(row.balance_after_run)}</td>
+                        <td data-label="Status">
                           <span className={`cash-advance-status cash-advance-status-${String(row.status || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
                             {row.status || "—"}
                           </span>
