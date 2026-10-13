@@ -57,7 +57,7 @@ export function AttendanceDecisionPanel({ item, triggerLabel = "Review" }: Props
         eyebrow="Employee-day decision"
         title={item.full_name}
         description={`${item.work_date} · ${item.department || "No department"} · ${item.position || "No position"}`}
-        onClose={() => setOpen(false)}
+        onClose={() => { if (!busy) setOpen(false); }}
         footer={<><div>{message ? <span className={`${styles.message} ${success ? styles.success : styles.error}`}>{message}</span> : null}</div><div className="badge-row"><button className="button ghost" type="button" disabled={busy} onClick={() => setOpen(false)}>Cancel</button><button className="button" type="button" disabled={busy} onClick={() => void submit()}>{busy ? "Saving…" : "Save decision"}</button></div></>}
       >
         <SurfaceContext>

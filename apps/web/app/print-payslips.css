@@ -71,10 +71,11 @@
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 4mm !important;
     width: 100% !important;
-    height: 175mm !important;
+    min-height: 175mm !important;
+    height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     break-inside: avoid-page !important;
     page-break-inside: avoid !important;
     break-after: page !important;
@@ -89,13 +90,13 @@
   .payslip-page .payslip-copy {
     display: block !important;
     width: 100% !important;
-    height: 175mm !important;
+    min-height: 175mm !important;
+    height: auto !important;
     min-width: 0 !important;
-    min-height: 0 !important;
     margin: 0 !important;
     padding: 4mm !important;
     box-sizing: border-box !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     border: 1px solid #777 !important;
     border-radius: 0 !important;
     background: #fff !important;
@@ -104,8 +105,8 @@
     page-break-inside: avoid !important;
     break-after: auto !important;
     page-break-after: auto !important;
-    font-size: 8px !important;
-    line-height: 1.1 !important;
+    font-size: 9px !important;
+    line-height: 1.16 !important;
   }
 
   .payslip-page .company-copy {
@@ -135,7 +136,7 @@
 
   .payslip-page .copy-label {
     margin-bottom: 3px !important;
-    font-size: 8px !important;
+    font-size: 9px !important;
   }
 
   .page-header,

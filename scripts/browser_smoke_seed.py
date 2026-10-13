@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from api.main import SESSION_TTL_SECONDS, sign_payload
+from api.staff_self_service import ensure_schema as ensure_staff_self_service_schema
 from core.db import get_conn, init_db, now_iso
 
 MANILA = ZoneInfo("Asia/Manila")
@@ -41,6 +42,7 @@ def main() -> int:
     conn = get_conn(db_path)
     try:
         init_db(conn)
+        ensure_staff_self_service_schema(conn)
         created_at = now_iso()
         supervisor_employee_id = int(
             conn.execute(
@@ -48,8 +50,8 @@ def main() -> int:
                 INSERT INTO employees(
                     employee_code, full_name, department, position, status,
                     created_at, updated_at
-                ) VALUES('SMOKE-GM','Browser General Manager','Operations',
-                         'General Manager','Active',?,?)
+                ) VALUES('SMOKE-GM','Browser General Manager With An Intentionally Long Hospitality Operations Name','Guest Experience and Resort Operations',
+                         'General Manager for Guest Experience and Resort Operations','Active',?,?)
                 """,
                 (created_at, created_at),
             ).lastrowid
@@ -60,16 +62,16 @@ def main() -> int:
                 INSERT INTO employees(
                     employee_code, full_name, department, position, status,
                     created_at, updated_at
-                ) VALUES('SMOKE-STAFF','Browser Staff','Operations',
-                         'Staff','Active',?,?)
+                ) VALUES('SMOKE-STAFF','Browser Staff Member With An Intentionally Long Front Office Name','Reservations and Guest Experience',
+                         'Front Desk Receptionist and Reservations Coordinator','Active',?,?)
                 """,
                 (created_at, created_at),
             ).lastrowid
         )
         users = (
             ("Browser Owner", "Owner", None, 1),
-            ("Browser General Manager", "General Manager", supervisor_employee_id, 1),
-            ("Browser Staff", "Staff", staff_employee_id, 0),
+            ("Browser General Manager With An Intentionally Long Hospitality Operations Name", "General Manager", supervisor_employee_id, 1),
+            ("Browser Staff Member With An Intentionally Long Front Office Name", "Staff", staff_employee_id, 0),
         )
         user_ids: dict[str, int] = {}
         for display_name, role, employee_id, mfa_enabled in users:
@@ -162,6 +164,75 @@ def main() -> int:
                 ),
             ),
         )
+        shift_row = conn.execute(
+            "SELECT id FROM scheduled_shifts WHERE employee_id=? AND shift_date=? ORDER BY id LIMIT 1",
+            (staff_employee_id, monday),
+        ).fetchone()
+        conn.execute(
+            """
+            INSERT INTO shift_change_requests(
+                request_no, employee_id, shift_id, request_type,
+                original_date, original_start_time, original_end_time,
+                requested_date, requested_start_time, requested_end_time,
+                reason, status, emergency, accuracy_confirmed,
+                employee_notified, coverage_confirmed,
+                submitted_by_user_id, submitted_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 0, 1, 0, 0, ?, ?)
+            """,
+            (
+                "SMOKE-SHIFT-001", staff_employee_id, int(shift_row[0]), "Schedule adjustment",
+                monday, "08:15", "17:45", monday, "09:00", "18:00",
+                "Browser smoke request for responsive drawer verification only.",
+                user_ids["staff"], created_at,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO cash_advances(
+                employee_id, request_date, amount, status, outstanding_balance, created_at
+            ) VALUES(?, ?, 2500, 'Active', 1750, ?)
+            """,
+            (staff_employee_id, monday, created_at),
+        )
+        payroll_run_id = int(
+            conn.execute(
+                """
+                INSERT INTO payroll_runs(
+                    period_start, period_end, payout_date, run_label, status,
+                    prepared_by, validation_summary, created_at
+                ) VALUES(?, ?, ?, 'Browser Smoke', 'Draft', 'Browser Owner', 'Smoke fixture ready for review.', ?)
+                """,
+                (monday, tuesday, (week_start + timedelta(days=2)).isoformat(), created_at),
+            ).lastrowid
+        )
+        for employee_id, gross, deductions, net, warning in (
+            (supervisor_employee_id, 6850.75, 975.25, 5875.50, "Review overnight overtime before approval."),
+            (staff_employee_id, 4325.50, 525.00, 3800.50, ""),
+        ):
+            conn.execute(
+                """
+                INSERT INTO payroll_items(
+                    payroll_run_id, employee_id, regular_hours, regular_pay,
+                    approved_ot_hours, ot_pay, night_diff_hours, night_diff_pay,
+                    gross_pay, sss_ee, philhealth_ee, pagibig_ee,
+                    total_deductions, net_pay, warnings, created_at
+                ) VALUES(?, ?, 16, ?, 1.25, 250, 2.5, 75, ?, 300, 175, 50, ?, ?, ?, ?)
+                """,
+                (payroll_run_id, employee_id, gross - 325, gross, deductions, net, warning, created_at),
+            )
+        conn.execute(
+            """
+            INSERT INTO payroll_corrections(
+                payroll_run_id, employee_id, adjustment_type, amount, reason,
+                apply_to_next_run, status, created_by, created_at
+            ) VALUES(?, ?, 'Note', 0, ?, 0, 'Recorded', 'Browser Owner', ?)
+            """,
+            (
+                payroll_run_id, supervisor_employee_id,
+                "Browser smoke correction with intentionally descriptive audit text for responsive layout verification.",
+                created_at,
+            ),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -179,7 +250,7 @@ def main() -> int:
         )
         for role, user_id in user_ids.items()
     }
-    print(json.dumps(tokens, separators=(",", ":"), sort_keys=True))
+    print(json.dumps({"tokens": tokens, "payroll_run_id": payroll_run_id}, separators=(",", ":"), sort_keys=True))
     return 0
 
 

@@ -24,7 +24,8 @@ class P2AccessibilityContractTests(unittest.TestCase):
     def test_browser_smoke_understands_current_responsive_surfaces(self) -> None:
         source = Path("apps/web/scripts/browser-smoke.mjs").read_text(encoding="utf-8")
 
-        self.assertIn('style.overflowX === "auto" || style.overflowX === "scroll"', source)
+        self.assertIn('data-intentional-horizontal-scroll', source)
+        self.assertNotIn('style.overflowX === "auto" || style.overflowX === "scroll"', source)
         self.assertIn("isHiddenOffCanvas", source)
         self.assertIn('rect.right <= 0 || rect.left >= window.innerWidth', source)
         self.assertIn("isHiddenOffCanvas(element)", source)

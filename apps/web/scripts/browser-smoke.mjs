@@ -15,17 +15,31 @@ const browserPath = [
 ].find((candidate) => candidate && existsSync(candidate));
 const port = Number(process.env.BROWSER_DEBUG_PORT || 9223);
 const outputDir = process.env.BROWSER_SMOKE_OUTPUT || path.join(os.tmpdir(), "staff-payroll-browser-smoke");
-const tokens = JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
+const smokeFixture = JSON.parse(process.env.BROWSER_SMOKE_FIXTURE_JSON || "{}");
+const tokens = smokeFixture.tokens || JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
+const payrollRunId = Number(smokeFixture.payroll_run_id || 0);
 const pages = JSON.parse(
   process.env.BROWSER_SMOKE_PAGES_JSON ||
     JSON.stringify({
-      owner: ["/", "/cutoff", "/schedule", "/hr", "/backup", "/settings/users"],
-      supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances"],
+      owner: ["/", "/cutoff", "/schedule", "/hr", "/backup", "/settings/users", "/performance-reviews", "/payroll", "/payroll/runs", "/payroll/benefits", "/payslips", "/reports", "/staff", "/staff/manage"],
+      supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances", "/performance-reviews", "/staff"],
       staff: ["/me", "/settings/security"],
     }),
 );
+if (payrollRunId > 0 && Array.isArray(pages.owner)) {
+  pages.owner.push(
+    `/payroll/runs/${payrollRunId}`,
+    `/payroll/runs/${payrollRunId}/audit`,
+    `/payroll/runs/${payrollRunId}/corrections`,
+    `/payroll/runs/${payrollRunId}/schedule-changes`,
+    `/payroll/runs/${payrollRunId}/reports`,
+  );
+}
 const viewports = [
+  { name: "compact-mobile", width: 320, height: 720, mobile: true, scale: 2 },
+  { name: "narrow-mobile", width: 360, height: 800, mobile: true, scale: 2 },
   { name: "mobile", width: 390, height: 844, mobile: true, scale: 2 },
+  { name: "tablet", width: 820, height: 1180, mobile: true, scale: 2 },
   { name: "desktop", width: 1440, height: 900, mobile: false, scale: 1 },
 ];
 const visibleFailurePatterns = [
@@ -142,8 +156,10 @@ async function inspectPage(session, role, route, viewport) {
         for (let node = element; node && node !== document.body; node = node.parentElement) {
           const classes = String(node.className || "");
           if (classes.includes("boardScroll") || classes.includes("matrixGrid") || node.classList?.contains("table-wrap")) return true;
-          const style = getComputedStyle(node);
-          if ((style.overflowX === "auto" || style.overflowX === "scroll") && node.scrollWidth > node.clientWidth + 1) return true;
+          // Horizontal scrolling is intentional only for explicitly known
+          // dense workspaces. Do not exempt every overflow:auto container:
+          // that would let accidental desktop tables survive on phones.
+          if (node.hasAttribute?.("data-intentional-horizontal-scroll")) return true;
         }
         return false;
       };
@@ -169,6 +185,15 @@ async function inspectPage(session, role, route, viewport) {
         const rect = element.getBoundingClientRect();
         return rect.width > 0 && (rect.right > window.innerWidth + 2 || rect.left < -2);
       }).slice(0, 10).map((element) => ({ tag: element.tagName, className: String(element.className || "").slice(0, 100), text: String(element.textContent || "").trim().slice(0, 80) }));
+      const criticalClippingProblems = [...document.querySelectorAll(".roleSwitch, [class*='roleSwitch'], .employee-payroll-person strong, .request-person strong, .review-preview span")].filter((element) => {
+        if (isHiddenOffCanvas(element)) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        const clipped = element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1;
+        const intentionalClamp = Number.parseInt(style.webkitLineClamp || "0", 10) > 0;
+        return clipped && !intentionalClamp;
+      }).slice(0, 10).map((element) => ({ className: String(element.className || "").slice(0, 100), text: String(element.textContent || "").trim().slice(0, 100), clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight }));
       const scheduleClippingProblems = [...document.querySelectorAll("[data-schedule-cell-text]")].filter((element) => (
         element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1
       )).slice(0, 10).map((element) => ({
@@ -179,7 +204,7 @@ async function inspectPage(session, role, route, viewport) {
         clientHeight: element.clientHeight,
         scrollHeight: element.scrollHeight,
       }));
-      return { href: location.href, title: document.title, text, pageOverflow, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth, visibleProblems, scheduleClippingProblems, hasNextError: Boolean(document.querySelector("nextjs-portal")) };
+      return { href: location.href, title: document.title, text, pageOverflow, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth, visibleProblems, criticalClippingProblems, scheduleClippingProblems, hasNextError: Boolean(document.querySelector("nextjs-portal")) };
     })()`,
   });
   const result = evaluation.result?.value || {};
@@ -223,7 +248,11 @@ async function inspectPage(session, role, route, viewport) {
     const promptEvaluation = await session.send("Runtime.evaluate", {
       returnByValue: true,
       expression: `(() => {
-        const dialog = document.querySelector('[role="dialog"][aria-labelledby="schedule-drop-title"]');
+        const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => {
+          const titleId = candidate.getAttribute("aria-labelledby");
+          const title = titleId ? document.getElementById(titleId) : null;
+          return title?.textContent?.trim() === "Move or copy shift?";
+        });
         const buttons = dialog ? [...dialog.querySelectorAll("button")].map((button) => button.textContent?.trim() || button.getAttribute("aria-label")) : [];
         const rect = dialog?.getBoundingClientRect();
         return {
@@ -244,6 +273,54 @@ async function inspectPage(session, role, route, viewport) {
       expression: `document.querySelector('[role="dialog"] button:last-of-type')?.click()`,
     });
   }
+  let interactiveSurface = null;
+  const interactiveConfig = (
+    (route === "/attendance/review" && ["owner", "supervisor"].includes(role))
+      ? { triggerText: "Review", expectedActions: ["Cancel", "Save decision"], name: "attendance-decision" }
+      : (route === "/schedule/requests" && role === "supervisor")
+        ? { selector: ".request-row", expectedActions: ["Close"], name: "shift-request-review" }
+        : (route === "/cash-advances" && role === "owner")
+          ? { triggerText: "Edit details", expectedActions: ["Close", "Save details"], name: "cash-advance-edit" }
+          : null
+  );
+  if (interactiveConfig) {
+    const opened = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const config = ${JSON.stringify(interactiveConfig)};
+        const trigger = config.selector
+          ? document.querySelector(config.selector)
+          : [...document.querySelectorAll("button, a")].find((node) => node.textContent?.trim() === config.triggerText);
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+    });
+    if (opened.result?.value) {
+      await delay(250);
+      const surfaceEvaluation = await session.send("Runtime.evaluate", {
+        returnByValue: true,
+        expression: `(() => {
+          const dialog = document.querySelector('[role="dialog"]');
+          const rect = dialog?.getBoundingClientRect();
+          const buttons = dialog ? [...dialog.querySelectorAll("button")].map((button) => button.textContent?.trim() || button.getAttribute("aria-label")) : [];
+          return {
+            opened: true,
+            visible: Boolean(dialog && rect && rect.width > 0 && rect.height > 0),
+            fitsViewport: Boolean(rect && rect.left >= 0 && rect.top >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight),
+            buttons,
+          };
+        })()`,
+      });
+      interactiveSurface = { name: interactiveConfig.name, expectedActions: interactiveConfig.expectedActions, ...(surfaceEvaluation.result?.value || {}) };
+      const surfaceScreenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+      await writeFile(path.join(outputDir, `${role}-${viewport.name}-${slug}-${interactiveConfig.name}.png`), Buffer.from(surfaceScreenshot.data, "base64"));
+      await session.send("Runtime.evaluate", { expression: `document.querySelector('[role="dialog"] button[aria-label*="Close"], [role="dialog"] button:last-of-type')?.click()` });
+    } else {
+      interactiveSurface = { name: interactiveConfig.name, expectedActions: interactiveConfig.expectedActions, opened: false, visible: false, fitsViewport: false, buttons: [] };
+    }
+  }
+
   let cutoffWorkflow = null;
   if (role === "owner" && route === "/cutoff") {
     const cutoffEvaluation = await session.send("Runtime.evaluate", {
@@ -351,10 +428,12 @@ async function inspectPage(session, role, route, viewport) {
     scheduleDropPrompt,
     cutoffWorkflow,
     impersonationWorkflow,
+    interactiveSurface,
     ok: result.href?.startsWith(`${baseUrl}${route}`) &&
       !result.pageOverflow &&
       !result.hasNextError &&
       (result.visibleProblems || []).length === 0 &&
+      (result.criticalClippingProblems || []).length === 0 &&
       (result.scheduleClippingProblems || []).length === 0 &&
       !matchedFailureText &&
       (!scheduleDropPrompt || (
@@ -362,6 +441,12 @@ async function inspectPage(session, role, route, viewport) {
         scheduleDropPrompt.visible &&
         scheduleDropPrompt.fitsViewport &&
         ["Move", "Copy", "Cancel"].every((label) => scheduleDropPrompt.buttons.includes(label))
+      )) &&
+      (!interactiveSurface || (
+        interactiveSurface.opened &&
+        interactiveSurface.visible &&
+        interactiveSurface.fitsViewport &&
+        interactiveSurface.expectedActions.every((label) => interactiveSurface.buttons.includes(label))
       )) &&
       (!cutoffWorkflow || Object.values(cutoffWorkflow).every(Boolean)) &&
       (!impersonationWorkflow || (impersonationWorkflow.supervisor && impersonationWorkflow.staff)),
@@ -402,9 +487,11 @@ const failures = results.filter((result) => !result.ok);
 if (failures.length) {
   for (const failure of failures) {
     if ((failure.visibleProblems || []).length) console.error(`Visible layout problems on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.visibleProblems)}`);
+    if ((failure.criticalClippingProblems || []).length) console.error(`Critical text clipping on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.criticalClippingProblems)}`);
     if ((failure.scheduleClippingProblems || []).length) console.error(`Clipped schedule text on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleClippingProblems)}`);
     if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
     if (failure.scheduleDropPrompt) console.error(`Move/copy prompt problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleDropPrompt)}`);
+    if (failure.interactiveSurface) console.error(`Interactive surface problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.interactiveSurface)}`);
     if (failure.cutoffWorkflow) console.error(`Payroll cutoff problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.cutoffWorkflow)}`);
     if (failure.impersonationWorkflow) console.error(`Owner view-as problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.impersonationWorkflow)}`);
   }
