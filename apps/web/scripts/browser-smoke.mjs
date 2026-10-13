@@ -145,8 +145,10 @@ async function inspectPage(session, role, route, viewport) {
         for (let node = element; node && node !== document.body; node = node.parentElement) {
           const classes = String(node.className || "");
           if (classes.includes("boardScroll") || classes.includes("matrixGrid") || node.classList?.contains("table-wrap")) return true;
-          const style = getComputedStyle(node);
-          if ((style.overflowX === "auto" || style.overflowX === "scroll") && node.scrollWidth > node.clientWidth + 1) return true;
+          // Horizontal scrolling is intentional only for explicitly known
+          // dense workspaces. Do not exempt every overflow:auto container:
+          // that would let accidental desktop tables survive on phones.
+          if (node.hasAttribute?.("data-intentional-horizontal-scroll")) return true;
         }
         return false;
       };
