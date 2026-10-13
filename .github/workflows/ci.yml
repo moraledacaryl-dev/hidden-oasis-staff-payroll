@@ -73,7 +73,7 @@ jobs:
           BROWSER_SMOKE_PAGES_JSON: '{"owner":["/","/cutoff","/schedule","/schedule/import","/hr","/backup","/settings/users","/performance-reviews","/payroll","/payroll/runs","/payroll/benefits","/payslips","/reports","/reports/operations","/controls/production-health","/attendance","/attendance/review","/staff","/staff/manage"],"supervisor":["/","/attendance","/schedule/requests","/cash-advances","/performance-reviews","/staff"],"staff":["/me","/settings/security"]}'
         run: |
           set -euo pipefail
-          export BROWSER_SMOKE_TOKENS_JSON="$(python scripts/browser_smoke_seed.py)"
+          export BROWSER_SMOKE_FIXTURE_JSON="$(python scripts/browser_smoke_seed.py)"
           python -m uvicorn api.server:app --host 127.0.0.1 --port 8001 > "$RUNNER_TEMP/staff-payroll-api.log" 2>&1 &
           api_pid=$!
           (
