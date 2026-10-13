@@ -544,3 +544,29 @@
   }
   .cash-advance-table .amount { text-align: left; }
 }
+
+@media (max-width: 640px) {
+  .cash-advance-panel,
+  .cash-advance-summary,
+  .cash-advance-header,
+  .cash-advance-content,
+  .cash-advance-description,
+  .cash-advance-stats,
+  .cash-advance-stats > div {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .cash-advance-panel,
+  .cash-advance-content {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .cash-advance-header > div:first-child,
+  .cash-advance-header h2,
+  .cash-advance-header p,
+  .cash-advance-description {
+    overflow-wrap: anywhere;
+  }
+}
