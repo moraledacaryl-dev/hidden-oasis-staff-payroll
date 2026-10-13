@@ -171,3 +171,13 @@
     text-align: left;
   }
 }
+
+@media (max-width: 900px) {
+  .user-table table { table-layout: auto; min-width: 0; }
+  .user-table th,
+  .user-table td { width: auto !important; min-width: 0 !important; max-width: none !important; }
+  .user-table td:first-child { display: block; }
+  .user-table td:first-child::before { display: block; margin-bottom: 5px; }
+  .user-table td:first-child strong { display: block; width: 100%; overflow-wrap: anywhere; }
+  .user-table td::before { min-width: 0; overflow-wrap: normal; word-break: normal; }
+}
