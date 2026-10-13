@@ -210,7 +210,7 @@ def main() -> int:
                     total_deductions, net_pay, warnings, created_at
                 ) VALUES(?, ?, 16, ?, 1.25, 250, 2.5, 75, ?, 300, 175, 50, ?, ?, ?, ?)
                 """,
-                (payroll_run_id, gross - 325, gross, deductions, net, warning, created_at),
+                (payroll_run_id, employee_id, gross - 325, gross, deductions, net, warning, created_at),
             )
         conn.execute(
             """
