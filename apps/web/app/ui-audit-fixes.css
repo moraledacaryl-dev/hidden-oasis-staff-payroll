@@ -7,7 +7,7 @@
 .staff-status-row > div, .staff-quick-link { display: grid; gap: 6px; }
 .cash-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 [id^="my-"] { scroll-margin-top: 72px; }
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   .staff-summary, .staff-quick-grid, .cash-summary-grid, .metric-grid, .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .staff-summary-card { padding: 12px; min-height: 0; }
   .staff-summary-card strong { font-size: 1.05rem; }
