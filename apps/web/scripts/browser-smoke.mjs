@@ -15,7 +15,9 @@ const browserPath = [
 ].find((candidate) => candidate && existsSync(candidate));
 const port = Number(process.env.BROWSER_DEBUG_PORT || 9223);
 const outputDir = process.env.BROWSER_SMOKE_OUTPUT || path.join(os.tmpdir(), "staff-payroll-browser-smoke");
-const tokens = JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
+const smokeFixture = JSON.parse(process.env.BROWSER_SMOKE_FIXTURE_JSON || "{}");
+const tokens = smokeFixture.tokens || JSON.parse(process.env.BROWSER_SMOKE_TOKENS_JSON || "{}");
+const payrollRunId = Number(smokeFixture.payroll_run_id || 0);
 const pages = JSON.parse(
   process.env.BROWSER_SMOKE_PAGES_JSON ||
     JSON.stringify({
@@ -24,6 +26,15 @@ const pages = JSON.parse(
       staff: ["/me", "/settings/security"],
     }),
 );
+if (payrollRunId > 0 && Array.isArray(pages.owner)) {
+  pages.owner.push(
+    `/payroll/runs/${payrollRunId}`,
+    `/payroll/runs/${payrollRunId}/audit`,
+    `/payroll/runs/${payrollRunId}/corrections`,
+    `/payroll/runs/${payrollRunId}/schedule-changes`,
+    `/payroll/runs/${payrollRunId}/reports`,
+  );
+}
 const viewports = [
   { name: "compact-mobile", width: 320, height: 720, mobile: true, scale: 2 },
   { name: "narrow-mobile", width: 360, height: 800, mobile: true, scale: 2 },
