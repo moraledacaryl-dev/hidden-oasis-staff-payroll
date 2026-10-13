@@ -262,6 +262,54 @@ async function inspectPage(session, role, route, viewport) {
       expression: `document.querySelector('[role="dialog"] button:last-of-type')?.click()`,
     });
   }
+  let interactiveSurface = null;
+  const interactiveConfig = (
+    (route === "/attendance/review" && ["owner", "supervisor"].includes(role))
+      ? { triggerText: "Review", expectedActions: ["Cancel", "Save decision"], name: "attendance-decision" }
+      : (route === "/schedule/requests" && role === "supervisor")
+        ? { selector: ".request-row", expectedActions: ["Close"], name: "shift-request-review" }
+        : (route === "/cash-advances" && role === "owner")
+          ? { triggerText: "Edit details", expectedActions: ["Close", "Save details"], name: "cash-advance-edit" }
+          : null
+  );
+  if (interactiveConfig) {
+    const opened = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const config = ${JSON.stringify(interactiveConfig)};
+        const trigger = config.selector
+          ? document.querySelector(config.selector)
+          : [...document.querySelectorAll("button, a")].find((node) => node.textContent?.trim() === config.triggerText);
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+    });
+    if (opened.result?.value) {
+      await delay(250);
+      const surfaceEvaluation = await session.send("Runtime.evaluate", {
+        returnByValue: true,
+        expression: `(() => {
+          const dialog = document.querySelector('[role="dialog"]');
+          const rect = dialog?.getBoundingClientRect();
+          const buttons = dialog ? [...dialog.querySelectorAll("button")].map((button) => button.textContent?.trim() || button.getAttribute("aria-label")) : [];
+          return {
+            opened: true,
+            visible: Boolean(dialog && rect && rect.width > 0 && rect.height > 0),
+            fitsViewport: Boolean(rect && rect.left >= 0 && rect.top >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight),
+            buttons,
+          };
+        })()`,
+      });
+      interactiveSurface = { name: interactiveConfig.name, expectedActions: interactiveConfig.expectedActions, ...(surfaceEvaluation.result?.value || {}) };
+      const surfaceScreenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+      await writeFile(path.join(outputDir, `${role}-${viewport.name}-${slug}-${interactiveConfig.name}.png`), Buffer.from(surfaceScreenshot.data, "base64"));
+      await session.send("Runtime.evaluate", { expression: `document.querySelector('[role="dialog"] button[aria-label*="Close"], [role="dialog"] button:last-of-type')?.click()` });
+    } else {
+      interactiveSurface = { name: interactiveConfig.name, expectedActions: interactiveConfig.expectedActions, opened: false, visible: false, fitsViewport: false, buttons: [] };
+    }
+  }
+
   let cutoffWorkflow = null;
   if (role === "owner" && route === "/cutoff") {
     const cutoffEvaluation = await session.send("Runtime.evaluate", {
@@ -369,6 +417,7 @@ async function inspectPage(session, role, route, viewport) {
     scheduleDropPrompt,
     cutoffWorkflow,
     impersonationWorkflow,
+    interactiveSurface,
     ok: result.href?.startsWith(`${baseUrl}${route}`) &&
       !result.pageOverflow &&
       !result.hasNextError &&
@@ -381,6 +430,12 @@ async function inspectPage(session, role, route, viewport) {
         scheduleDropPrompt.visible &&
         scheduleDropPrompt.fitsViewport &&
         ["Move", "Copy", "Cancel"].every((label) => scheduleDropPrompt.buttons.includes(label))
+      )) &&
+      (!interactiveSurface || (
+        interactiveSurface.opened &&
+        interactiveSurface.visible &&
+        interactiveSurface.fitsViewport &&
+        interactiveSurface.expectedActions.every((label) => interactiveSurface.buttons.includes(label))
       )) &&
       (!cutoffWorkflow || Object.values(cutoffWorkflow).every(Boolean)) &&
       (!impersonationWorkflow || (impersonationWorkflow.supervisor && impersonationWorkflow.staff)),
@@ -425,6 +480,7 @@ if (failures.length) {
     if ((failure.scheduleClippingProblems || []).length) console.error(`Clipped schedule text on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleClippingProblems)}`);
     if (failure.matchedFailureText) console.error(`Visible failure text on ${failure.role} ${failure.viewport} ${failure.route}: ${failure.matchedFailureText}`);
     if (failure.scheduleDropPrompt) console.error(`Move/copy prompt problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.scheduleDropPrompt)}`);
+    if (failure.interactiveSurface) console.error(`Interactive surface problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.interactiveSurface)}`);
     if (failure.cutoffWorkflow) console.error(`Payroll cutoff problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.cutoffWorkflow)}`);
     if (failure.impersonationWorkflow) console.error(`Owner view-as problem on ${failure.role} ${failure.viewport} ${failure.route}: ${JSON.stringify(failure.impersonationWorkflow)}`);
   }
