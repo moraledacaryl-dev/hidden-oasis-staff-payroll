@@ -508,3 +508,39 @@
     justify-content: space-between;
   }
 }
+
+@media (max-width: 640px) {
+  .cash-advance-table-wrap { overflow: visible; border: 0; background: transparent; }
+  .cash-advance-table,
+  .cash-advance-table tbody,
+  .cash-advance-table tr,
+  .cash-advance-table td { display: block; width: 100%; }
+  .cash-advance-table thead { display: none; }
+  .cash-advance-table tbody { display: grid; gap: 10px; }
+  .cash-advance-table tr {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .cash-advance-table td,
+  .cash-advance-table td:first-child {
+    min-width: 0;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .cash-advance-table td:last-child { border-bottom: 0; }
+  .cash-advance-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 850;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .cash-advance-table .amount { text-align: left; }
+}
