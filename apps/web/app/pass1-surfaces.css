@@ -283,10 +283,10 @@
   display:block;
   min-width:0;
   max-width:100%;
-  white-space:normal;
-  overflow:visible;
-  text-overflow:clip;
-  overflow-wrap:anywhere;
+  white-space:normal!important;
+  overflow:visible!important;
+  text-overflow:clip!important;
+  overflow-wrap:anywhere!important;
 }
 .app-surface-section{
   overflow:hidden;
