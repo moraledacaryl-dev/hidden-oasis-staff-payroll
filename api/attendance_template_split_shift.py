@@ -237,8 +237,59 @@ def import_attendance_template_v2(
             row["attendance_status"] = "Needs Review"
             row["skip_import"] = True
 
-        # A duplicate punch cannot be represented twice under the database's
-        # uniqueness contract. Other reviewable rows keep their existing behavior.
+        # A scheduled shift can have only one active time_log. Production may
+        # already contain a manual or biometric record for a shift that also
+        # appears in this template. Never overwrite that authoritative record or
+        # let SQLite's shift-level UNIQUE index turn the upload into HTTP 500.
+        linked_shift_ids = sorted({
+            int(row["scheduled_shift_id"])
+            for row in importable_rows
+            if row.get("scheduled_shift_id") is not None
+        })
+        existing_by_shift: dict[int, dict[str, Any]] = {}
+        if linked_shift_ids:
+            placeholders = ",".join("?" for _ in linked_shift_ids)
+            existing_rows = fetchall(
+                conn,
+                f"""
+                SELECT id, scheduled_shift_id, source, attendance_status
+                FROM time_logs
+                WHERE scheduled_shift_id IN ({placeholders})
+                  AND COALESCE(attendance_status, '') != 'Rejected'
+                """,
+                tuple(linked_shift_ids),
+            )
+            existing_by_shift = {
+                int(existing["scheduled_shift_id"]): existing
+                for existing in existing_rows
+                if existing.get("scheduled_shift_id") is not None
+            }
+
+        for row in importable_rows:
+            shift_id = row.get("scheduled_shift_id")
+            if shift_id is None:
+                continue
+            existing = existing_by_shift.get(int(shift_id))
+            if not existing:
+                continue
+            existing_source = str(existing.get("source") or "")
+            if existing_source in {"template_upload", "attendance_template"}:
+                continue
+            issue = (
+                f"Scheduled shift already has attendance record {int(existing['id'])} "
+                f"from source '{existing_source or 'unknown'}'; existing attendance was preserved."
+            )
+            issues = list(row.get("issues") or [])
+            if issue not in issues:
+                issues.append(issue)
+            row["issues"] = issues
+            row["needs_review"] = 1
+            row["attendance_status"] = "Needs Review"
+            row["skip_import"] = True
+
+        # Rows that cannot be represented safely are reported for review instead
+        # of being sent into a transaction that is guaranteed to violate a UNIQUE
+        # constraint.
         importable_rows = [row for row in importable_rows if not row.get("skip_import")]
 
         success_rows = [
