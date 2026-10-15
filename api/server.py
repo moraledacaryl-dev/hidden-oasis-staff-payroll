@@ -71,6 +71,7 @@ from api.staff_attachment_security import router as staff_attachment_router
 from api.staff_published_portal import router as staff_published_portal_router
 from api.staff_self_service import router as staff_self_service_router
 from api.statutory_settlements import ensure_statutory_settlement_schema, router as statutory_settlements_router
+from api.statutory_agency_remittances import ensure_schema as ensure_agency_remittance_schema, router as agency_remittances_router
 from api.users import router as users_router
 from core.corrections import ensure_payroll_corrections_schema
 from core.db import get_conn, init_db
@@ -107,6 +108,7 @@ def initialize_runtime() -> None:
         # payroll-adjustment request could execute CREATE/ALTER statements.
         ensure_payroll_adjustment_schema(conn)
         ensure_statutory_settlement_schema(conn)
+        ensure_agency_remittance_schema(conn)
         # Calendar-month payroll previews read this ledger in read-only mode.
         # Initialize it at startup so production never silently falls back to
         # treating prior monthly statutory deductions as absent.
@@ -310,6 +312,7 @@ ROUTERS = (
     payroll_adjustments_router,
     payroll_recalculate_router,
     statutory_settlements_router,
+    agency_remittances_router,
     staff_attachment_router,
 )
 
