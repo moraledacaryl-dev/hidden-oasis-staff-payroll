@@ -150,7 +150,46 @@ class AttendanceTemplateSplitShiftTests(unittest.TestCase):
             [self.shift_one, self.shift_two],
         )
 
-    def test_duplicate_punch_rows_do_not_crash_commit(self) -> None:\n        rows = [AttendanceTemplateRow(work_date="2026-08-31", biometric_id="BIO-SPLIT", time_in="8:02 AM", time_out="12:01 PM", time_out_date="2026-08-31", attendance_status="ON-TIME") for _ in range(2)]\n        result = self.call_import(rows)\n        self.assertTrue(result["ok"])\n        self.assertEqual(result["summary"]["imported"], 1)\n        self.assertTrue(any("Duplicate attendance punch" in issue for item in result["items"] for issue in item["issues"]))\n        conn = get_conn(self.db_path)\n        try:\n            stored = fetchall(conn, "SELECT actual_in, actual_out, source FROM time_logs WHERE employee_id=? AND work_date=?", (self.employee_id, "2026-08-31"))\n        finally:\n            conn.close()\n        self.assertEqual(len(stored), 1)\n        self.assertEqual(stored[0]["actual_in"], "08:02")\n        self.assertEqual(stored[0]["actual_out"], "12:01")\n        self.assertEqual(stored[0]["source"], "template_upload")\n\n    def test_single_continuous_biometric_span_segments_across_touching_overnight_shifts(self) -> None:
+    def test_duplicate_punch_rows_do_not_crash_commit(self) -> None:
+        rows = [
+            AttendanceTemplateRow(
+                work_date="2026-08-31",
+                biometric_id="BIO-SPLIT",
+                time_in="8:02 AM",
+                time_out="12:01 PM",
+                time_out_date="2026-08-31",
+                attendance_status="ON-TIME",
+            )
+            for _ in range(2)
+        ]
+        result = self.call_import(rows)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["summary"]["imported"], 1)
+        self.assertTrue(
+            any(
+                "Duplicate attendance punch" in issue
+                for item in result["items"]
+                for issue in item["issues"]
+            )
+        )
+
+        conn = get_conn(self.db_path)
+        try:
+            stored = fetchall(
+                conn,
+                "SELECT actual_in, actual_out, source FROM time_logs WHERE employee_id=? AND work_date=?",
+                (self.employee_id, "2026-08-31"),
+            )
+        finally:
+            conn.close()
+
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["actual_in"], "08:02")
+        self.assertEqual(stored[0]["actual_out"], "12:01")
+        self.assertEqual(stored[0]["source"], "template_upload")
+
+    def test_single_continuous_biometric_span_segments_across_touching_overnight_shifts(self) -> None:
         conn = get_conn(self.db_path)
         try:
             conn.execute(
