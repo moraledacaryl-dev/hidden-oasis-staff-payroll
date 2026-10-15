@@ -212,6 +212,35 @@ def import_attendance_template_v2(
 
         importable_rows = _link_split_shift_rows(conn, source_importable_rows)
 
+        # Reject duplicate punch identities before the write transaction. time_logs
+        # enforces UNIQUE(employee_id, work_date, actual_in, actual_out, source);
+        # without this guard an otherwise successful preview can crash the commit
+        # with sqlite3.IntegrityError when the CSV contains the same punch twice.
+        seen_punches: dict[tuple[int, str, str | None, str | None], int] = {}
+        for row in importable_rows:
+            key = (
+                int(row["employee_id"]),
+                str(row["work_date"]),
+                row.get("actual_in"),
+                row.get("actual_out"),
+            )
+            first_row_number = seen_punches.get(key)
+            if first_row_number is None:
+                seen_punches[key] = int(row.get("row_number") or 0)
+                continue
+            issue = f"Duplicate attendance punch; same employee/date/in/out as row {first_row_number}."
+            issues = list(row.get("issues") or [])
+            if issue not in issues:
+                issues.append(issue)
+            row["issues"] = issues
+            row["needs_review"] = 1
+            row["attendance_status"] = "Needs Review"
+            row["skip_import"] = True
+
+        # A duplicate punch cannot be represented twice under the database's
+        # uniqueness contract. Other reviewable rows keep their existing behavior.
+        importable_rows = [row for row in importable_rows if not row.get("skip_import")]
+
         success_rows = [
             row for row in validated if row["employee_id"] and row["work_date"] and not row["issues"]
         ]
