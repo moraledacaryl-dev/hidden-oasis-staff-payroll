@@ -41,7 +41,6 @@ class RemittanceRequest(BaseModel):
     payment_date: date
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     reference: str = Field(default="", max_length=160)
-    source_key: str | None = Field(default=None, max_length=180)
     note: str = Field(default="", max_length=1000)
 
 
@@ -71,8 +70,6 @@ def list_remittances(month: str, user: dict = Depends(require_roles(ROLE_OWNER, 
 def add_remittance(payload: RemittanceRequest, user: dict = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict:
     month = valid_month(payload.contribution_month)
     with db_conn() as conn:
-        if payload.source_key:
-            raise HTTPException(status_code=422, detail="Historical imports require a separately verified, audited import workflow.")
         cursor = conn.execute("""
             INSERT INTO statutory_agency_remittances
             (program,contribution_month,payment_date,amount,reference,note,created_by,created_at)
