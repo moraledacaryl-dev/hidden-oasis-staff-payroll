@@ -614,6 +614,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
     )
 
     gross_by_month = dated_earnings.reconcile(result.gross_pay)
+    setattr(result, '_dated_gross_by_month', dict(gross_by_month))
     statutory_snapshots = apply_calendar_month_statutory(
         conn,
         result,
