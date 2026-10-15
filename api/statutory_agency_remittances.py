@@ -72,6 +72,8 @@ def add_remittance(payload: RemittanceRequest, user: dict = Depends(require_role
     month = valid_month(payload.contribution_month)
     with db_conn() as conn:
         if payload.source_key:
+            raise HTTPException(status_code=422, detail="Historical imports require a separately verified, audited import workflow.")
+        if payload.source_key:
             existing = conn.execute("SELECT id FROM statutory_agency_remittances WHERE source_key=?", (payload.source_key,)).fetchone()
             if existing:
                 raise HTTPException(status_code=409, detail="This historical remittance source has already been imported.")
