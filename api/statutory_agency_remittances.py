@@ -41,6 +41,7 @@ class RemittanceRequest(BaseModel):
     payment_date: date
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     reference: str = Field(default="", max_length=160)
+    source_key: str | None = Field(default=None, max_length=180)
     note: str = Field(default="", max_length=1000)
 
 
@@ -70,14 +71,19 @@ def list_remittances(month: str, user: dict = Depends(require_roles(ROLE_OWNER, 
 def add_remittance(payload: RemittanceRequest, user: dict = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict:
     month = valid_month(payload.contribution_month)
     with db_conn() as conn:
+        if payload.source_key:
+            existing = conn.execute("SELECT id FROM statutory_agency_remittances WHERE source_key=?", (payload.source_key,)).fetchone()
+            if existing:
+                raise HTTPException(status_code=409, detail="This historical remittance source has already been imported.")
         cursor = conn.execute("""
             INSERT INTO statutory_agency_remittances
-            (program,contribution_month,payment_date,amount,reference,note,created_by,created_at)
-            VALUES(?,?,?,?,?,?,?,?)
+            (program,contribution_month,payment_date,amount,reference,note,created_by,created_at,source_type,source_key)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
         """, (payload.program,month,payload.payment_date.isoformat(),float(payload.amount),
               payload.reference.strip() or None,payload.note.strip() or None,
               str(user.get("display_name") or user.get("username") or "authorized user"),
-              datetime.now(timezone.utc).isoformat()))
+              datetime.now(timezone.utc).isoformat(),
+              "verified_import" if payload.source_key else "manual", payload.source_key))
         conn.commit()
         return {"ok": True, "id": cursor.lastrowid}
 
