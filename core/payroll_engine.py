@@ -318,8 +318,10 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         }
         regular_holiday_base_paid_dates: set[str] = set()
         log_dates = set()
+        original_nd_by_month = {}
 
         for log in logs:
+            nd_before_log = result.night_diff_pay
             earnings_before_log = result.regular_pay + result.ot_pay + result.night_diff_pay + result.holiday_pay
             if not log.get("actual_in") and not log.get("is_absent"):
                 warnings.append(f"Missing time-in on {log['work_date']}; no hours paid unless corrected.")
@@ -467,6 +469,8 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             nd = round(min(raw_nd, payable_hours_for_nd), 4)
             result.night_diff_hours += nd
             result.night_diff_pay += nd * hourly_rate * nd_rate * base_multiplier
+            nd_month = str(work_date)[:7]
+            original_nd_by_month[nd_month] = original_nd_by_month.get(nd_month, 0.0) + result.night_diff_pay - nd_before_log
             earnings_after_log = result.regular_pay + result.ot_pay + result.night_diff_pay + result.holiday_pay
             dated_earnings.add(work_date, earnings_after_log - earnings_before_log)
             log_dates.add(log["work_date"])
@@ -615,6 +619,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
 
     gross_by_month = dated_earnings.reconcile(result.gross_pay)
     setattr(result, '_dated_gross_by_month', dict(gross_by_month))
+    setattr(result, '_original_nd_by_month', dict(locals().get('original_nd_by_month', {})))
     statutory_snapshots = apply_calendar_month_statutory(
         conn,
         result,
