@@ -429,6 +429,10 @@ def apply_holiday_payroll_adjustment(
                 paid_leave_dates.add(cur.isoformat())
                 cur += timedelta(days=1)
 
+    from core.dated_earnings import DatedEarningsLedger, replace_dated_component
+
+    ot_ledger = DatedEarningsLedger.for_cutoff(period_start, period_end)
+    holiday_ledger = DatedEarningsLedger.for_cutoff(period_start, period_end)
     new_ot_pay = 0.0
     new_nd_pay = 0.0
     new_nd_hours = 0.0
@@ -443,6 +447,7 @@ def apply_holiday_payroll_adjustment(
         if seg.kind == "ot":
             ot_mult = overtime_multiplier(conn, multiplier)
             new_ot_pay += seg.paid_hours * hourly_rate * ot_mult
+            ot_ledger.add(seg.shift_work_date or seg.work_date, seg.paid_hours * hourly_rate * ot_mult)
             new_nd_pay += nd_hours * hourly_rate * nd_rate * ot_mult
         else:
             new_nd_pay += nd_hours * hourly_rate * nd_rate * multiplier
@@ -450,7 +455,9 @@ def apply_holiday_payroll_adjustment(
                 regular_hours_by_date[seg.work_date] = regular_hours_by_date.get(seg.work_date, 0.0) + seg.paid_hours
                 regular_multiplier_by_date[seg.work_date] = max(regular_multiplier_by_date.get(seg.work_date, 1.0), multiplier)
             elif multiplier > 1.0:
-                special_rest_premium += seg.paid_hours * hourly_rate * (multiplier - 1.0)
+                premium = seg.paid_hours * hourly_rate * (multiplier - 1.0)
+                special_rest_premium += premium
+                holiday_ledger.add(seg.shift_work_date or seg.work_date, premium)
 
     holiday_pay = special_rest_premium
     active_regular = fetchall(
@@ -462,6 +469,7 @@ def apply_holiday_payroll_adjustment(
         if canonical_holiday_type(holiday.get("holiday_type")) != REGULAR:
             continue
         holiday_date = str(holiday["holiday_date"])
+        holiday_before = holiday_pay
         worked_regular = regular_hours_by_date.get(holiday_date, 0.0)
         eligibility, reason = regular_holiday_eligibility(conn, employee_id, holiday_date)
         if worked_regular > 0:
@@ -483,6 +491,10 @@ def apply_holiday_payroll_adjustment(
             elif result.warnings is not None:
                 result.warnings.append(f"No unworked regular-holiday base pay on {holiday_date}: {reason}.")
 
+        holiday_ledger.add(holiday_date, holiday_pay - holiday_before)
+
+    replace_dated_component(result, "holiday_pay", holiday_ledger, money(holiday_pay))
+    replace_dated_component(result, "ot_pay", ot_ledger, money(new_ot_pay))
     old = (
         round(float(result.holiday_pay or 0), 2),
         round(float(result.ot_pay or 0), 2),

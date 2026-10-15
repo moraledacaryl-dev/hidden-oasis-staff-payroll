@@ -82,3 +82,22 @@ class DatedEarningsLedger:
             month_start = last_date.replace(day=1)
             totals[month_start] = money(totals[month_start] + delta)
         return totals
+
+
+def replace_dated_component(result, component: str, ledger: DatedEarningsLedger, new_pay: float) -> None:
+    """Replace a component's dated earnings without inventing a monthly split."""
+    dated = getattr(result, "_dated_gross_by_month", None)
+    if dated is None:
+        return  # Legacy same-month callers do not carry a dated ledger.
+    components = getattr(result, "_dated_components_by_month", {})
+    old = components.get(component)
+    old_pay = money(getattr(result, component, 0))
+    if old is None:
+        if old_pay and len(dated) > 1:
+            raise ValueError(f"{component} adjustment requires original dated earnings")
+        old = {next(iter(dated)): old_pay} if old_pay else {}
+    new = dict(ledger.reconcile(new_pay))
+    for month in set(old) | set(new):
+        dated[month] = money(dated.get(month, 0) - old.get(month, 0) + new.get(month, 0))
+    components[component] = new
+    setattr(result, "_dated_components_by_month", components)

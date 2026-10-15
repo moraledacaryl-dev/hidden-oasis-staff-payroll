@@ -33,7 +33,7 @@ def _preview_warnings(warnings: list[str] | None) -> list[str]:
     return [warning for warning in (warnings or []) if not _is_credit_balance_warning(warning)]
 
 
-def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, period_end: str) -> float:
+def _correct_paid_leave_detail(conn: Any, employee_id: int, period_start: str, period_end: str) -> tuple[float, dict[str, float]]:
     rows = fetchall(
         conn,
         """
@@ -48,6 +48,7 @@ def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, per
     )
     paid_dates: set[str] = set()
     total = 0.0
+    days_by_date: dict[str, float] = {}
     for row in rows:
         if not int(row.get("paid") or 0):
             continue
@@ -56,7 +57,13 @@ def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, per
             continue
         total += days
         paid_dates.update(dates)
-    return round(total, 4)
+        for day in dates:
+            days_by_date[day] = days / len(dates)
+    return round(total, 4), days_by_date
+
+
+def _correct_paid_leave_days(conn: Any, employee_id: int, period_start: str, period_end: str) -> float:
+    return _correct_paid_leave_detail(conn, employee_id, period_start, period_end)[0]
 
 
 def _recompute_statutory_and_net(
@@ -149,6 +156,7 @@ def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start:
     if not emp:
         return result
 
+    original_dated = dict(getattr(result, "_dated_gross_by_month", {}))
     result.warnings = _preview_warnings(result.warnings)
     holiday_changed = False
     if _table_exists(conn, "time_logs") and _table_exists(conn, "holidays"):
@@ -159,19 +167,27 @@ def apply_fractional_paid_leave_adjustment(conn: Any, result: Any, period_start:
             period_start,
             period_end,
         )
-    corrected_days = _correct_paid_leave_days(conn, employee_id, period_start, period_end)
+    corrected_days, days_by_date = _correct_paid_leave_detail(conn, employee_id, period_start, period_end)
     standard_paid_hours = float(get_setting(conn, "standard_daily_paid_hours", "8") or 8)
     hourly_rate = float(emp.get("hourly_rate") or 0)
     old_days = float(result.paid_leave_days or 0)
     old_pay = float(result.paid_leave_pay or 0)
 
+    from core.dated_earnings import DatedEarningsLedger, replace_dated_component
+    from core.money import money
+
+    leave_ledger = DatedEarningsLedger.for_cutoff(period_start, period_end)
+    for day, days in days_by_date.items():
+        leave_ledger.add(day, days * standard_paid_hours * hourly_rate)
+    corrected_pay = money(corrected_days * standard_paid_hours * hourly_rate)
+    replace_dated_component(result, "paid_leave_pay", leave_ledger, corrected_pay)
     result.paid_leave_days = round(corrected_days, 4)
-    result.paid_leave_pay = round(corrected_days * standard_paid_hours * hourly_rate, 2)
+    result.paid_leave_pay = corrected_pay
     if abs(old_days - corrected_days) > 0.0001:
         result.warnings.append(
             f"Paid leave was prorated from {old_days:g} to {corrected_days:g} day(s) for this cutoff."
         )
-    if holiday_changed or abs(old_pay - result.paid_leave_pay) > 0.004:
+    if holiday_changed or abs(old_pay - result.paid_leave_pay) > 0.004 or original_dated != getattr(result, "_dated_gross_by_month", {}):
         _recompute_statutory_and_net(conn, result, emp, period_start, period_end)
     return result
 
