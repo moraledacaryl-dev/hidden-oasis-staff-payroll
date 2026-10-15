@@ -235,10 +235,11 @@ def import_attendance_template_v2(
             row["issues"] = issues
             row["needs_review"] = 1
             row["attendance_status"] = "Needs Review"
+            row["skip_import"] = True
 
-        # Never write rows that validation has identified as duplicate/ambiguous.
-        # Review rows remain visible in preview instead of aborting the whole batch.
-        importable_rows = [row for row in importable_rows if not row.get("issues")]
+        # A duplicate punch cannot be represented twice under the database's
+        # uniqueness contract. Other reviewable rows keep their existing behavior.
+        importable_rows = [row for row in importable_rows if not row.get("skip_import")]
 
         success_rows = [
             row for row in validated if row["employee_id"] and row["work_date"] and not row["issues"]
