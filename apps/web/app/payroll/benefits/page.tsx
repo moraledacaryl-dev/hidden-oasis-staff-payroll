@@ -6,6 +6,7 @@ import { getMonthlyBenefits, peso } from "@/lib/api";
 import { currentSession } from "@/lib/session";
 import { OutsideBenefitPayment } from "@/components/OutsideBenefitPayment";
 import { AgencyRemittanceForm } from "@/components/AgencyRemittanceForm";
+import { getRemittanceBalances } from "@/lib/api";
 
 function currentMonth() {
   const parts = new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Manila",year:"numeric",month:"2-digit"}).formatToParts(new Date());
@@ -20,9 +21,11 @@ export default async function BenefitsPage({ searchParams }: { searchParams: Pro
   const query = await searchParams;
   const month = /^\d{4}-\d{2}$/.test(query.month || "") ? query.month! : currentMonth();
   const ledger = await getMonthlyBenefits(month);
+  const remittanceBalances = session.role_key === "supervisor" ? null : await getRemittanceBalances(month);
   return <Shell allowedRoles={allowed}><div className="page run-page">
     <header className="payroll-hero"><div><span className="eyebrow">Statutory benefits</span><h1>Monthly benefits ledger</h1><p className="muted">Payroll contribution obligations and employee deductions. Payroll-paid amounts are not proof of government remittance.</p></div><div className="payroll-actions"><Link className="button secondary" href="/payroll/runs">Payroll runs</Link></div></header>
     <section className="payroll-toolbar"><form><label>Calendar month<input name="month" type="month" defaultValue={month}/></label><button className="button" type="submit">View month</button></form><p className="muted">General Managers can review this ledger. Payroll corrections remain controlled by the payroll workflow.</p></section>
+    {remittanceBalances ? <section className="run-list"><header><div><h2>Agency balances through {month}</h2><p>Employee and employer obligations from paid payroll less actual government remittances. Negative balances are unverified accounting credits.</p></div></header><div className="table-wrap"><table className="run-table responsive-records"><thead><tr><th>Agency</th><th>Employee due</th><th>Employer due</th><th>Remitted</th><th>Balance carried forward</th></tr></thead><tbody>{(["sss","philhealth","pagibig"] as const).map(program=>{const entries=remittanceBalances.programs[program]||[];const last=entries.at(-1);return <tr key={program}><td data-label="Agency">{program==="sss"?"SSS":program==="philhealth"?"PhilHealth":"Pag-IBIG"}</td><td data-label="Employee due">{peso(entries.reduce((sum,x)=>sum+x.employee_due,0))}</td><td data-label="Employer due">{peso(entries.reduce((sum,x)=>sum+x.employer_due,0))}</td><td data-label="Remitted">{peso(entries.reduce((sum,x)=>sum+x.remitted,0))}</td><td data-label="Balance carried forward"><strong>{peso(last?.closing_balance||0)}</strong>{(last?.closing_balance||0)<0?<span className="muted"> · Unverified credit</span>:null}</td></tr>})}</tbody></table></div></section> : null}
     {session.role_key !== "supervisor" ? <section className="run-list"><header><div><h2>Government remittances</h2><p>Record actual payments made to SSS, PhilHealth, or Pag-IBIG. These are separate from employee collections.</p></div></header><AgencyRemittanceForm month={month}/></section> : null}
     <section className="run-list"><header><div><h2>{month} contributions</h2><p>{ledger.items.length} employee records. Payroll status reflects payroll processing only, not confirmed agency remittances.</p></div><StatusBadge label={ledger.items.some(x=>x.status!=="Complete") ? "Pending coverage" : "Complete"} tone={ledger.items.some(x=>x.status!=="Complete") ? "warning" : "ok"} /></header>
     <div className="table-wrap"><table className="run-table responsive-records"><thead><tr><th>Employee</th><th>Coverage</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Gross basis</th><th>Settlement</th><th>Source runs</th></tr></thead><tbody>
