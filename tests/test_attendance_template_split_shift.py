@@ -189,6 +189,80 @@ class AttendanceTemplateSplitShiftTests(unittest.TestCase):
         self.assertEqual(stored[0]["actual_out"], "12:01")
         self.assertEqual(stored[0]["source"], "template_upload")
 
+    def test_existing_manual_attendance_for_shift_is_preserved_without_500(self) -> None:
+        conn = get_conn(self.db_path)
+        try:
+            timestamp = now_iso()
+            existing_id = int(
+                conn.execute(
+                    """
+                    INSERT INTO time_logs(
+                        scheduled_shift_id, employee_id, work_date, actual_in, actual_out,
+                        source, verification_type, attendance_status, created_at, updated_at
+                    )
+                    VALUES (?, ?, '2026-08-31', '08:01', '12:00',
+                            'manual', 'Manual', 'Approved', ?, ?)
+                    """,
+                    (self.shift_one, self.employee_id, timestamp, timestamp),
+                ).lastrowid
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        result = self.call_import(
+            [
+                AttendanceTemplateRow(
+                    work_date="2026-08-31",
+                    biometric_id="BIO-SPLIT",
+                    time_in="8:02 AM",
+                    time_out="12:01 PM",
+                    time_out_date="2026-08-31",
+                    attendance_status="ON-TIME",
+                ),
+                AttendanceTemplateRow(
+                    work_date="2026-08-31",
+                    biometric_id="BIO-SPLIT",
+                    time_in="3:58 PM",
+                    time_out="8:03 PM",
+                    time_out_date="2026-08-31",
+                    attendance_status="ON-TIME",
+                ),
+            ]
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["summary"]["imported"], 1)
+        self.assertTrue(
+            any(
+                f"attendance record {existing_id}" in issue and "preserved" in issue
+                for item in result["items"]
+                for issue in item["issues"]
+            )
+        )
+
+        conn = get_conn(self.db_path)
+        try:
+            existing = fetchall(
+                conn,
+                "SELECT id, source, actual_in, actual_out FROM time_logs WHERE scheduled_shift_id=?",
+                (self.shift_one,),
+            )
+            imported = fetchall(
+                conn,
+                "SELECT source, actual_in, actual_out FROM time_logs WHERE scheduled_shift_id=?",
+                (self.shift_two,),
+            )
+        finally:
+            conn.close()
+
+        self.assertEqual(len(existing), 1)
+        self.assertEqual(existing[0]["id"], existing_id)
+        self.assertEqual(existing[0]["source"], "manual")
+        self.assertEqual(existing[0]["actual_in"], "08:01")
+        self.assertEqual(len(imported), 1)
+        self.assertEqual(imported[0]["source"], "template_upload")
+
     def test_single_continuous_biometric_span_segments_across_touching_overnight_shifts(self) -> None:
         conn = get_conn(self.db_path)
         try:
