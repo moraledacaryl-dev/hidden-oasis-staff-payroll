@@ -63,17 +63,24 @@ def apply_calendar_month_statutory(
     pi_month_ee = pi_base * pi_rate
     pi_month_er = pi_base * pi_er_rate
 
+    # Employee deductions follow the payroll cutoff ending month. A single
+    # month-end workday must not trigger a second set of monthly deductions.
+    # Preserve actual dated gross in snapshots for reporting and audit.
+    deduction_month = segments[-1].month_start
+    cutoff_gross = allocated_gross
     for segment in segments:
         current_gross = money(gross_by_month[segment.month_start])
         snap = {"gross_pay": current_gross, "sss_ee": 0.0, "sss_er": 0.0, "sss_ec": 0.0,
                 "philhealth_ee": 0.0, "philhealth_er": 0.0, "pagibig_ee": 0.0, "pagibig_er": 0.0}
         snapshots[segment.month_start] = snap
-        if current_gross <= 0.005:
+        if segment.month_start != deduction_month:
+            continue
+        if cutoff_gross <= 0.005:
             continue
         prev = previous_month_snapshot_totals(conn, employee_id, segment.month_start, segment.start)
 
         if int(emp.get("benefits_sss") or 0):
-            target_ee, target_er, target_ec = get_sss_share(conn, prev["gross"] + current_gross)
+            target_ee, target_er, target_ec = get_sss_share(conn, prev["gross"] + cutoff_gross)
             snap["sss_ee"] = money(max(0.0, target_ee - prev["sss"]))
             snap["sss_er"] = money(max(0.0, target_er - prev["sss_er"]))
             snap["sss_ec"] = money(max(0.0, target_ec - prev["sss_ec"]))
