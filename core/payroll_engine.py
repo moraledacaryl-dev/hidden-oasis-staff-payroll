@@ -275,6 +275,10 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
         warnings=warnings,
     )
     dated_earnings = DatedEarningsLedger.for_cutoff(period_start, period_end)
+    component_ledgers = {
+        name: DatedEarningsLedger.for_cutoff(period_start, period_end)
+        for name in ("ot_pay", "holiday_pay", "paid_leave_pay")
+    }
 
     if not is_freelance:
         logs = fetchall(
@@ -322,6 +326,8 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
 
         for log in logs:
             nd_before_log = result.night_diff_pay
+            ot_before_log = result.ot_pay
+            holiday_before_log = result.holiday_pay
             earnings_before_log = result.regular_pay + result.ot_pay + result.night_diff_pay + result.holiday_pay
             if not log.get("actual_in") and not log.get("is_absent"):
                 warnings.append(f"Missing time-in on {log['work_date']}; no hours paid unless corrected.")
@@ -333,6 +339,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
                     holiday_amount = standard_paid_hours * hourly_rate
                     result.holiday_pay += holiday_amount
                     dated_earnings.add(work_date, holiday_amount)
+                    component_ledgers["holiday_pay"].add(work_date, holiday_amount)
                     regular_holiday_base_paid_dates.add(work_date)
                     warnings.append(f"Regular holiday base pay on {work_date} was paid even though employee was absent.")
                 else:
@@ -473,6 +480,8 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             original_nd_by_month[nd_month] = original_nd_by_month.get(nd_month, 0.0) + result.night_diff_pay - nd_before_log
             earnings_after_log = result.regular_pay + result.ot_pay + result.night_diff_pay + result.holiday_pay
             dated_earnings.add(work_date, earnings_after_log - earnings_before_log)
+            component_ledgers["ot_pay"].add(work_date, result.ot_pay - ot_before_log)
+            component_ledgers["holiday_pay"].add(work_date, result.holiday_pay - holiday_before_log)
             log_dates.add(log["work_date"])
 
         # Scheduled days without logs and without approved leave become unpaid absence warnings.
@@ -522,6 +531,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
                     for d_iso in overlap_dates:
                         paid_leave_dates.add(d_iso)
                         dated_earnings.add(d_iso, standard_paid_hours * hourly_rate)
+                        component_ledgers["paid_leave_pay"].add(d_iso, standard_paid_hours * hourly_rate)
                     result.paid_leave_days += paid_days_in_cutoff
                     result.paid_leave_pay += paid_days_in_cutoff * standard_paid_hours * hourly_rate
                     warnings.append(f"Paid leave '{lr['leave_name']}' pays {paid_days_in_cutoff:g} unique day(s) x {standard_paid_hours:g} standard hours.")
@@ -532,6 +542,7 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
             holiday_amount = standard_paid_hours * hourly_rate
             result.holiday_pay += holiday_amount
             dated_earnings.add(hol_date, holiday_amount)
+            component_ledgers["holiday_pay"].add(hol_date, holiday_amount)
             regular_holiday_base_paid_dates.add(hol_date)
             warnings.append(f"Regular holiday base pay on {hol_date} was paid even with no worked log.")
 
@@ -619,6 +630,10 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
 
     gross_by_month = dated_earnings.reconcile(result.gross_pay)
     setattr(result, '_dated_gross_by_month', dict(gross_by_month))
+    setattr(result, '_dated_components_by_month', {
+        name: dict(ledger.reconcile(getattr(result, name)))
+        for name, ledger in component_ledgers.items()
+    })
     setattr(result, '_original_nd_by_month', dict(locals().get('original_nd_by_month', {})))
     statutory_snapshots = apply_calendar_month_statutory(
         conn,

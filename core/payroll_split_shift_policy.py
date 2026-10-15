@@ -89,6 +89,7 @@ def apply_independent_split_shift_allocation(
     ot_pay_delta = 0.0
     holiday_pay_delta = 0.0
     dated_pay_delta: dict[str, float] = {}
+    component_deltas = {"ot_pay": {}, "holiday_pay": {}}
 
     # Correct the base engine's shared same-day 8-hour pool into one independent
     # 8-hour pool for every explicitly linked scheduled shift.
@@ -165,6 +166,8 @@ def apply_independent_split_shift_allocation(
             )
             holiday_delta = (regular_delta * hourly_rate * (base_multiplier - 1.0)) if base_multiplier > 1.0 else 0.0
             holiday_pay_delta += holiday_delta
+            for name, delta in (("ot_pay", ot_delta * hourly_rate * overtime_multiplier(conn, base_multiplier)), ("holiday_pay", holiday_delta)):
+                component_deltas[name][work_date] = component_deltas[name].get(work_date, 0.0) + delta
             dated_pay_delta[work_date] = dated_pay_delta.get(work_date, 0.0) + regular_delta * hourly_rate + ot_delta * hourly_rate * overtime_multiplier(conn, base_multiplier) + holiday_delta
 
     # Correct the base engine's no-schedule fallback. The base path temporarily
@@ -206,6 +209,7 @@ def apply_independent_split_shift_allocation(
             ot_hours_delta += ot_delta
             day_delta = ot_delta * hourly_rate * overtime_multiplier(conn, base_multiplier)
             ot_pay_delta += day_delta
+            component_deltas["ot_pay"][work_date] = component_deltas["ot_pay"].get(work_date, 0.0) + day_delta
             dated_pay_delta[work_date] = dated_pay_delta.get(work_date, 0.0) + day_delta
 
     if not changed_dates and not unscheduled_dates_with_excess:
@@ -273,6 +277,23 @@ def apply_independent_split_shift_allocation(
             month = max(date.fromisoformat(day[:7] + '-01') for day in dated_pay_delta)
             updated[month] = money(updated[month] + residual)
         setattr(result, '_dated_gross_by_month', updated)
+        # The later holiday pass replaces OT/premiums, so retain their corrected
+        # original allocation as well as the overall gross allocation.
+        components = getattr(result, '_dated_components_by_month', {})
+        for name, deltas in component_deltas.items():
+            if name not in components or not deltas:
+                continue
+            monthly = dict(components[name])
+            for day, amount in deltas.items():
+                month = date.fromisoformat(day[:7] + '-01')
+                monthly[month] = monthly.get(month, 0.0) + amount
+            monthly = {month: money(value) for month, value in monthly.items()}
+            residual = money(getattr(result, name) - sum(monthly.values()))
+            if abs(residual) > 0.05:
+                raise ValueError('split shift component earnings failed to reconcile')
+            month = max(date.fromisoformat(day[:7] + '-01') for day in deltas)
+            monthly[month] = money(monthly[month] + residual)
+            components[name] = monthly
 
     from core.payroll_fractional_leave import _recompute_statutory_and_net
 
