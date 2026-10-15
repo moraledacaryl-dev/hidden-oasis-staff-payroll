@@ -39,9 +39,9 @@ class RemittanceRequest(BaseModel):
     program: Literal["sss", "philhealth", "pagibig"]
     contribution_month: str
     payment_date: date
-    amount: float = Field(gt=0)
-    reference: str = ""
-    note: str = ""
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    reference: str = Field(default="", max_length=160)
+    note: str = Field(default="", max_length=1000)
 
 
 def valid_month(value: str) -> str:
@@ -74,7 +74,7 @@ def add_remittance(payload: RemittanceRequest, user: dict = Depends(require_role
             INSERT INTO statutory_agency_remittances
             (program,contribution_month,payment_date,amount,reference,note,created_by,created_at)
             VALUES(?,?,?,?,?,?,?,?)
-        """, (payload.program,month,payload.payment_date.isoformat(),round(payload.amount,2),
+        """, (payload.program,month,payload.payment_date.isoformat(),float(payload.amount),
               payload.reference.strip() or None,payload.note.strip() or None,
               str(user.get("display_name") or user.get("username") or "authorized user"),
               datetime.now(timezone.utc).isoformat()))
