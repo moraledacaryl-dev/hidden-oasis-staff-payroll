@@ -88,6 +88,7 @@ def apply_independent_split_shift_allocation(
     ot_hours_delta = 0.0
     ot_pay_delta = 0.0
     holiday_pay_delta = 0.0
+    dated_pay_delta: dict[str, float] = {}
 
     # Correct the base engine's shared same-day 8-hour pool into one independent
     # 8-hour pool for every explicitly linked scheduled shift.
@@ -162,10 +163,9 @@ def apply_independent_split_shift_allocation(
             ot_pay_delta += (
                 ot_delta * hourly_rate * overtime_multiplier(conn, base_multiplier)
             )
-            if base_multiplier > 1.0:
-                holiday_pay_delta += (
-                    regular_delta * hourly_rate * (base_multiplier - 1.0)
-                )
+            holiday_delta = (regular_delta * hourly_rate * (base_multiplier - 1.0)) if base_multiplier > 1.0 else 0.0
+            holiday_pay_delta += holiday_delta
+            dated_pay_delta[work_date] = dated_pay_delta.get(work_date, 0.0) + regular_delta * hourly_rate + ot_delta * hourly_rate * overtime_multiplier(conn, base_multiplier) + holiday_delta
 
     # Correct the base engine's no-schedule fallback. The base path temporarily
     # uses actual-in/out as a synthetic schedule, which otherwise turns every
@@ -204,9 +204,9 @@ def apply_independent_split_shift_allocation(
             changed_dates.add(work_date)
             base_multiplier, _ = day_pay_multipliers(conn, work_date, False)
             ot_hours_delta += ot_delta
-            ot_pay_delta += (
-                ot_delta * hourly_rate * overtime_multiplier(conn, base_multiplier)
-            )
+            day_delta = ot_delta * hourly_rate * overtime_multiplier(conn, base_multiplier)
+            ot_pay_delta += day_delta
+            dated_pay_delta[work_date] = dated_pay_delta.get(work_date, 0.0) + day_delta
 
     if not changed_dates and not unscheduled_dates_with_excess:
         return result
@@ -257,6 +257,22 @@ def apply_independent_split_shift_allocation(
             )
 
     result.warnings = filtered_warnings
+
+    dated = getattr(result, '_dated_gross_by_month', None)
+    if dated is not None:
+        from datetime import date
+        updated = dict(dated)
+        for work_date, amount in dated_pay_delta.items():
+            month = date.fromisoformat(work_date[:7] + '-01')
+            updated[month] = money(updated.get(month, 0) + amount)
+        target = money(result.regular_pay + result.ot_pay + result.night_diff_pay + result.holiday_pay + result.paid_leave_pay + result.freelance_pay + result.other_earnings)
+        residual = money(target - sum(updated.values()))
+        if abs(residual) > 0.05:
+            raise ValueError('split shift monthly earnings failed to reconcile')
+        if residual:
+            month = max(date.fromisoformat(day[:7] + '-01') for day in dated_pay_delta)
+            updated[month] = money(updated[month] + residual)
+        setattr(result, '_dated_gross_by_month', updated)
 
     from core.payroll_fractional_leave import _recompute_statutory_and_net
 
