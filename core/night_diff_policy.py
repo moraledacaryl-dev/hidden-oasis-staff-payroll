@@ -82,6 +82,7 @@ def apply_payable_night_diff(
 
     new_hours = 0.0
     new_pay = 0.0
+    new_nd_by_month = {}
     for segment in segments:
         nd_hours = float(holiday._night_paid_hours(segment) or 0)
         if nd_hours <= 0:
@@ -97,7 +98,10 @@ def apply_payable_night_diff(
         else:
             pay_multiplier = multiplier
         new_hours += nd_hours
-        new_pay += nd_hours * hourly_rate * nd_rate * pay_multiplier
+        earned = nd_hours * hourly_rate * nd_rate * pay_multiplier
+        new_pay += earned
+        month = str(segment.shift_work_date or segment.work_date)[:7]
+        new_nd_by_month[month] = new_nd_by_month.get(month, 0.0) + earned
 
     new_hours = round(new_hours, 4)
     new_pay = money(new_pay)
@@ -106,6 +110,24 @@ def apply_payable_night_diff(
     if old_hours == new_hours and old_pay == new_pay:
         return result
 
+    dated = getattr(result, '_dated_gross_by_month', None)
+    original = getattr(result, '_original_nd_by_month', None)
+    if dated is not None and original is not None:
+        from datetime import date
+        adjusted = dict(dated)
+        for month in set(original) | set(new_nd_by_month):
+            key = date.fromisoformat(month + '-01')
+            adjusted[key] = money(adjusted.get(key, 0) + new_nd_by_month.get(month, 0) - original.get(month, 0))
+        # Reconcile only rounding residuals, never a material undated delta.
+        target = money(result.gross_pay - old_pay + new_pay)
+        residual = money(target - sum(money(v) for v in adjusted.values()))
+        if abs(residual) > 0.05:
+            raise ValueError('night differential monthly earnings did not reconcile')
+        if residual:
+            last = max(adjusted)
+            adjusted[last] = money(adjusted[last] + residual)
+        setattr(result, '_dated_gross_by_month', adjusted)
+        setattr(result, '_original_nd_by_month', dict(new_nd_by_month))
     result.night_diff_hours = new_hours
     result.night_diff_pay = new_pay
 

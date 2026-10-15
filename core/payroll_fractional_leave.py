@@ -88,10 +88,11 @@ def _recompute_statutory_and_net(
     )
     segments = calendar_month_segments(period_start, period_end)
     if len(segments) != 1:
-        raise ValueError(
-            "cross-month post-processing adjustment requires dated earning detail before statutory recomputation"
-        )
-    gross_by_month = {segments[0].month_start: result.gross_pay}
+        gross_by_month = getattr(result, "_dated_gross_by_month", None)
+        if gross_by_month is None or abs(money(sum(gross_by_month.values())) - result.gross_pay) > 0.005:
+            raise ValueError("cross-month post-processing adjustment requires dated earning detail before statutory recomputation")
+    else:
+        gross_by_month = {segments[0].month_start: result.gross_pay}
     snapshots = apply_calendar_month_statutory(
         conn,
         result,
@@ -102,6 +103,7 @@ def _recompute_statutory_and_net(
         get_sss_share=get_sss_share,
     )
     setattr(result, "_statutory_snapshots", snapshots)
+    setattr(result, "_dated_gross_by_month", dict(gross_by_month))
 
     result.tax = 0.0
     has_current_gross = result.gross_pay > 0.005
