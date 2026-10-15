@@ -47,19 +47,40 @@ export async function importAttendanceTemplate(
   dryRun: boolean,
   fileName?: string,
 ) {
-  const response = await fetch(`${apiBaseUrl()}/api/v1/attendance/template-import-v2`, {
-    method: "POST",
-    headers: await backendHeaders(true),
-    body: JSON.stringify({ rows, dry_run: dryRun, file_name: fileName || "attendance-upload-template.csv" }),
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${apiBaseUrl()}/api/v1/attendance/template-import-v2`, {
+      method: "POST",
+      headers: await backendHeaders(true),
+      body: JSON.stringify({ rows, dry_run: dryRun, file_name: fileName || "attendance-upload-template.csv" }),
+      cache: "no-store",
+    });
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
+    const raw = await response.text();
+    let data: Record<string, unknown> = {};
+    if (raw) {
+      try {
+        data = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        data = {};
+      }
+    }
+
+    if (!response.ok) {
+      const detail = data.detail ?? data.message;
+      const fallback = raw && raw.length <= 500 && !raw.trimStart().startsWith("<")
+        ? raw
+        : `Attendance API returned HTTP ${response.status}.`;
+      return {
+        ok: false,
+        message: detail ? formatApiError(detail) : fallback,
+      };
+    }
+    return data;
+  } catch (error) {
+    const reason = error instanceof Error && error.message ? `: ${error.message}` : ".";
     return {
       ok: false,
-      message: formatApiError(data.detail ?? data.message),
+      message: `Could not reach the attendance API${reason}`,
     };
   }
-  return data;
 }

@@ -83,10 +83,15 @@ export function AttendanceTemplateUploadClient() {
     if (missingColumns.length) { setMessage(`Missing required columns: ${missingColumns.join(", ")}`); return; }
     setMessage("");
     startTransition(async () => {
-      const response = await importAttendanceTemplate(rows, dryRun, fileName);
-      setResult(response);
-      if (!response?.ok) { setMessage(response?.message || "Attendance template upload failed."); return; }
-      setMessage(dryRun ? "Preview complete. Review flagged rows before importing." : "Attendance rows imported.");
+      try {
+        const response = await importAttendanceTemplate(rows, dryRun, fileName);
+        setResult(response as ImportResult);
+        if (!response?.ok) { setMessage(typeof response?.message === "string" ? response.message : "Attendance template upload failed."); return; }
+        setMessage(dryRun ? "Preview complete. Review flagged rows before importing." : "Attendance rows imported.");
+      } catch (error) {
+        setResult(null);
+        setMessage(error instanceof Error && error.message ? `Attendance upload failed: ${error.message}` : "Attendance template upload failed.");
+      }
     });
   }
 
