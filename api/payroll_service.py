@@ -11,7 +11,6 @@ from api.security import current_user_from_token, require_api_key
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import REVIEW_STATUS, compute_payroll, update_payroll_status
-from core.payroll_cutoff_calendar import cutoff_for_month
 from core.payroll_maker_checker import assert_distinct_checker
 from core.quality import build_payroll_preflight_checks, summarize_checks
 
