@@ -6,6 +6,8 @@ type Payment = {id:number;program:string;payment_date:string;amount:number;refer
 export function AgencyRemittanceHistory({month}:{month:string}) {
   const [items,setItems]=useState<Payment[]>([]);
   const [error,setError]=useState("");
+  const [revision,setRevision]=useState(0);
+  useEffect(()=>{const refresh=()=>setRevision(n=>n+1);window.addEventListener("agency-remittance-saved",refresh);return ()=>window.removeEventListener("agency-remittance-saved",refresh);},[]);
   useEffect(()=>{
     let active=true;
     fetch("/api/payroll/benefits/remittance-history?month="+encodeURIComponent(month),{cache:"no-store"})
@@ -13,7 +15,7 @@ export function AgencyRemittanceHistory({month}:{month:string}) {
       .then(data=>{if(active){setItems(data.items||[]);setError("");}})
       .catch(e=>{if(active)setError(String(e.message||e));});
     return ()=>{active=false;};
-  },[month]);
+  },[month,revision]);
   if(error)return <p role="alert">{error}</p>;
   return <div className="table-wrap"><table className="run-table responsive-records"><thead><tr><th>Agency</th><th>Payment date</th><th>Amount</th><th>Reference</th><th>Recorded by</th></tr></thead><tbody>
     {items.map(x=><tr key={x.id}><td data-label="Agency">{x.program==="sss"?"SSS":x.program==="philhealth"?"PhilHealth":"Pag-IBIG"}</td><td data-label="Payment date">{x.payment_date}</td><td data-label="Amount">{new Intl.NumberFormat("en-PH",{style:"currency",currency:"PHP"}).format(x.amount)}</td><td data-label="Reference">{x.reference||"—"}</td><td data-label="Recorded by">{x.created_by}</td></tr>)}
