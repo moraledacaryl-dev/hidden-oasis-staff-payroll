@@ -17,7 +17,7 @@ export function AgencyRemittanceForm({month}:{month:string}) {
       const response=await fetch("/api/payroll/benefits/remittances",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({program,contribution_month:month,payment_date:paymentDate,amount:Number(amount),reference})});
       const result=await response.json().catch(()=>({}));
       if(!response.ok) {setMessage(String(result.detail||"Unable to record remittance."));return;}
-      setAmount("");setReference("");setMessage("Remittance recorded.");router.refresh();
+      setAmount("");setReference("");setMessage("Remittance recorded.");window.dispatchEvent(new CustomEvent("agency-remittance-saved"));router.refresh();
     } catch {setMessage("Unable to connect to the server.");}
     finally {setBusy(false);}
   }
