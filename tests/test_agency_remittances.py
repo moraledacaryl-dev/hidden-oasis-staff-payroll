@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import sqlite3
 import unittest
 from datetime import date
 from decimal import Decimal
@@ -42,6 +43,27 @@ class AgencyRemittanceTests(unittest.TestCase):
         items = list_remittances("2026-10", user=user)["items"]
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["amount"], 1234.50)
+
+    def test_database_constraint_blocks_normalized_duplicate_without_api_precheck(self):
+        user = {"display_name": "Payroll Owner"}
+        add_remittance(RemittanceRequest(program="sss", contribution_month="2026-10",
+            payment_date=date(2026, 10, 17), amount=Decimal("100.00"),
+            reference=" OR-003 "), user=user)
+        with get_conn(self.path) as conn:
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute("""
+                    INSERT INTO statutory_agency_remittances
+                    (program, contribution_month, payment_date, amount, reference, created_by, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, ("sss", "2026-10", "2026-10-18", 100.0, "or-003", "test", "2026-10-18T00:00:00Z"))
+
+    def test_receipt_can_be_reused_in_another_month(self):
+        user = {"display_name": "Payroll Owner"}
+        for month in ("2026-09", "2026-10"):
+            result = add_remittance(RemittanceRequest(program="sss",
+                contribution_month=month, payment_date=date(2026, 10, 17),
+                amount=Decimal("100.00"), reference="OR-004"), user=user)
+            self.assertTrue(result["ok"])
 
     def test_same_receipt_different_agency_is_allowed(self):
         user = {"display_name": "Payroll Owner"}
