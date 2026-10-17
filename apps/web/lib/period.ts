@@ -41,7 +41,7 @@ export function payrollCutoffForMonth(month: string, half: "first" | "second"): 
     half,
     periodStart: half === "first" ? firstStart : `${month}-${pad(startDay)}`,
     periodEnd: `${month}-${pad(endDay)}`,
-    payoutDate: `${month}-${pad(endDay)}`,
+    payoutDate: `${month}-${pad(half === "first" ? 15 : lastDay)}`,
   };
 }
 
