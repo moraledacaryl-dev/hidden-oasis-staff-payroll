@@ -11,6 +11,7 @@ from api.security import ROLE_OWNER, ROLE_PAYROLL, require_roles
 from core.db import fetchall
 from core.statutory_reconciliation import ContributionMonth, reconcile_months
 from decimal import Decimal
+import sqlite3
 from api.main import db_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -33,6 +34,12 @@ def ensure_schema(conn: Any) -> None:
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_statutory_agency_remittances_month ON statutory_agency_remittances(contribution_month,program)")
+    # Do not silently discard conflicting historical receipt records.
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_statutory_agency_remittance_receipt
+        ON statutory_agency_remittances(program, contribution_month, lower(trim(reference)))
+        WHERE reference IS NOT NULL AND trim(reference) <> ''
+    """)
 
 
 class RemittanceRequest(BaseModel):
@@ -77,14 +84,19 @@ def add_remittance(payload: RemittanceRequest, user: dict = Depends(require_role
             """, (payload.program, month, payload.reference.strip())).fetchone()
             if duplicate:
                 raise HTTPException(status_code=409, detail="A remittance with this agency, month and receipt reference is already recorded.")
-        cursor = conn.execute("""
-            INSERT INTO statutory_agency_remittances
-            (program,contribution_month,payment_date,amount,reference,note,created_by,created_at)
-            VALUES(?,?,?,?,?,?,?,?)
-        """, (payload.program,month,payload.payment_date.isoformat(),float(payload.amount),
-              payload.reference.strip() or None,payload.note.strip() or None,
-              str(user.get("display_name") or user.get("username") or "authorized user"),
-              datetime.now(timezone.utc).isoformat()))
+        try:
+            cursor = conn.execute("""
+                INSERT INTO statutory_agency_remittances
+                (program,contribution_month,payment_date,amount,reference,note,created_by,created_at)
+                VALUES(?,?,?,?,?,?,?,?)
+            """, (payload.program,month,payload.payment_date.isoformat(),float(payload.amount),
+                  payload.reference.strip() or None,payload.note.strip() or None,
+                  str(user.get("display_name") or user.get("username") or "authorized user"),
+                  datetime.now(timezone.utc).isoformat()))
+        except sqlite3.IntegrityError as exc:
+            if "UNIQUE constraint failed" in str(exc):
+                raise HTTPException(status_code=409, detail="A remittance with this agency, month and receipt reference is already recorded.") from exc
+            raise
         conn.commit()
         return {"ok": True, "id": cursor.lastrowid}
 
