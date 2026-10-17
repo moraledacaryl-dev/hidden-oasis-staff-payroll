@@ -28,7 +28,7 @@ export function PayrollDraftButton({
         period_start: periodStart,
         period_end: periodEnd,
         payout_date: payoutDate,
-        run_label: "Custom cutoff",
+        run_label: "Semi-monthly",
       }),
     });
     const data = await response.json().catch(() => ({}));
