@@ -119,7 +119,7 @@ def remittance_balances(month: str, user: dict = Depends(require_roles(ROLE_OWNE
             for program in ("sss","philhealth","pagibig")
         }
     paid = {(row["month"],row["program"]): Decimal(str(row["amount"] or 0)) for row in remittances}
-    months = sorted(set(dues) | {m for m,_ in paid})
+    months = sorted(set(dues) | {m for m,_ in paid} | {month})
     output = {}
     for program in ("sss","philhealth","pagibig"):
         rows = reconcile_months([
