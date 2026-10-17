@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from calendar import monthrange
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -19,6 +18,7 @@ from api.payroll_service import (
 )
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from core.payroll_cutoff_calendar import cutoff_for_month
 from core.money import money
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
 from core.payroll_split_shift_policy import compute_payroll_per_shift
@@ -32,17 +32,11 @@ def payroll_business_date() -> date:
 
 
 def _validate_semimonthly_period(start: date, end: date) -> None:
-    if start.year != end.year or start.month != end.month:
-        raise HTTPException(status_code=422, detail="A semi-monthly payroll period must stay within one calendar month.")
-    last_day = monthrange(start.year, start.month)[1]
-    if not ((start.day == 1 and end.day == 15) or (start.day == 16 and end.day == last_day)):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Use either {start.year}-{start.month:02d}-01 to {start.year}-{start.month:02d}-15 "
-                f"or {start.year}-{start.month:02d}-16 to {start.year}-{start.month:02d}-{last_day:02d}."
-            ),
-        )
+    """New semi-monthly drafts use the operational last-day carry-forward calendar."""
+    candidates = [cutoff_for_month(end.year, end.month, half) for half in (1, 2)]
+    if (start, end) not in candidates:
+        expected = " or ".join(f"{begin.isoformat()} to {finish.isoformat()}" for begin, finish in candidates)
+        raise HTTPException(status_code=422, detail=f"Use {expected} for a semi-monthly payroll period.")
 
 
 def _active_overlap(conn: Any, start: str, end: str) -> dict[str, Any] | None:
