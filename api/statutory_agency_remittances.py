@@ -70,6 +70,13 @@ def list_remittances(month: str, user: dict = Depends(require_roles(ROLE_OWNER, 
 def add_remittance(payload: RemittanceRequest, user: dict = Depends(require_roles(ROLE_OWNER, ROLE_PAYROLL))) -> dict:
     month = valid_month(payload.contribution_month)
     with db_conn() as conn:
+        if payload.reference.strip():
+            duplicate = conn.execute("""
+                SELECT id FROM statutory_agency_remittances
+                WHERE program=? AND contribution_month=? AND lower(trim(reference))=lower(?)
+            """, (payload.program, month, payload.reference.strip())).fetchone()
+            if duplicate:
+                raise HTTPException(status_code=409, detail="A remittance with this agency, month and receipt reference is already recorded.")
         cursor = conn.execute("""
             INSERT INTO statutory_agency_remittances
             (program,contribution_month,payment_date,amount,reference,note,created_by,created_at)
