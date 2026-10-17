@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
   const month = new URL(request.url).searchParams.get("month") || "";
-  if (!/^\\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     return NextResponse.json({detail:"Invalid contribution month."},{status:422});
   }
   const response = await fetch(apiBaseUrl()+"/api/v1/payroll/benefits/remittances?month="+encodeURIComponent(month),{
