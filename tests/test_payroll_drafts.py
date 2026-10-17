@@ -28,8 +28,8 @@ class PayrollDraftEndpointTests(unittest.TestCase):
 
     def create_draft(self, business_date: date) -> dict:
         payload = PayrollDraftRequest(
-            period_start=date(2026, 6, 16),
-            period_end=date(2026, 6, 30),
+            period_start=date(2026, 6, 15),
+            period_end=date(2026, 6, 29),
             payout_date=date(2026, 6, 30),
             run_label="Semi-monthly",
         )
@@ -47,8 +47,8 @@ class PayrollDraftEndpointTests(unittest.TestCase):
         result = self.create_draft(date(2026, 7, 1))
         self.assertTrue(result["ok"])
         self.assertEqual(result["run"]["status"], "Draft")
-        self.assertEqual(result["run"]["period_start"], "2026-06-16")
-        self.assertEqual(result["run"]["period_end"], "2026-06-30")
+        self.assertEqual(result["run"]["period_start"], "2026-06-15")
+        self.assertEqual(result["run"]["period_end"], "2026-06-29")
 
         conn = get_conn(self.db_path)
         try:
@@ -59,7 +59,7 @@ class PayrollDraftEndpointTests(unittest.TestCase):
 
     def test_cutoff_cannot_be_created_until_period_has_ended(self) -> None:
         with self.assertRaises(HTTPException) as raised:
-            self.create_draft(date(2026, 6, 30))
+            self.create_draft(date(2026, 6, 29))
         self.assertEqual(raised.exception.status_code, 409)
 
 

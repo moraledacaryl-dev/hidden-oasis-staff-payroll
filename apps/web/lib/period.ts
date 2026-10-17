@@ -32,12 +32,14 @@ export function payrollCutoffForMonth(month: string, half: "first" | "second"): 
   const monthNumber = Number(match[2]);
   if (monthNumber < 1 || monthNumber > 12) return null;
   const lastDay = daysInMonth(year, monthNumber);
-  const startDay = half === "first" ? 1 : 16;
-  const endDay = half === "first" ? 15 : lastDay;
+  const startDay = half === "first" ? 1 : 15;
+  const endDay = half === "first" ? 14 : lastDay - 1;
+  const previousMonthLastDay = new Date(Date.UTC(year, monthNumber - 1, 0));
+  const firstStart = `${previousMonthLastDay.getUTCFullYear()}-${pad(previousMonthLastDay.getUTCMonth() + 1)}-${pad(previousMonthLastDay.getUTCDate())}`;
   return {
     month,
     half,
-    periodStart: `${month}-${pad(startDay)}`,
+    periodStart: half === "first" ? firstStart : `${month}-${pad(startDay)}`,
     periodEnd: `${month}-${pad(endDay)}`,
     payoutDate: `${month}-${pad(endDay)}`,
   };
@@ -45,7 +47,7 @@ export function payrollCutoffForMonth(month: string, half: "first" | "second"): 
 
 export function latestCompletedCutoff(today = todayInManilaIso()): PayrollCutoff {
   const [year, month, day] = today.split("-").map(Number);
-  if (day >= 16) {
+  if (day >= 15) {
     return payrollCutoffForMonth(`${year}-${pad(month)}`, "first") as PayrollCutoff;
   }
   const previous = new Date(Date.UTC(year, month - 2, 1));
@@ -77,13 +79,13 @@ export function formatIsoDay(iso: string): string {
 
 export function currentCutoff(today = todayInManilaIso()) {
   const [year, month, day] = today.split("-").map(Number);
-  const endDay = day <= 15 ? 15 : daysInMonth(year, month);
-  const startDay = day <= 15 ? 1 : 16;
-  return {
-    periodStart: `${year}-${pad(month)}-${pad(startDay)}`,
-    periodEnd: `${year}-${pad(month)}-${pad(endDay)}`,
-    payoutDate: `${year}-${pad(month)}-${pad(endDay)}`,
-  };
+  const cutoff = payrollCutoffForMonth(`${year}-${pad(month)}`, day <= 14 ? "first" : day < daysInMonth(year, month) ? "second" : "first");
+  if (day === daysInMonth(year, month)) {
+    const next = new Date(Date.UTC(year, month, 1));
+    const following = payrollCutoffForMonth(`${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}`, "first");
+    return {periodStart: following!.periodStart, periodEnd: following!.periodEnd, payoutDate: following!.payoutDate};
+  }
+  return {periodStart: cutoff!.periodStart, periodEnd: cutoff!.periodEnd, payoutDate: cutoff!.payoutDate};
 }
 
 export function mondayOfWeek(today = todayInManilaIso()): string {

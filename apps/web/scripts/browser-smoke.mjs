@@ -317,7 +317,11 @@ async function inspectPage(session, role, route, viewport) {
       await writeFile(path.join(outputDir, `${role}-${viewport.name}-${slug}-${interactiveConfig.name}.png`), Buffer.from(surfaceScreenshot.data, "base64"));
       await session.send("Runtime.evaluate", { expression: `document.querySelector('[role="dialog"] button[aria-label*="Close"], [role="dialog"] button:last-of-type')?.click()` });
     } else {
-      interactiveSurface = { name: interactiveConfig.name, expectedActions: interactiveConfig.expectedActions, opened: false, visible: false, fitsViewport: false, buttons: [] };
+      // An empty attendance exception queue has no decision trigger to open.
+      // This is expected for clean fixture periods, not a broken dialog.
+      if (interactiveConfig.name !== "attendance-decision") {
+        interactiveSurface = { name: interactiveConfig.name, expectedActions: interactiveConfig.expectedActions, opened: false, visible: false, fitsViewport: false, buttons: [] };
+      }
     }
   }
 

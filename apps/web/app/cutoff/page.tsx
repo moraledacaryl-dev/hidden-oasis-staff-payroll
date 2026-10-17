@@ -14,6 +14,7 @@ import {
   latestCompletedCutoff,
   mondayOfWeek,
   todayInManilaIso,
+  payrollCutoffForMonth,
 } from "@/lib/period";
 import { currentSession } from "@/lib/session";
 import type { AttendanceException, PayrollRun } from "@/lib/api";
@@ -135,6 +136,11 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
   const requestedPayout = isIsoDate(query.payout) ? query.payout : periodEnd;
   const payoutDate = requestedPayout >= periodEnd ? requestedPayout : periodEnd;
   const periodComplete = periodEnd < today;
+  const selectedMonth = periodEnd.slice(0, 7);
+  const canonicalCutoff = (["first", "second"] as const).some(half => {
+    const cutoff = payrollCutoffForMonth(selectedMonth, half);
+    return cutoff?.periodStart === periodStart && cutoff.periodEnd === periodEnd;
+  });
 
   const canSeePayroll = session.role_key === "owner" || session.role_key === "payroll";
   const canReviewAttendance = session.role_key === "owner" || session.role_key === "supervisor";
@@ -209,7 +215,7 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
           <section className="cutoff-action-grid">
             <div className="card cutoff-draft-card" data-create-draft="true" data-create-payroll-draft="true">
               <div><span className="eyebrow">Next action</span><h2>Draft payroll run</h2><p className="muted">Create a saved payroll draft for exactly {periodStart} to {periodEnd}, with payment scheduled for {payoutDate}.</p></div>
-              <PayrollDraftButton periodStart={periodStart} periodEnd={periodEnd} payoutDate={payoutDate} disabledReason={!periodComplete ? "Choose a payroll period that has fully ended." : undefined} />
+              <PayrollDraftButton periodStart={periodStart} periodEnd={periodEnd} payoutDate={payoutDate} disabledReason={!periodComplete ? "Choose a payroll period that has fully ended." : !canonicalCutoff ? "Choose a standard semi-monthly cutoff before creating a payroll draft." : undefined} />
             </div>
             <div className="card cutoff-total-card"><span className="eyebrow">Payroll total</span><h2>{peso(grossPay)} gross</h2><p>{peso(netPay)} net after deductions</p></div>
           </section>

@@ -22,11 +22,11 @@ class CustomCutoffContractTests(unittest.TestCase):
         self.assertIn('name="payout"', source)
         self.assertIn("Payment date", source)
 
-    def test_draft_uses_custom_cutoff_label(self) -> None:
+    def test_draft_uses_canonical_semimonthly_label(self) -> None:
         source = Path("apps/web/components/PayrollDraftButton.tsx").read_text(encoding="utf-8")
 
-        self.assertIn('run_label: "Custom cutoff"', source)
-        self.assertNotIn('run_label: "Semi-monthly"', source)
+        self.assertIn('run_label: "Semi-monthly"', source)
+        self.assertNotIn('run_label: "Custom cutoff"', source)
 
     def test_backend_keeps_semimonthly_guard_only_for_semimonthly_label(self) -> None:
         source = Path("api/payroll_drafts.py").read_text(encoding="utf-8")

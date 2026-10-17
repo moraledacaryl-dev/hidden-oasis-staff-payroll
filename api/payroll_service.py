@@ -63,6 +63,9 @@ def create_payroll_draft(payload: PayrollDraftRequest, authorization: str | None
     label = payload.run_label.strip() or "Semi-monthly"
     if payload.period_end < payload.period_start:
         raise HTTPException(status_code=422, detail="End date cannot be before start date.")
+    # Reject neither legacy nor manually specified dates here: historical payroll
+    # and adjustment workflows must remain usable. The canonical schedule is
+    # exposed independently for new-period selectors.
     conn = get_conn(DB_PATH)
     try:
         existing = fetchone(conn, "SELECT id FROM payroll_runs WHERE period_start=? AND period_end=? AND run_label=?", (start, end, label))

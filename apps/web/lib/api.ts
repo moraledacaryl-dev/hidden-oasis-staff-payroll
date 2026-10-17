@@ -85,3 +85,9 @@ export function getProductionHealth(): Promise<ProductionHealth> { return apiGet
 export function getPayrollPreview(periodStart: string, periodEnd: string): Promise<PayrollPreview> { return apiPost<PayrollPreview>("/api/v1/payroll/preview", { period_start: periodStart, period_end: periodEnd }, true); }
 export function peso(value: number | null | undefined): string { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 }).format(Number(value || 0)); }
 export function numberText(value: number | null | undefined, digits = 2): string { return Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: digits, maximumFractionDigits: digits }); }
+
+export type AgencyBalanceMonth = { month: string; employee_due: number; employer_due: number; total_due: number; remitted: number; opening_balance: number; closing_balance: number };
+export type AgencyBalanceResponse = { through_month: string; programs: Record<"sss"|"philhealth"|"pagibig", AgencyBalanceMonth[]>; credit_status: string };
+export function getRemittanceBalances(month: string): Promise<AgencyBalanceResponse> {
+  return apiGet<AgencyBalanceResponse>(`/api/v1/payroll/benefits/remittance-balances?month=${encodeURIComponent(month)}`, true);
+}
