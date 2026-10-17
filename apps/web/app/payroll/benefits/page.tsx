@@ -20,7 +20,7 @@ export default async function BenefitsPage({ searchParams }: { searchParams: Pro
   const allowed: ("owner" | "payroll" | "supervisor")[] = ["owner","payroll","supervisor"];
   if (session.role_key !== "owner" && session.role_key !== "payroll" && session.role_key !== "supervisor") return <Shell allowedRoles={allowed}><div /></Shell>;
   const query = await searchParams;
-  const month = /^\d{4}-\d{2}$/.test(query.month || "") ? query.month! : currentMonth();
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(query.month || "") ? query.month! : currentMonth();
   const ledger = await getMonthlyBenefits(month);
   const remittanceBalances = session.role_key === "supervisor" ? null : await getRemittanceBalances(month);
   return <Shell allowedRoles={allowed}><div className="page run-page">
