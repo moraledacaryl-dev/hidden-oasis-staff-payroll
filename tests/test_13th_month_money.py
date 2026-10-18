@@ -25,7 +25,8 @@ class ThirteenthMonthMoneyTests(unittest.TestCase):
             CREATE TABLE payroll_runs (
                 id INTEGER PRIMARY KEY,
                 period_start TEXT,
-                status TEXT
+                status TEXT,
+                superseded_by_run_id INTEGER
             );
 
             CREATE TABLE payroll_items (
