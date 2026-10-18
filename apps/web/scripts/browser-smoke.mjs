@@ -334,7 +334,15 @@ async function inspectPage(session, role, route, viewport) {
         const start = document.querySelector('[data-cutoff-start="true"]');
         const end = document.querySelector('[data-cutoff-end="true"]');
         const payout = document.querySelector('[data-payroll-payout-date="true"]');
+        const periodStart = selector?.getAttribute("data-period-start");
+        const periodEnd = selector?.getAttribute("data-period-end");
+        const endDate = periodEnd ? new Date(periodEnd + "T00:00:00Z") : null;
+        const monthEnd = endDate ? new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth() + 1, 0)).getUTCDate() : 0;
+        const isFirstHalf = periodEnd?.endsWith("-14") && periodStart?.endsWith(String(new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), 0)).getUTCDate()).padStart(2, "0"));
+        const isSecondHalf = periodStart?.endsWith("-15") && Number(periodEnd?.slice(-2)) === monthEnd - 1;
+        const expectedPayout = isFirstHalf ? periodEnd.slice(0, 8) + "15" : isSecondHalf ? periodEnd.slice(0, 8) + String(monthEnd).padStart(2, "0") : null;
         return {
+          payoutMatchesCanonical: expectedPayout ? payout?.value === expectedPayout : true,
           selector: Boolean(selector),
           start: Boolean(start?.value),
           end: Boolean(end?.value),
