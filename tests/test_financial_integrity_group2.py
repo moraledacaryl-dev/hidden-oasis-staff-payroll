@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from core.db import get_conn, init_db, now_iso
 from core.payroll_engine import compute_13th_month_basis, update_payroll_status
+from api.payroll_revision_service import ensure_workflow_schema
 
 
 class FinancialIntegrityRegressionTests(unittest.TestCase):
@@ -16,6 +17,7 @@ class FinancialIntegrityRegressionTests(unittest.TestCase):
         self.path = Path(handle.name)
         self.conn = get_conn(self.path)
         init_db(self.conn)
+        ensure_workflow_schema(self.conn)
 
     def tearDown(self):
         self.conn.close()
