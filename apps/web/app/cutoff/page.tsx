@@ -133,14 +133,18 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
   const requestedEnd = isIsoDate(query.end) ? query.end : fallback.periodEnd;
   const periodStart = requestedStart;
   const periodEnd = requestedEnd >= periodStart ? requestedEnd : periodStart;
-  const requestedPayout = isIsoDate(query.payout) ? query.payout : periodEnd;
-  const payoutDate = requestedPayout >= periodEnd ? requestedPayout : periodEnd;
-  const periodComplete = periodEnd < today;
   const selectedMonth = periodEnd.slice(0, 7);
-  const canonicalCutoff = (["first", "second"] as const).some(half => {
-    const cutoff = payrollCutoffForMonth(selectedMonth, half);
-    return cutoff?.periodStart === periodStart && cutoff.periodEnd === periodEnd;
-  });
+  const matchedCutoff = (["first", "second"] as const)
+    .map(half => payrollCutoffForMonth(selectedMonth, half))
+    .find(cutoff => cutoff?.periodStart === periodStart && cutoff.periodEnd === periodEnd);
+  // The period end is not the payday: first-half payroll is paid on the 15th,
+  // while the second half is paid on the last calendar day of the month.
+  // Preserve explicitly requested payout dates for historical/manual payroll.
+  const defaultPayout = matchedCutoff?.payoutDate ?? addIsoDays(periodEnd, 1);
+  const requestedPayout = isIsoDate(query.payout) ? query.payout : defaultPayout;
+  const payoutDate = requestedPayout >= periodEnd ? requestedPayout : defaultPayout;
+  const periodComplete = periodEnd < today;
+  const canonicalCutoff = Boolean(matchedCutoff);
 
   const canSeePayroll = session.role_key === "owner" || session.role_key === "payroll";
   const canReviewAttendance = session.role_key === "owner" || session.role_key === "supervisor";
