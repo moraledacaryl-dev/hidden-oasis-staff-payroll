@@ -18,6 +18,8 @@ class FinancialIntegrityRegressionTests(unittest.TestCase):
         self.conn = get_conn(self.path)
         init_db(self.conn)
         ensure_workflow_schema(self.conn)
+        self.conn.execute("INSERT INTO employees(id, employee_code, full_name, status) VALUES(1, 'TEST-001', 'Test Employee', 'Active')")
+        self.conn.commit()
 
     def tearDown(self):
         self.conn.close()
