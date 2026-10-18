@@ -223,8 +223,7 @@ def get_month_previous_contribs(conn: sqlite3.Connection, employee_id: int, peri
         WHERE pi.employee_id=?
           AND pr.period_start >= ?
           AND pr.period_end < ?
-          AND pr.status IN ('Approved','Paid','Locked')
-          AND pr.superseded_by_run_id IS NULL
+          AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
         """,
         (employee_id, mstart.isoformat(), period_start),
     )
