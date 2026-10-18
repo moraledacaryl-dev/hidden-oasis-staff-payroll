@@ -1019,7 +1019,8 @@ def compute_13th_month_basis(conn: sqlite3.Connection, employee_id: int, year: i
         JOIN payroll_runs pr ON pr.id=pi.payroll_run_id
         WHERE pi.employee_id=?
           AND substr(pr.period_start,1,4)=?
-          AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
+          AND pr.status IN ('Approved','Paid','Locked')
+          AND pr.superseded_by_run_id IS NULL
         """,
         (employee_id, str(year)),
     )
