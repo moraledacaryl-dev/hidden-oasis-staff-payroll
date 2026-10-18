@@ -223,7 +223,8 @@ def get_month_previous_contribs(conn: sqlite3.Connection, employee_id: int, peri
         WHERE pi.employee_id=?
           AND pr.period_start >= ?
           AND pr.period_end < ?
-          AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
+          AND pr.status IN ('Approved','Paid','Locked')
+          AND pr.superseded_by_run_id IS NULL
         """,
         (employee_id, mstart.isoformat(), period_start),
     )
@@ -930,16 +931,26 @@ def update_payroll_status(conn: sqlite3.Connection, run_id: int, status: str, ac
     old_status_raw = str(run["status"])
     old_status = normalize_payroll_status(old_status_raw)
     status = normalize_payroll_status(status)
-    if status != old_status:
-        assert_current_payroll_version(run)
+    # Finalized payroll is immutable; corrections require a controlled revision.
+    # Never replay payment side effects on an unchanged Paid status.
+    if old_status in ("Paid", "Locked"):
+        if status == old_status:
+            return
+        if old_status == "Paid" and status == "Locked":
+            pass  # Administrative finalization without repayment or reopening.
+        else:
+            raise ValueError("Finalized payroll cannot be reopened or changed; use a controlled revision.")
+    if status == old_status:
+        return
+    assert_current_payroll_version(run)
     if status == "Paid" and int(run.get("revision_of_run_id") or 0):
         raise ValueError("Payroll revisions must be marked paid through the controlled revision payment workflow.")
     allowed = {
         "Draft": {REVIEW_STATUS},
         REVIEW_STATUS: {"Approved", "Draft"},
         "Approved": {"Paid", "Locked", "Draft"},
-        "Paid": {"Locked", "Draft"},
-        "Locked": {"Draft"},
+        "Paid": {"Locked"},
+        "Locked": set(),
     }
     if status != old_status and status not in allowed.get(old_status, set()):
         raise ValueError(f"Invalid payroll status transition: {old_status} to {status}.")
