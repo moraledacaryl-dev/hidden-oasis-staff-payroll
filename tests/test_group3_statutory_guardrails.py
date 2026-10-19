@@ -59,8 +59,8 @@ class Group3StatutoryGuardrailTests(unittest.TestCase):
         self.assertEqual(result.pagibig_ee, 100.0)
         self.assertEqual(result.sss_ee, 150.0)
 
-    def test_dated_gross_must_reconcile(self):
-        with self.assertRaisesRegex(ValueError, "reconcile"):
+    def test_rejects_unexpected_month_in_dated_gross(self):
+        with self.assertRaisesRegex(ValueError, "exactly every calendar month"):
             self.calculate(
                 "2026-10-15", "2026-10-30",
                 {date(2026, 10, 1): 5000.0, date(2026, 9, 1): 1.0},
