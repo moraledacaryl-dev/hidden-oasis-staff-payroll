@@ -8,6 +8,8 @@ from pydantic import BaseModel, field_validator
 
 from api.cash_advance_service import calculate_balance, ensure_schema, now_iso, recalculate_balance, require_cash_advance_editor
 from core.db import DB_PATH, fetchone, get_conn
+from core.integration_accounting import build_cash_advance_repayment_payload
+from core.integration_outbox import enqueue_event, ensure_integration_schema
 from core.money import money
 
 router = APIRouter(prefix="/api/v1")
@@ -45,6 +47,10 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
+        # Initialize the durable outbox BEFORE opening the payment transaction.
+        # Schema initialization commits; doing so after the insert would leave
+        # a repayment recorded without its Accounting review event.
+        ensure_integration_schema(conn)
         # Serialize the balance check and payment insert against other writers.
         # A second request with the same key waits for the first to commit.
         conn.execute("BEGIN IMMEDIATE")
@@ -122,9 +128,23 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
             user.get("display_name"),
             stamp,
         ))
+        repayment_id = int(cur.lastrowid)
         summary = recalculate_balance(conn, cash_advance_id)
+        event = build_cash_advance_repayment_payload(conn, repayment_id)
+        enqueue_event(
+            conn,
+            destination="accounting",
+            event_type=event["event_type"],
+            external_source=event["external_source"],
+            external_id=event["external_id"],
+            source_type="Cash Advance Repayment",
+            source_id=repayment_id,
+            payload=event,
+            schema_ready=True,
+        )
+        # The repayment, remaining balance, and review event commit together.
         conn.commit()
-        return {"ok": True, "already_recorded": False, "repayment_id": int(cur.lastrowid), "summary": summary}
+        return {"ok": True, "already_recorded": False, "repayment_id": repayment_id, "summary": summary}
     except HTTPException:
         conn.rollback()
         raise
