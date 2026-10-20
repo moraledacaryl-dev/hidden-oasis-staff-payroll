@@ -22,6 +22,15 @@ class ManualRepaymentIdempotencyTests(unittest.TestCase):
         conn = get_conn(self.path)
         try:
             conn.execute("CREATE TABLE payroll_runs (id INTEGER PRIMARY KEY, status TEXT)")
+            conn.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT)")
+            conn.execute(
+                "CREATE TABLE employees (id INTEGER PRIMARY KEY, employee_code TEXT, "
+                "full_name TEXT, department TEXT, position TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO employees(id, employee_code, full_name, department, position) "
+                "VALUES(1, 'EMP-1', 'Example Employee', 'Operations', 'Staff')"
+            )
             ensure_schema(conn)
             self.advance_id = int(conn.execute(
                 """
