@@ -18,13 +18,19 @@ export function ManualRepaymentForm({ advanceId, balance, employeeName }: { adva
       setMessage(`Enter an amount from ₱0.01 to ₱${balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}.`);
       return;
     }
+    const paymentMethod = String(formData.get("payment_method") || "").trim();
+    if (!paymentMethod) {
+      setBusy(false);
+      setMessage("Select how this repayment was actually received.");
+      return;
+    }
     const response = await fetch(`/api/cash-advances/${advanceId}/repayments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         amount,
         repayment_date: String(formData.get("repayment_date") || ""),
-        payment_method: String(formData.get("payment_method") || "Cash"),
+        payment_method: paymentMethod,
         reference: String(formData.get("reference") || "") || null,
         notes: String(formData.get("notes") || "") || null,
       }),
@@ -47,7 +53,7 @@ export function ManualRepaymentForm({ advanceId, balance, employeeName }: { adva
       <div><strong>Repayment for {employeeName}</strong><p className="muted">Current balance: ₱{balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</p></div>
       <label>Amount received<input name="amount" type="number" min="0.01" max={balance} step="0.01" defaultValue={balance} required /></label>
       <label>Date received<input name="repayment_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
-      <label>Payment method<select name="payment_method" defaultValue="Cash"><option>Cash</option><option>Bank transfer</option><option>Other</option></select></label>
+      <label>Payment method<select name="payment_method" defaultValue="" required><option value="" disabled>Select actual method</option><option>Cash</option><option>GCash</option><option>Bank transfer</option><option>Maya</option><option>Other</option></select></label>
       <label>Reference / receipt<input name="reference" placeholder="Optional receipt or transfer reference" /></label>
       <label>Notes<input name="notes" placeholder="Optional note" /></label>
       <div className="badge-row"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Recording…" : "Confirm repayment"}</button><button className="button ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></div>
