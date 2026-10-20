@@ -260,16 +260,16 @@ class PayrollCoreTests(unittest.TestCase):
         ).lastrowid)
         manual_id = int(self.conn.execute(
             "INSERT INTO cash_advance_repayments("
-            "cash_advance_id,employee_id,repayment_date,amount,source,"
+            "cash_advance_id,employee_id,repayment_date,payment_date,amount,source,"
             "payment_method,method,created_at"
-            ") VALUES(?,?, '2026-06-15',100,'Manual','GCash','GCash',?)",
+            ") VALUES(?,?, '2026-06-15','2026-06-15',100,'Manual','GCash','GCash',?)",
             (advance_id, employee_id, now),
         ).lastrowid)
         payroll_id = int(self.conn.execute(
             "INSERT INTO cash_advance_repayments("
-            "cash_advance_id,employee_id,repayment_date,amount,source,"
+            "cash_advance_id,employee_id,repayment_date,payment_date,amount,source,"
             "payment_method,method,created_at"
-            ") VALUES(?,?, '2026-06-15',150,'Payroll',"
+            ") VALUES(?,?, '2026-06-15','2026-06-15',150,'Payroll',"
             "'Payroll deduction','Payroll deduction',?)",
             (advance_id, employee_id, now),
         ).lastrowid)
