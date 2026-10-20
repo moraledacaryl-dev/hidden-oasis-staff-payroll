@@ -845,6 +845,11 @@ def create_accounting_queue_for_payroll(conn: sqlite3.Connection, run_id: int) -
     if existing and int(existing["c"] or 0) > 0:
         return
     run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,))
+    if run and str(run.get("revision_treatment") or "").strip().lower() == "adjust_paid":
+        # The revised payroll items show full recalculated wages for comparison;
+        # they do not represent a second full payment or journal obligation.
+        # Keep adjustment amounts for explicit Accounting review instead.
+        return
     totals = fetchone(
         conn,
         """
