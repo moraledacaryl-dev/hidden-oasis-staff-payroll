@@ -182,6 +182,9 @@ def ensure_schema(conn) -> None:
         "reversed_by": "TEXT",
         "reversed_at": "TEXT",
         "reversal_reason": "TEXT",
+        # Stable client-generated request ID prevents retry double-posting.
+        # Nullable so legacy and payroll-generated repayments remain unchanged.
+        "idempotency_key": "TEXT",
     })
     conn.execute("UPDATE cash_advance_repayments SET active=1 WHERE active IS NULL")
     conn.execute("UPDATE cash_advance_repayments SET repayment_date=payment_date WHERE (repayment_date IS NULL OR trim(repayment_date)='') AND payment_date IS NOT NULL")
@@ -189,6 +192,10 @@ def ensure_schema(conn) -> None:
     conn.execute("UPDATE cash_advance_repayments SET payment_method=method WHERE (payment_method IS NULL OR trim(payment_method)='') AND method IS NOT NULL")
     conn.execute("UPDATE cash_advance_repayments SET method=payment_method WHERE (method IS NULL OR trim(method)='') AND payment_method IS NOT NULL")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_ca_payroll_repayment ON cash_advance_repayments(cash_advance_id,payroll_run_id) WHERE payroll_run_id IS NOT NULL")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_ca_manual_idempotency "
+        "ON cash_advance_repayments(idempotency_key) WHERE idempotency_key IS NOT NULL"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ca_repayments_advance ON cash_advance_repayments(cash_advance_id,active)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cash_advances_employee ON cash_advances(employee_id)")
     conn.commit()
