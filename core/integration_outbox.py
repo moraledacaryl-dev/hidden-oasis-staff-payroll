@@ -190,7 +190,7 @@ def enqueue_event(
             next_attempt_at=CASE WHEN integration_outbox.status='Completed' THEN integration_outbox.next_attempt_at ELSE excluded.next_attempt_at END,
             last_error=CASE WHEN integration_outbox.status='Completed' THEN integration_outbox.last_error ELSE NULL END,
             updated_at=excluded.updated_at
-        WHERE integration_outbox.status NOT IN ('Completed', 'Processing')
+        WHERE integration_outbox.status NOT IN ('Completed', 'Processing', 'Dead Letter')
         """,
         (
             destination,
