@@ -15,9 +15,17 @@ router = APIRouter(prefix="/api/v1")
 class ManualRepaymentPayload(BaseModel):
     amount: float
     repayment_date: str
-    payment_method: str = "Cash"
+    payment_method: str
     reference: str | None = None
     notes: str | None = None
+
+    @field_validator("payment_method")
+    @classmethod
+    def require_explicit_method(cls, value: str) -> str:
+        method = str(value or "").strip()
+        if not method:
+            raise ValueError("Choose the actual repayment method; do not assume Cash.")
+        return method
 
     @field_validator("amount", mode="before")
     @classmethod
