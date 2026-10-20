@@ -6,10 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from api.payroll_drafts import must_be_payroll_user, totals
-from core.cash_advance_payroll import (
-    apply_payroll_cash_advance_repayments,
-    reverse_payroll_cash_advance_repayments,
-)
+from core.cash_advance_payroll import apply_payroll_cash_advance_repayments
 from core.db import DB_PATH, fetchone, get_conn, now_iso
 from core.payroll_engine import create_accounting_queue_for_payroll
 from core.payroll_revision_lifecycle import revision_parent_for_payment
@@ -59,12 +56,11 @@ def mark_payroll_run_paid(
 
         revision_of_run_id = int(run.get("revision_of_run_id") or 0)
         if revision_parent and revision_treatment == "adjust_paid":
-            reverse_payroll_cash_advance_repayments(
-                conn,
-                revision_of_run_id,
-                actor=actor,
-                reason=f"Superseded by paid payroll revision #{run_id}",
-            )
+            # A paid adjustment is a difference-only correction. The paid
+            # original remains the authoritative source of cash-advance
+            # repayments; the adjustment run deliberately does not apply
+            # mirrored deductions again. Reversing the original here would
+            # erase a genuine repayment without posting a replacement.
             conn.execute(
                 "UPDATE payroll_runs SET superseded_by_run_id=? WHERE id=?",
                 (run_id, revision_of_run_id),
@@ -76,7 +72,7 @@ def mark_payroll_run_paid(
                     "Paid payroll superseded by revision",
                     "payroll_runs",
                     revision_of_run_id,
-                    f"superseded_by_run_id={run_id}; prior cash-advance repayments reversed",
+                    f"superseded_by_run_id={run_id}; original cash-advance repayments preserved",
                     paid_at,
                 ),
             )
