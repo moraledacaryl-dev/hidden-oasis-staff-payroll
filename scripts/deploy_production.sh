@@ -100,7 +100,7 @@ set +a
 # fresh backups before the comprehensive production preflight checks capacity.
 # Fail closed without deleting production database, uploaded files or backups.
 echo "Checking free disk space before deployment writes..."
-python3 "$APP_ROOT/scripts/check_predeploy_disk_space.py"
+APP_ROOT="$APP_ROOT" RUNTIME_BASE="$RUNTIME_BASE" python3 "$APP_ROOT/scripts/check_predeploy_disk_space.py"
 
 if [[ ! -x "$SOURCE_PYTHON" ]]; then
   echo "Creating source validation virtual environment..."
