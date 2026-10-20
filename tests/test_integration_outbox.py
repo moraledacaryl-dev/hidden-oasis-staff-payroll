@@ -310,6 +310,34 @@ class IntegrationOutboxTests(unittest.TestCase):
         self.assertEqual(json.loads(stored["payload_json"]), {"value": "original"})
         self.assertEqual(stored["completed_at"], "2026-10-20 12:00:00")
 
+    def test_dead_letter_requires_explicit_retry_and_preserves_payload(self) -> None:
+        from core.integration_accounting import enqueue_payload
+
+        event_id = enqueue_payload(
+            self.conn, "payroll.run.paid", "review-dead-letter",
+            "Payroll Run", 12, {"value": "original"},
+        )
+        self.conn.execute(
+            "UPDATE integration_outbox SET status='Dead Letter',"
+            "dead_letter_at='2026-10-20 12:00:00',last_error='HTTP 409: payload mismatch' "
+            "WHERE id=?", (event_id,),
+        )
+        self.conn.commit()
+        same_id = enqueue_payload(
+            self.conn, "payroll.run.paid", "review-dead-letter",
+            "Payroll Run", 99, {"value": "different"},
+        )
+        self.assertEqual(same_id, event_id)
+        stored = self.conn.execute(
+            "SELECT status,source_id,payload_json,dead_letter_at,last_error "
+            "FROM integration_outbox WHERE id=?", (event_id,),
+        ).fetchone()
+        self.assertEqual(stored["status"], "Dead Letter")
+        self.assertEqual(stored["source_id"], 12)
+        self.assertEqual(json.loads(stored["payload_json"]), {"value": "original"})
+        self.assertEqual(stored["dead_letter_at"], "2026-10-20 12:00:00")
+        self.assertIn("HTTP 409", stored["last_error"])
+
     def test_legacy_ready_insert_is_normalized(self) -> None:
         self.conn.execute(
             """
