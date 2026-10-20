@@ -71,6 +71,34 @@ class AccountingOutboxAdapterTests(unittest.TestCase):
             "bank_transfer",
         )
 
+    def test_paid_payroll_without_documented_method_does_not_assume_bank_transfer(self):
+        result = canonical_accounting_payload(
+            "payroll.run.paid",
+            _envelope("payroll.run.paid", {"totals": {"net_pay": 12000}, "run": {}}),
+        )
+        self.assertEqual(result["financial_effect"], "cash_out")
+        self.assertEqual(result["amount"], 12000)
+        self.assertIsNone(result["proposed_links"]["payment_method"])
+
+    def test_explicit_payroll_payment_method_is_preserved(self):
+        for method in ("cash", "gcash", "bank_transfer"):
+            with self.subTest(method=method):
+                result = canonical_accounting_payload(
+                    "payroll.run.paid",
+                    _envelope(
+                        "payroll.run.paid",
+                        {"totals": {"net_pay": 12000}, "run": {"payment_method": method}},
+                    ),
+                )
+                self.assertEqual(result["proposed_links"]["payment_method"], method)
+
+    def test_thirteenth_month_without_method_remains_unspecified(self):
+        result = canonical_accounting_payload(
+            "payroll.13th_month.paid",
+            _envelope("payroll.13th_month.paid", {"run": {"net_13th_pay": 9000}}),
+        )
+        self.assertIsNone(result["proposed_links"]["payment_method"])
+
     def test_cash_advance_release_is_real_cash_out(self):
         released = canonical_accounting_payload(
             "cash_advance.released",
