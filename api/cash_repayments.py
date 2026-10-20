@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, field_validator
 
-from api.cash_advance_service import ensure_schema, now_iso, recalculate_balance, require_cash_advance_editor
+from api.cash_advance_service import calculate_balance, ensure_schema, now_iso, recalculate_balance, require_cash_advance_editor
 from core.db import DB_PATH, fetchone, get_conn
 from core.money import money
 
@@ -16,6 +17,8 @@ class ManualRepaymentPayload(BaseModel):
     amount: float
     repayment_date: str
     payment_method: str
+    # Optional for backward-compatible API clients. New UI always sends it.
+    idempotency_key: UUID | None = None
     reference: str | None = None
     notes: str | None = None
 
@@ -42,6 +45,37 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
     conn = get_conn(DB_PATH)
     try:
         ensure_schema(conn)
+        # Serialize the balance check and payment insert against other writers.
+        # A second request with the same key waits for the first to commit.
+        conn.execute("BEGIN IMMEDIATE")
+        request_key = str(payload.idempotency_key) if payload.idempotency_key else None
+        if request_key:
+            existing = fetchone(
+                conn,
+                "SELECT * FROM cash_advance_repayments WHERE idempotency_key=?",
+                (request_key,),
+            )
+            if existing:
+                same_request = (
+                    int(existing["cash_advance_id"]) == cash_advance_id
+                    and str(existing.get("source") or "").lower() == "manual"
+                    and money(existing.get("amount") or 0) == amount
+                    and str(existing.get("repayment_date") or "") == payload.repayment_date
+                    and str(existing.get("payment_method") or "").strip() == payload.payment_method
+                    and str(existing.get("reference") or "") == str(payload.reference or "")
+                    and str(existing.get("notes") or "") == str(payload.notes or "")
+                    and int(existing.get("active") if existing.get("active") is not None else 1) == 1
+                )
+                if not same_request:
+                    raise HTTPException(status_code=409, detail="Repayment request ID already used for a different or reversed payment.")
+                summary = calculate_balance(conn, cash_advance_id)
+                conn.rollback()  # Release the write lock; no new payment is recorded.
+                return {
+                    "ok": True,
+                    "already_recorded": True,
+                    "repayment_id": int(existing["id"]),
+                    "summary": summary,
+                }
         advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
         if not advance:
             raise HTTPException(status_code=404, detail="Cash advance not found.")
@@ -63,13 +97,14 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
                 payment_method,
                 reference,
                 notes,
+                idempotency_key,
                 active,
                 created_by,
                 created_at,
                 updated_by,
                 updated_at
             )
-            VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)
         """, (
             cash_advance_id,
             int(advance["employee_id"]),
@@ -81,6 +116,7 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
             payload.payment_method,
             payload.reference,
             payload.notes,
+            request_key,
             user.get("display_name"),
             stamp,
             user.get("display_name"),
@@ -88,7 +124,7 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
         ))
         summary = recalculate_balance(conn, cash_advance_id)
         conn.commit()
-        return {"ok": True, "repayment_id": int(cur.lastrowid), "summary": summary}
+        return {"ok": True, "already_recorded": False, "repayment_id": int(cur.lastrowid), "summary": summary}
     except HTTPException:
         conn.rollback()
         raise
