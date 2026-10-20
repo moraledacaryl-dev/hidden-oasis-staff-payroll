@@ -133,6 +133,71 @@ class IntegrationOutboxTests(unittest.TestCase):
         self.assertEqual(result["status"], "Completed")
         self.assertEqual(self.conn.execute("SELECT status FROM integration_outbox").fetchone()[0], "Completed")
 
+    def test_explicit_duplicate_conflict_acknowledges_delivery(self) -> None:
+        self._enqueue(external_id="duplicate-409")
+        row = claim_events(self.conn, worker_id="test-worker")[0]
+        with patch.dict(os.environ, {
+            "STAFF_PAYROLL_ACCOUNTING_SYNC_URL": "https://accounting.example",
+            "STAFF_PAYROLL_ACCOUNTING_SYNC_TOKEN": "secret",
+        }), patch("core.integration_outbox._post", return_value=(409, '{"status":"already_applied"}')):
+            result = process_claimed_event(self.conn, row)
+        self.assertEqual(result["status"], "Completed")
+        self.assertEqual(self.conn.execute("SELECT status FROM integration_outbox").fetchone()[0], "Completed")
+
+    def test_unacknowledged_conflicts_do_not_disappear_as_completed(self) -> None:
+        for response in ('{"detail":"revision mismatch"}', '{"status":"conflict"}', 'Conflict'):
+            with self.subTest(response=response):
+                event_id = self._enqueue(external_id=f"conflict-{len(response)}-{response[0:5]}")
+                row = claim_events(self.conn, worker_id="test-worker")[0]
+                with patch.dict(os.environ, {
+                    "STAFF_PAYROLL_ACCOUNTING_SYNC_URL": "https://accounting.example",
+                    "STAFF_PAYROLL_ACCOUNTING_SYNC_TOKEN": "secret",
+                }), patch("core.integration_outbox._post", return_value=(409, response)):
+                    result = process_claimed_event(self.conn, row)
+                self.assertEqual(result["status"], "Dead Letter")
+                stored = self.conn.execute(
+                    "SELECT status,last_error FROM integration_outbox WHERE id=?", (event_id,),
+                ).fetchone()
+                self.assertEqual(stored["status"], "Dead Letter")
+                self.assertIn("HTTP 409", stored["last_error"])
+
+    def test_operations_v2_rejects_reused_event_id_with_different_payload(self) -> None:
+        from core.operations_v2_adapter import _process_operations_event
+
+        event_id = self._enqueue(destination="operations", external_id="operation-payload-clash")
+        row = claim_events(self.conn, worker_id="operations-worker")[0]
+        with patch.dict(os.environ, {
+            "STAFF_PAYROLL_OPERATIONS_SYNC_URL": "https://operations.example",
+            "STAFF_PAYROLL_OPERATIONS_SYNC_TOKEN": "secret",
+        }), patch("core.integration_outbox._post", return_value=(
+            409, '{"detail":"event_id was already used with a different payload"}',
+        )):
+            result = _process_operations_event(self.conn, row)
+        self.assertEqual(result["status"], "Dead Letter")
+        stored = self.conn.execute(
+            "SELECT status,last_error FROM integration_outbox WHERE id=?", (event_id,),
+        ).fetchone()
+        self.assertEqual(stored["status"], "Dead Letter")
+        self.assertIn("HTTP 409", stored["last_error"])
+
+    def test_operations_v2_accepts_explicit_idempotent_acknowledgment(self) -> None:
+        from core.operations_v2_adapter import _process_operations_event
+
+        event_id = self._enqueue(destination="operations", external_id="operation-duplicate")
+        row = claim_events(self.conn, worker_id="operations-worker")[0]
+        with patch.dict(os.environ, {
+            "STAFF_PAYROLL_OPERATIONS_SYNC_URL": "https://operations.example",
+            "STAFF_PAYROLL_OPERATIONS_SYNC_TOKEN": "secret",
+        }), patch("core.integration_outbox._post", return_value=(
+            200, '{"status":"already_applied","delivery_id":42}',
+        )):
+            result = _process_operations_event(self.conn, row)
+        self.assertEqual(result["status"], "Completed")
+        self.assertEqual(
+            self.conn.execute("SELECT status FROM integration_outbox WHERE id=?", (event_id,)).fetchone()[0],
+            "Completed",
+        )
+
     def test_unconfigured_destination_retries_without_losing_event(self) -> None:
         self._enqueue(destination="inventory", external_id="not-configured")
         row = claim_events(self.conn, worker_id="test-worker")[0]
