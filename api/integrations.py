@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from api.main import configured_db_path
 from api.security import require_api_key, require_roles
@@ -202,6 +203,66 @@ def retry_event(
             raise HTTPException(status_code=409, detail="Integration event is no longer eligible for retry.")
         conn.commit()
         return {"ok": True, "event_id": event_id, "status": "Retry"}
+    finally:
+        conn.close()
+
+
+class StaleEventRecoveryRequest(BaseModel):
+    confirmation: str
+    reason: str = Field(min_length=10, max_length=500)
+
+
+@router.post("/events/{event_id}/recover-stale")
+def recover_stale_event(
+    event_id: int,
+    payload: StaleEventRecoveryRequest,
+    user: dict[str, Any] = Depends(require_roles("owner")),
+) -> dict[str, Any]:
+    """Explicit owner recovery for abandoned claims, never live claims.
+
+    A worker can be terminated between claim and acknowledgement. The event
+    must remain available for review and require an owner decision to retry.
+    Destination receivers must enforce event-id idempotency because delivery
+    may have succeeded just before the worker stopped.
+    """
+    if payload.confirmation != "RECOVER STALE EVENT":
+        raise HTTPException(status_code=422, detail="Explicit recovery confirmation is required.")
+    reason = payload.reason.strip()
+    if len(reason) < 10:
+        raise HTTPException(status_code=422, detail="A meaningful recovery reason is required.")
+
+    conn = get_conn(configured_db_path())
+    try:
+        ensure_integration_schema(conn)
+        existing = fetchone(conn, "SELECT id FROM integration_outbox WHERE id=?", (event_id,))
+        if not existing:
+            raise HTTPException(status_code=404, detail="Integration event not found.")
+        now = now_iso()
+        actor = str(user.get("display_name") or "Owner").strip()[:100]
+        recovery_note = f"Owner stale-claim recovery by {actor}: {reason}"
+        updated = conn.execute(
+            """
+            UPDATE integration_outbox
+            SET status='Retry', next_attempt_at=?,
+                last_error=CASE
+                    WHEN last_error IS NULL OR TRIM(last_error)='' THEN ?
+                    ELSE last_error || ' | ' || ?
+                END,
+                locked_at=NULL, locked_by=NULL, updated_at=?
+            WHERE id=? AND status='Processing'
+              AND locked_at IS NOT NULL
+              AND datetime(locked_at) < datetime('now','-15 minutes')
+            """,
+            (now, recovery_note, recovery_note, now, event_id),
+        )
+        if updated.rowcount != 1:
+            conn.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Only claims locked for more than 15 minutes can be recovered.",
+            )
+        conn.commit()
+        return {"ok": True, "event_id": event_id, "status": "Retry", "recovered_by": actor}
     finally:
         conn.close()
 
