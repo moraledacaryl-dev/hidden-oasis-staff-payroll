@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 import unittest
 
+from pydantic import ValidationError
+
 from api.cash_advance_service import CashAdvancePayload, ensure_schema, recalculate_balance
 from api.cash_repayments import ManualRepaymentPayload
 from api.payroll_adjustments import AdjustmentPayload, to_centavos
@@ -20,8 +22,23 @@ class FinancialCentavoIngressTests(unittest.TestCase):
         self.assertEqual(payload.deduction_per_payroll, 2.68)
 
     def test_manual_repayment_payload_uses_half_up_centavos(self) -> None:
-        payload = ManualRepaymentPayload(amount="1.005", repayment_date="2026-09-03")
+        payload = ManualRepaymentPayload(
+            amount="1.005", repayment_date="2026-09-03", payment_method="GCash"
+        )
         self.assertEqual(payload.amount, 1.01)
+        self.assertEqual(payload.payment_method, "GCash")
+
+    def test_manual_repayment_requires_explicit_nonempty_payment_method(self) -> None:
+        with self.assertRaises(ValidationError):
+            ManualRepaymentPayload(amount="500", repayment_date="2026-09-03")
+        with self.assertRaises(ValidationError):
+            ManualRepaymentPayload(
+                amount="500", repayment_date="2026-09-03", payment_method="   "
+            )
+        payload = ManualRepaymentPayload(
+            amount="500", repayment_date="2026-09-03", payment_method=" Bank transfer "
+        )
+        self.assertEqual(payload.payment_method, "Bank transfer")
 
     def test_payroll_adjustment_payload_and_audit_centavos_match(self) -> None:
         payload = AdjustmentPayload(
