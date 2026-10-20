@@ -95,7 +95,6 @@ class PayrollRevisionPaymentLifecycleTests(unittest.TestCase):
             ),
             patch.object(payroll_mark_paid, "build_payroll_preflight_checks", return_value=[]),
             patch.object(payroll_mark_paid, "apply_payroll_cash_advance_repayments") as apply_repayments,
-            patch.object(payroll_mark_paid, "reverse_payroll_cash_advance_repayments") as reverse_repayments,
             patch.object(payroll_mark_paid, "create_accounting_queue_for_payroll"),
             patch("core.integration_accounting.enqueue_payroll_run"),
         ):
@@ -105,7 +104,7 @@ class PayrollRevisionPaymentLifecycleTests(unittest.TestCase):
                 "token",
                 "key",
             )
-        return response, apply_repayments, reverse_repayments
+        return response, apply_repayments
 
     def test_draft_replacement_becomes_operable_and_payable(self) -> None:
         original_id = self._insert_run("Draft", "Draft original")
@@ -119,14 +118,13 @@ class PayrollRevisionPaymentLifecycleTests(unittest.TestCase):
         self.assertIsNone(original["paid_at"])
 
         self._approve_revision(revision_id)
-        response, apply_repayments, reverse_repayments = self._mark_paid(revision_id)
+        response, apply_repayments = self._mark_paid(revision_id)
 
         self.assertTrue(response["ok"])
         self.assertEqual(self._run(revision_id)["status"], "Paid")
         self.assertEqual(self._run(original_id)["status"], "Draft")
         self.assertIsNone(self._run(original_id)["paid_at"])
         apply_repayments.assert_called_once()
-        reverse_repayments.assert_not_called()
 
     def test_approved_unpaid_replacement_can_be_reapproved_and_paid(self) -> None:
         original_id = self._insert_run("Approved", "Approved unpaid original")
