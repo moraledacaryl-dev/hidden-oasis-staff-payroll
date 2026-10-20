@@ -217,6 +217,27 @@ class HolidayPayrollTests(unittest.TestCase):
         self.assertEqual(result.regular_pay, 1600.0)
         self.assertEqual(result.holiday_pay, 240.0)
 
+    def test_rest_day_without_attendance_has_no_work_premium(self) -> None:
+        self.mark_rest_day("2026-08-21")
+        result = self.result("2026-08-16", "2026-08-31")
+        self.assertEqual(result.regular_pay, 0.0)
+        self.assertEqual(result.holiday_pay, 0.0)
+        self.assertEqual(result.ot_pay, 0.0)
+        self.assertEqual(result.night_diff_pay, 0.0)
+
+    def test_special_holiday_rest_day_without_attendance_has_no_premium(self) -> None:
+        self.add_holiday("2026-08-21", "Special Non-Working Day")
+        self.mark_rest_day("2026-08-21")
+        result = self.result("2026-08-16", "2026-08-31")
+        self.assertEqual(result.holiday_pay, 0.0)
+        self.assertEqual(result.regular_pay, 0.0)
+
+    def test_inactive_special_holiday_rest_day_without_attendance_has_no_premium(self) -> None:
+        self.add_holiday("2026-08-21", "Special Non-Working Day", active=False)
+        self.mark_rest_day("2026-08-21")
+        result = self.result("2026-08-16", "2026-08-31")
+        self.assertEqual(result.holiday_pay, 0.0)
+
     def test_special_holiday_plus_rest_day_uses_150_percent(self) -> None:
         self.add_holiday("2026-08-21", "Special Non-Working Day")
         self.mark_rest_day("2026-08-21")
