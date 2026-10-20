@@ -189,6 +189,114 @@ class PayrollRevisionPaymentLifecycleTests(unittest.TestCase):
                 self.assertEqual(raised.exception.status_code, 409)
                 self.assertIn("already paid", str(raised.exception.detail).lower())
 
+    def test_paid_adjustment_keeps_original_cash_advance_repayment_active(self) -> None:
+        from api.cash_advance_service import ensure_schema as ensure_cash_schema
+        from core.cash_advance_payroll import apply_payroll_cash_advance_repayments
+
+        original_id = self._insert_run("Paid", "Original paid with advance", paid_at=now_iso())
+        conn = get_conn(self.db_path)
+        try:
+            ensure_cash_schema(conn)
+            stamp = now_iso()
+            employee_id = int(conn.execute(
+                "INSERT INTO employees(employee_code,full_name,status,created_at,updated_at) "
+                "VALUES('EMP-PAID-CA','Advance employee','Active',?,?)",
+                (stamp, stamp),
+            ).lastrowid)
+            advance_id = int(conn.execute(
+                "INSERT INTO cash_advances("
+                "employee_id,request_date,advance_date,amount,outstanding_balance,"
+                "remaining_balance,repayment_method,status,created_at"
+                ") VALUES(?,'2026-09-15','2026-09-15',500,500,500,"
+                "'Payroll deduction','Active',?)",
+                (employee_id, stamp),
+            ).lastrowid)
+            conn.execute(
+                "INSERT INTO payroll_items("
+                "payroll_run_id,employee_id,gross_pay,cash_advance_deduction,"
+                "total_deductions,net_pay,created_at"
+                ") VALUES(?,?,1000,200,200,800,?)",
+                (original_id, employee_id, stamp),
+            )
+            conn.commit()
+            apply_payroll_cash_advance_repayments(conn, original_id, actor="Owner")
+            conn.commit()
+            repayment = fetchone(
+                conn,
+                "SELECT id,amount,active FROM cash_advance_repayments "
+                "WHERE payroll_run_id=?", (original_id,),
+            )
+            self.assertIsNotNone(repayment)
+            self.assertEqual(float(repayment["amount"]), 200.0)
+            self.assertEqual(int(repayment["active"]), 1)
+            original_repayment_id = int(repayment["id"])
+        finally:
+            conn.close()
+
+        revision_id = self._save_revision(original_id, treatment="adjust_paid")
+        conn = get_conn(self.db_path)
+        try:
+            # The revised item mirrors the already paid deduction; the
+            # adjustment run must not settle that advance a second time.
+            conn.execute(
+                "INSERT INTO payroll_items("
+                "payroll_run_id,employee_id,gross_pay,cash_advance_deduction,"
+                "total_deductions,net_pay,created_at"
+                ") VALUES(?,?,1000,200,200,800,?)",
+                (revision_id, employee_id, now_iso()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        self._approve_revision(revision_id)
+        with (
+            patch.object(payroll_mark_paid, "DB_PATH", self.db_path),
+            patch.object(payroll_mark_paid, "must_be_payroll_user", return_value={
+                "role_key": "owner", "display_name": "Owner",
+            }),
+            patch.object(payroll_mark_paid, "build_payroll_preflight_checks", return_value=[]),
+            patch.object(payroll_mark_paid, "create_accounting_queue_for_payroll"),
+            patch("core.integration_accounting.enqueue_payroll_run"),
+        ):
+            response = payroll_mark_paid.mark_payroll_run_paid(
+                revision_id, MarkPaidRequest(confirmation="MARK PAID"), "token", "key",
+            )
+        self.assertTrue(response["ok"])
+        self.assertEqual(self._run(revision_id)["status"], "Paid")
+        self.assertEqual(self._run(original_id)["status"], "Paid")
+        self.assertEqual(self._run(original_id)["superseded_by_run_id"], revision_id)
+
+        conn = get_conn(self.db_path)
+        try:
+            repayment = fetchone(
+                conn,
+                "SELECT id,amount,active,reversed_at FROM cash_advance_repayments "
+                "WHERE payroll_run_id=?", (original_id,),
+            )
+            self.assertEqual(int(repayment["id"]), original_repayment_id)
+            self.assertEqual(float(repayment["amount"]), 200.0)
+            self.assertEqual(int(repayment["active"]), 1)
+            self.assertIsNone(repayment["reversed_at"])
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM cash_advance_repayments "
+                    "WHERE payroll_run_id=?", (revision_id,),
+                ).fetchone()[0], 0,
+            )
+            from api.cash_advance_service import recalculate_balance
+            summary = recalculate_balance(conn, advance_id)
+            self.assertEqual(summary["balance"], 300.0)
+            audit = fetchone(
+                conn,
+                "SELECT details FROM audit_logs WHERE table_name='payroll_runs' "
+                "AND record_id=? AND action='Paid payroll superseded by revision' "
+                "ORDER BY id DESC LIMIT 1", (original_id,),
+            )
+            self.assertIn("repayments preserved", audit["details"])
+        finally:
+            conn.close()
+
     def test_direct_core_paid_transition_is_not_allowed_for_revision(self) -> None:
         original_id = self._insert_run("Approved", "Core guard original")
         revision_id = self._save_revision(original_id)
