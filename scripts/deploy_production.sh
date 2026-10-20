@@ -96,6 +96,12 @@ set +a
 [[ "${STAFF_PAYROLL_BACKUP_DIR:-}" == /var/backups/hidden-oasis-staff-payroll/runtime* ]] \
   || fail "STAFF_PAYROLL_BACKUP_DIR must use /var/backups/hidden-oasis-staff-payroll/runtime before non-root deployment"
 
+# Do not consume the last available bytes installing dependencies or writing
+# fresh backups before the comprehensive production preflight checks capacity.
+# Fail closed without deleting production database, uploaded files or backups.
+echo "Checking free disk space before deployment writes..."
+APP_ROOT="$APP_ROOT" RUNTIME_BASE="$RUNTIME_BASE" python3 "$APP_ROOT/scripts/check_predeploy_disk_space.py"
+
 if [[ ! -x "$SOURCE_PYTHON" ]]; then
   echo "Creating source validation virtual environment..."
   python3 -m venv "$SOURCE_VENV"
