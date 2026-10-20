@@ -332,7 +332,7 @@ def canonical_accounting_payload(event_type: str, envelope: dict[str, Any]) -> d
         links = {
             "category": "Payroll",
             "subcategory": "Net Pay",
-            "payment_method": run.get("payment_method") or body.get("payment_method") or "bank_transfer",
+            "payment_method": run.get("payment_method") or body.get("payment_method"),
             "counterparty_name": "Employees",
         }
     elif event_type == "payroll.13th_month.paid":
@@ -341,7 +341,7 @@ def canonical_accounting_payload(event_type: str, envelope: dict[str, Any]) -> d
         links = {
             "category": "Payroll",
             "subcategory": "13th Month Pay",
-            "payment_method": run.get("payment_method") or body.get("payment_method") or "bank_transfer",
+            "payment_method": run.get("payment_method") or body.get("payment_method"),
             "counterparty_name": "Employees",
         }
     elif event_type == "cash_advance.released":
