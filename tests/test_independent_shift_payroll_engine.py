@@ -188,6 +188,18 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         self.assertEqual(result.night_diff_hours, 0.0)
         self.assertEqual(result.night_diff_pay, 0.0)
 
+    def test_month_end_overnight_shift_is_not_double_counted(self) -> None:
+        shift = self.add_shift('2026-08-31', '22:00', '06:00')
+        self.add_log('2026-08-31', '22:00', '06:00', shift)
+
+        august = compute_payroll(self.conn, '2026-08-16', '2026-08-31')[0]
+        september = compute_payroll(self.conn, '2026-09-01', '2026-09-14')[0]
+
+        self.assertEqual(august.regular_hours, 8.0)
+        self.assertEqual(august.night_diff_hours, 8.0)
+        self.assertEqual(september.regular_hours, 0.0)
+        self.assertEqual(september.night_diff_hours, 0.0)
+
     def test_no_schedule_does_not_auto_create_ot(self) -> None:
         self.add_log('2026-08-19', '08:00', '17:01', None)
 
