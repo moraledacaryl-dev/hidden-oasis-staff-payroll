@@ -110,6 +110,25 @@ class AccountingOutboxAdapterTests(unittest.TestCase):
         self.assertEqual(released["financial_effect"], "cash_out")
         self.assertEqual(released["amount"], 1500)
 
+    def test_cash_advance_release_without_method_is_not_assumed_cash(self):
+        result = canonical_accounting_payload(
+            "cash_advance.released",
+            _envelope("cash_advance.released", {"cash_advance": {"amount": 1500}}),
+        )
+        self.assertEqual(result["financial_effect"], "cash_out")
+        self.assertEqual(result["amount"], 1500)
+        self.assertIsNone(result["proposed_links"]["payment_method"])
+
+    def test_cash_advance_release_explicit_method_is_preserved(self):
+        result = canonical_accounting_payload(
+            "cash_advance.released",
+            _envelope(
+                "cash_advance.released",
+                {"cash_advance": {"amount": 1500, "release_method": "GCash"}},
+            ),
+        )
+        self.assertEqual(result["proposed_links"]["payment_method"], "GCash")
+
     def test_payroll_deducted_repayment_does_not_create_fictitious_cash_in(self):
         for repayment in (
             {"amount": 500, "payment_method": "payroll_deduction", "payroll_run_id": 12},
