@@ -168,6 +168,27 @@ class PayrollAccountingMoneyTests(unittest.TestCase):
             70.01,
         )
 
+    def test_accounting_queue_repeated_export_preserves_existing_rows(self) -> None:
+        create_accounting_queue_for_payroll(self.conn, 1)
+        before = [
+            tuple(row)
+            for row in self.conn.execute(
+                "SELECT id, description, debit_account, credit_account, amount, status "
+                "FROM accounting_export_queue WHERE source_type='Payroll Run' AND source_id=1 ORDER BY id"
+            ).fetchall()
+        ]
+
+        create_accounting_queue_for_payroll(self.conn, 1)
+        after = [
+            tuple(row)
+            for row in self.conn.execute(
+                "SELECT id, description, debit_account, credit_account, amount, status "
+                "FROM accounting_export_queue WHERE source_type='Payroll Run' AND source_id=1 ORDER BY id"
+            ).fetchall()
+        ]
+
+        self.assertEqual(after, before)
+
     def test_accounting_queue_is_idempotent(self) -> None:
         create_accounting_queue_for_payroll(self.conn, 1)
         create_accounting_queue_for_payroll(self.conn, 1)
