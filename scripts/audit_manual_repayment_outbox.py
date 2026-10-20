@@ -40,7 +40,7 @@ def audit_manual_repayment_outbox(
             "repayment_date", "payment_method", "method", "reference",
         },
         "integration_outbox": {
-            "id", "destination", "event_type", "external_id", "status",
+            "id", "destination", "event_type", "external_source", "external_id", "status",
         },
     }
     for table, columns in required.items():
@@ -68,6 +68,7 @@ def audit_manual_repayment_outbox(
         FROM cash_advance_repayments AS repayment
         LEFT JOIN integration_outbox AS outbox
           ON outbox.destination='accounting'
+         AND outbox.external_source='hidden_oasis_staff_payroll'
          AND outbox.event_type='cash_advance.repaid'
          AND outbox.external_id='cash-advance-repayment:' || repayment.id
         WHERE LOWER(TRIM(COALESCE(repayment.source,'')))='manual'
