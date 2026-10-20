@@ -175,7 +175,7 @@ class AccountingOutboxAdapterTests(unittest.TestCase):
             {"amount": 500, "payment_method": "payroll_deduction", "payroll_run_id": 12},
             {"amount": 500, "method": "Payroll Deduction", "payroll_run_id": 12},
             {"amount": 500, "method": "salary deduction"},
-            {"amount": 500},
+            {"amount": 500, "source": "Payroll"},
         ):
             with self.subTest(repayment=repayment):
                 result = canonical_accounting_payload(
@@ -187,6 +187,40 @@ class AccountingOutboxAdapterTests(unittest.TestCase):
                 self.assertEqual(result["proposed_links"]["payment_method"], "payroll_deduction")
                 self.assertEqual(result["proposed_links"]["settlement_source"], "payroll_deduction_non_cash")
                 self.assertIsNone(result["proposed_journal"])
+
+    def test_unknown_repayment_method_stays_review_only_not_fictitious_cash(self):
+        for repayment in (
+            {"amount": 500},
+            {"amount": 500, "source": "Manual"},
+            {"amount": 500, "source": "Manual", "method": "Manual repayment"},
+        ):
+            with self.subTest(repayment=repayment):
+                result = canonical_accounting_payload(
+                    "cash_advance.repaid",
+                    _envelope("cash_advance.repaid", {"repayment": repayment}),
+                )
+                self.assertEqual(result["financial_effect"], "reference_only")
+                self.assertIsNone(result["proposed_links"]["payment_method"])
+                self.assertTrue(
+                    result["proposed_links"]["requires_manual_payment_method_verification"]
+                )
+                self.assertNotIn("settlement_source", result["proposed_links"])
+
+    def test_legacy_payroll_repayment_source_prevents_cash_in_even_if_method_is_cash(self):
+        result = canonical_accounting_payload(
+            "cash_advance.repaid",
+            _envelope(
+                "cash_advance.repaid",
+                {"repayment": {
+                    "amount": 500,
+                    "payment_method": "Cash",
+                    "source": "Payroll",
+                    "payroll_run_id": 12,
+                }},
+            ),
+        )
+        self.assertEqual(result["financial_effect"], "reference_only")
+        self.assertEqual(result["proposed_links"]["payment_method"], "payroll_deduction")
 
     def test_manual_cash_and_bank_repayments_are_cash_in(self):
         for payment_method in ("Cash", "GCash", "Bank Transfer"):
