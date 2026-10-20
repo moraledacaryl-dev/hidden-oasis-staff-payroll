@@ -104,7 +104,7 @@ def install_legacy_enqueue_adapter() -> None:
             """
             UPDATE integration_outbox
             SET status='Ready', updated_at=CURRENT_TIMESTAMP
-            WHERE id=? AND status IN ('Pending', 'Retry', 'Error', 'Dead Letter', 'Ready')
+            WHERE id=? AND status IN ('Pending', 'Retry', 'Error', 'Ready')
             """,
             (event_id,),
         )
