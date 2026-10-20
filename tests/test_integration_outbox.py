@@ -258,6 +258,58 @@ class IntegrationOutboxTests(unittest.TestCase):
         self.assertEqual(json.loads(stored["payload_json"]), {"external_id": "in-flight"})
         self.assertEqual(claim_events(self.conn, worker_id="second-worker"), [])
 
+    def test_legacy_writer_preserves_processing_claim_and_payload(self) -> None:
+        from core.integration_accounting import enqueue_payload
+
+        event_id = enqueue_payload(
+            self.conn, "payroll.run.approved", "legacy-inflight",
+            "Payroll Run", 12, {"value": "original"},
+        )
+        claimed = claim_events(self.conn, worker_id="worker-1")
+        self.assertEqual(len(claimed), 1)
+        self.assertEqual(int(claimed[0]["id"]), event_id)
+
+        same_id = enqueue_payload(
+            self.conn, "payroll.run.approved", "legacy-inflight",
+            "Payroll Run", 99, {"value": "rewritten"},
+        )
+        self.assertEqual(same_id, event_id)
+        stored = self.conn.execute(
+            "SELECT status,locked_by,source_id,payload_json FROM integration_outbox WHERE id=?",
+            (event_id,),
+        ).fetchone()
+        self.assertEqual(stored["status"], "Processing")
+        self.assertEqual(stored["locked_by"], "worker-1")
+        self.assertEqual(stored["source_id"], 12)
+        self.assertEqual(json.loads(stored["payload_json"]), {"value": "original"})
+        self.assertEqual(claim_events(self.conn, worker_id="worker-2"), [])
+
+    def test_legacy_writer_does_not_change_completed_delivery(self) -> None:
+        from core.integration_accounting import enqueue_payload
+
+        event_id = enqueue_payload(
+            self.conn, "payroll.run.paid", "legacy-completed",
+            "Payroll Run", 12, {"value": "original"},
+        )
+        self.conn.execute(
+            "UPDATE integration_outbox SET status='Completed',completed_at='2026-10-20 12:00:00' WHERE id=?",
+            (event_id,),
+        )
+        self.conn.commit()
+        same_id = enqueue_payload(
+            self.conn, "payroll.run.paid", "legacy-completed",
+            "Payroll Run", 99, {"value": "changed"},
+        )
+        self.assertEqual(same_id, event_id)
+        stored = self.conn.execute(
+            "SELECT status,source_id,payload_json,completed_at FROM integration_outbox WHERE id=?",
+            (event_id,),
+        ).fetchone()
+        self.assertEqual(stored["status"], "Completed")
+        self.assertEqual(stored["source_id"], 12)
+        self.assertEqual(json.loads(stored["payload_json"]), {"value": "original"})
+        self.assertEqual(stored["completed_at"], "2026-10-20 12:00:00")
+
     def test_legacy_ready_insert_is_normalized(self) -> None:
         self.conn.execute(
             """
