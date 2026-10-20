@@ -472,12 +472,20 @@ def process_claimed_event(conn: sqlite3.Connection, row: dict[str, Any], *, time
             token,
             timeout,
         )
-        parsed = json.loads(response_body or "{}") if response_body else {}
-        duplicate = status_code == 409 or (
+        # A generic HTTP 409 is a conflict, not proof that the receiver
+        # applied this exact event. Only explicit duplicate acknowledgments
+        # may be treated as delivered; other conflicts need human review.
+        try:
+            parsed = json.loads(response_body) if response_body else {}
+        except json.JSONDecodeError:
+            parsed = {}
+        acknowledged_duplicate = (
             isinstance(parsed, dict)
-            and parsed.get("status") in {"already_applied", "Already Applied"}
+            and str(parsed.get("status") or "").strip().lower() in {"already_applied", "already applied"}
         )
-        if 200 <= status_code < 300 or duplicate:
+        if 200 <= status_code < 300 or (
+            status_code == 409 and acknowledged_duplicate
+        ):
             conn.execute(
                 "UPDATE integration_outbox SET status='Completed',attempt_count=?,last_attempt_at=?,last_error=NULL,response_json=?,completed_at=?,locked_at=NULL,locked_by=NULL,updated_at=? WHERE id=?",
                 (attempt, now, response_body, now, now, event_id),
