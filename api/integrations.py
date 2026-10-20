@@ -182,18 +182,24 @@ def retry_event(
         row = fetchone(conn, "SELECT id,status FROM integration_outbox WHERE id=?", (event_id,))
         if not row:
             raise HTTPException(status_code=404, detail="Integration event not found.")
-        if row["status"] == "Completed":
-            raise HTTPException(status_code=409, detail="Completed events are immutable and cannot be retried.")
+        if row["status"] in {"Completed", "Processing"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Completed events and events being processed cannot be retried.",
+            )
         now = now_iso()
-        conn.execute(
+        updated = conn.execute(
             """
             UPDATE integration_outbox
             SET status='Retry',next_attempt_at=?,last_error=NULL,dead_letter_at=NULL,
                 locked_at=NULL,locked_by=NULL,updated_at=?
-            WHERE id=?
+            WHERE id=? AND status NOT IN ('Completed','Processing')
             """,
             (now, now, event_id),
         )
+        if updated.rowcount != 1:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Integration event is no longer eligible for retry.")
         conn.commit()
         return {"ok": True, "event_id": event_id, "status": "Retry"}
     finally:

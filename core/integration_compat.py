@@ -96,13 +96,15 @@ def install_legacy_enqueue_adapter() -> None:
             source_id=source_id,
             payload=payload,
         )
-        # Preserve legacy manual-delivery behavior while keeping Completed rows
-        # immutable. The durable worker converts Ready to Pending when claiming.
+        # Preserve legacy manual-delivery behavior without releasing an
+        # in-flight worker claim. enqueue_event also preserves Processing and
+        # Completed rows; the adapter must not undo that protection.
+        # The durable worker converts Ready to Pending when claiming.
         conn.execute(
             """
             UPDATE integration_outbox
             SET status='Ready', updated_at=CURRENT_TIMESTAMP
-            WHERE id=? AND status NOT IN ('Completed','Sent')
+            WHERE id=? AND status IN ('Pending', 'Retry', 'Error', 'Ready')
             """,
             (event_id,),
         )
