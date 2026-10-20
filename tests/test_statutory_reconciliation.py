@@ -22,6 +22,27 @@ class StatutoryReconciliationTests(unittest.TestCase):
         rows = reconcile_months([ContributionMonth("2026-10", Decimal("100"), Decimal("100"), Decimal("0"))])
         self.assertEqual(rows[0].closing_balance, Decimal("200.00"))
 
+    def test_partial_remittances_accumulate_until_fully_settled(self):
+        rows = reconcile_months([
+            ContributionMonth("2026-08", Decimal("100"), Decimal("100"), Decimal("50")),
+            ContributionMonth("2026-09", Decimal("100"), Decimal("100"), Decimal("125")),
+            ContributionMonth("2026-10", Decimal("100"), Decimal("100"), Decimal("425")),
+        ])
+        self.assertEqual(
+            [row.closing_balance for row in rows],
+            [Decimal("150.00"), Decimal("225.00"), Decimal("0.00")],
+        )
+        self.assertEqual(rows[2].opening_balance, Decimal("225.00"))
+
+    def test_overpayment_credit_reduces_next_month_liability(self):
+        rows = reconcile_months([
+            ContributionMonth("2026-08", Decimal("100"), Decimal("100"), Decimal("350")),
+            ContributionMonth("2026-09", Decimal("100"), Decimal("100"), Decimal("100")),
+        ])
+        self.assertEqual(rows[0].closing_balance, Decimal("-150.00"))
+        self.assertEqual(rows[1].opening_balance, Decimal("-150.00"))
+        self.assertEqual(rows[1].closing_balance, Decimal("-50.00"))
+
     def test_rejects_invalid_rows(self):
         cases = [
             [ContributionMonth("2026-10", Decimal("1"), Decimal("1"), Decimal("0")), ContributionMonth("2026-10", Decimal("1"), Decimal("1"), Decimal("0"))],
