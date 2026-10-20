@@ -31,6 +31,7 @@ class HistoricalManualRepaymentOutboxAuditTests(unittest.TestCase):
                     id INTEGER PRIMARY KEY,
                     destination TEXT,
                     event_type TEXT,
+                    external_source TEXT,
                     external_id TEXT,
                     status TEXT
                 );
@@ -46,10 +47,11 @@ class HistoricalManualRepaymentOutboxAuditTests(unittest.TestCase):
                     (8,70,'2026-09-12',5,'Manual','Cash','Cash',NULL,1);
 
                 INSERT INTO integration_outbox VALUES
-                    (20,'accounting','cash_advance.repaid','cash-advance-repayment:2','Completed'),
-                    (21,'accounting','cash_advance.repaid','cash-advance-repayment:3','Dead Letter'),
-                    (22,'operations','cash_advance.repaid','cash-advance-repayment:1','Completed'),
-                    (23,'accounting','cash_advance.released','cash-advance-repayment:8','Completed');
+                    (20,'accounting','cash_advance.repaid','hidden_oasis_staff_payroll','cash-advance-repayment:2','Completed'),
+                    (21,'accounting','cash_advance.repaid','hidden_oasis_staff_payroll','cash-advance-repayment:3','Dead Letter'),
+                    (22,'operations','cash_advance.repaid','hidden_oasis_staff_payroll','cash-advance-repayment:1','Completed'),
+                    (23,'accounting','cash_advance.released','hidden_oasis_staff_payroll','cash-advance-repayment:8','Completed'),
+                    (24,'accounting','cash_advance.repaid','a_different_app','cash-advance-repayment:7','Completed');
                 """
             )
 
