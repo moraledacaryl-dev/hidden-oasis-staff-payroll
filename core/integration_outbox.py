@@ -355,28 +355,49 @@ def canonical_accounting_payload(event_type: str, envelope: dict[str, Any]) -> d
         }
     elif event_type == "cash_advance.repaid":
         amount = _first_positive(repayment.get("amount"), body.get("amount"))
-        # Payroll deductions reduce the advance receivable through payroll,
-        # without any additional cash coming into the business. In particular,
-        # historical repayment rows store their method in "method" rather
-        # than "payment_method".
+        # Payroll deductions do not bring additional cash into the business.
+        # Manual receipts must have a documented receiving method: otherwise
+        # a guessed cash-in could inflate cash or land in the wrong account.
         raw_method = (
             repayment.get("payment_method")
             or repayment.get("method")
             or body.get("payment_method")
-            or "payroll_deduction"
         )
-        normalized_method = str(raw_method).strip().lower().replace("-", "_").replace(" ", "_")
-        payroll_deduction = normalized_method in {"payroll_deduction", "salary_deduction"}
-        financial_effect = "reference_only" if payroll_deduction else "cash_in"
+        normalized_method = str(raw_method or "").strip().lower().replace("-", "_").replace(" ", "_")
+        source = str(repayment.get("source") or "").strip().lower()
+        payroll_deduction = (
+            normalized_method in {"payroll_deduction", "salary_deduction"}
+            or source == "payroll"
+            or (repayment.get("payroll_run_id") is not None and source != "manual")
+        )
+        documented_receipt = (
+            not payroll_deduction
+            and normalized_method in {
+                "cash", "gcash", "bank", "bank_transfer", "bank_deposit",
+                "cheque", "check", "maya",
+            }
+        )
+        financial_effect = "cash_in" if documented_receipt else "reference_only"
         links = {
             "category": "Employee Cash Advance",
             "subcategory": "Repayment",
-            "payment_method": "payroll_deduction" if payroll_deduction else str(raw_method).strip(),
+            "payment_method": (
+                "payroll_deduction" if payroll_deduction
+                else str(raw_method).strip() if documented_receipt
+                else None
+            ),
             "counterparty_name": repayment.get("employee_name") or body.get("employee_name"),
         }
         if payroll_deduction:
             links["settlement_source"] = "payroll_deduction_non_cash"
             links["payroll_run_id"] = repayment.get("payroll_run_id")
+        elif not documented_receipt:
+            links["requires_manual_payment_method_verification"] = True
+            links["repayment_source"] = repayment.get("source")
+            links["review_instruction"] = (
+                "Verify whether the repayment was payroll-deducted or received "
+                "in cash/bank/GCash before posting a financial movement."
+            )
 
     if (
         event_type in {"payroll.run.approved", "payroll.run.paid"}

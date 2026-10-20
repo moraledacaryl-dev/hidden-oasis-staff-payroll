@@ -246,6 +246,47 @@ class PayrollCoreTests(unittest.TestCase):
         self.assertEqual(payload["source_record_type"], "Cash Advance Repayment")
         self.assertEqual(payload["payload"]["repayment"]["amount"], 250)
 
+    def test_manual_repayment_does_not_advertise_salary_payable_journal(self):
+        from api.cash_advance_service import ensure_schema as ensure_cash_schema
+
+        employee_id = self.add_taxable_employee(hourly_rate=200)
+        ensure_cash_schema(self.conn)
+        now = now_iso()
+        advance_id = int(self.conn.execute(
+            "INSERT INTO cash_advances("
+            "employee_id,request_date,amount,status,outstanding_balance,created_at"
+            ") VALUES(?,'2026-06-02',500,'Approved',250,?)",
+            (employee_id, now),
+        ).lastrowid)
+        manual_id = int(self.conn.execute(
+            "INSERT INTO cash_advance_repayments("
+            "cash_advance_id,employee_id,repayment_date,payment_date,amount,source,"
+            "payment_method,method,created_at"
+            ") VALUES(?,?, '2026-06-15','2026-06-15',100,'Manual','GCash','GCash',?)",
+            (advance_id, employee_id, now),
+        ).lastrowid)
+        payroll_id = int(self.conn.execute(
+            "INSERT INTO cash_advance_repayments("
+            "cash_advance_id,employee_id,repayment_date,payment_date,amount,source,"
+            "payment_method,method,created_at"
+            ") VALUES(?,?, '2026-06-15','2026-06-15',150,'Payroll',"
+            "'Payroll deduction','Payroll deduction',?)",
+            (advance_id, employee_id, now),
+        ).lastrowid)
+        self.conn.commit()
+
+        manual = build_cash_advance_repayment_payload(self.conn, manual_id)["payload"]
+        payroll = build_cash_advance_repayment_payload(self.conn, payroll_id)["payload"]
+
+        self.assertEqual(manual["journal_preview"], [])
+        self.assertIn("receiving cash/bank/GCash account", manual["receiver_instruction"])
+        self.assertEqual(len(payroll["journal_preview"]), 1)
+        self.assertEqual(payroll["journal_preview"][0]["debit_account"], "Salaries Payable")
+        self.assertEqual(
+            payroll["journal_preview"][0]["credit_account"],
+            "Employee Cash Advance Receivable",
+        )
+
     def test_operations_snapshot_exports_counts_only(self):
         self.add_taxable_employee(hourly_rate=200)
         payload = build_operations_snapshot_payload(self.conn)

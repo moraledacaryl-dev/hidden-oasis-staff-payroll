@@ -211,13 +211,42 @@ def build_cash_advance_repayment_payload(conn, repayment_id: int) -> dict[str, A
         raise ValueError(f"Cash advance repayment {repayment_id} not found")
     ca = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (repayment["cash_advance_id"],))
     emp = fetchone(conn, "SELECT employee_code, full_name, department, position FROM employees WHERE id=?", (ca["employee_id"],)) if ca else None
+    # Payroll deductions settle the receivable against Salaries Payable.
+    # Manual cash, bank and GCash repayments instead debit the receiving
+    # financial account. We cannot reliably pick that account from a legacy
+    # repayment row, so manual/unknown-method rows must not advertise the
+    # payroll-deduction journal as a valid posting.
+    repayment_method = str(
+        repayment.get("payment_method") or repayment.get("method") or ""
+    ).strip().lower().replace("-", "_").replace(" ", "_")
+    source = str(repayment.get("source") or "").strip().lower()
+    is_payroll_deduction = (
+        repayment_method in {"payroll_deduction", "salary_deduction"}
+        or source == "payroll"
+        or (repayment.get("payroll_run_id") is not None and source != "manual")
+    )
+    journal_preview = (
+        [
+            {
+                "debit_account": get_setting(conn, "salary_payable_account", "Salaries Payable"),
+                "credit_account": get_setting(conn, "employee_ca_account", "Employee Cash Advance Receivable"),
+                "amount": _money(repayment.get("amount")),
+                "memo": "Cash advance repayment through payroll",
+            }
+        ]
+        if is_payroll_deduction else []
+    )
     payload = {
         "employee": emp,
         "cash_advance": ca,
         "repayment": repayment,
-        "journal_preview": [
-            {"debit_account": get_setting(conn, "salary_payable_account", "Salaries Payable"), "credit_account": get_setting(conn, "employee_ca_account", "Employee Cash Advance Receivable"), "amount": _money(repayment.get("amount")), "memo": "Cash advance repayment through payroll"}
-        ],
+        "journal_preview": journal_preview,
+        "receiver_instruction": (
+            "Payroll deduction: settle Salaries Payable against Employee Cash Advance Receivable."
+            if is_payroll_deduction else
+            "Manual or unclassified repayment: verify the actual receiving cash/bank/GCash account "
+            "before posting Dr receiving account / Cr Employee Cash Advance Receivable."
+        ),
     }
     event = _event("cash_advance.repaid", f"cash-advance-repayment:{repayment_id}", "Cash Advance Repayment", repayment_id, payload)
     event.update(payload)
