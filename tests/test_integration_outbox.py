@@ -223,10 +223,40 @@ class IntegrationOutboxTests(unittest.TestCase):
             payload={"new": "payload"},
         )
         self.conn.commit()
-        stored = self.conn.execute("SELECT id,status,completed_at FROM integration_outbox").fetchone()
+        stored = self.conn.execute(
+            "SELECT id,status,completed_at,payload_json,source_id FROM integration_outbox"
+        ).fetchone()
         self.assertEqual(same_id, event_id)
         self.assertEqual(stored["status"], "Completed")
         self.assertTrue(stored["completed_at"])
+        self.assertEqual(json.loads(stored["payload_json"]), {"external_id": "immutable"})
+        self.assertEqual(stored["source_id"], 1)
+
+    def test_processing_event_cannot_be_requeued_or_rewritten_while_claimed(self) -> None:
+        event_id = self._enqueue(external_id="in-flight")
+        claimed = claim_events(self.conn, worker_id="first-worker")
+        self.assertEqual(len(claimed), 1)
+        same_id = enqueue_event(
+            self.conn,
+            destination="accounting",
+            event_type="employee.sync",
+            external_source="hidden_oasis_staff_payroll",
+            external_id="in-flight",
+            source_type="Employee",
+            source_id=99,
+            payload={"injected": "different value"},
+        )
+        self.conn.commit()
+        stored = self.conn.execute(
+            "SELECT status,locked_by,source_id,payload_json FROM integration_outbox WHERE id=?",
+            (event_id,),
+        ).fetchone()
+        self.assertEqual(same_id, event_id)
+        self.assertEqual(stored["status"], "Processing")
+        self.assertEqual(stored["locked_by"], "first-worker")
+        self.assertEqual(stored["source_id"], 1)
+        self.assertEqual(json.loads(stored["payload_json"]), {"external_id": "in-flight"})
+        self.assertEqual(claim_events(self.conn, worker_id="second-worker"), [])
 
     def test_legacy_ready_insert_is_normalized(self) -> None:
         self.conn.execute(
