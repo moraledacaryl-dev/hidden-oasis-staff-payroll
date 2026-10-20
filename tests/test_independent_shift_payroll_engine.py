@@ -167,6 +167,27 @@ class IndependentShiftPayrollEngineTests(unittest.TestCase):
         self.assertEqual(result.night_diff_hours, 0.5)
         self.assertEqual(result.night_diff_pay, 6.25)
 
+    def test_overnight_shift_night_diff_is_limited_to_22_to_06(self) -> None:
+        shift = self.add_shift('2026-08-20', '21:00', '05:00')
+        self.add_log('2026-08-20', '21:00', '05:00', shift)
+
+        result = self.result()
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.approved_ot_hours, 0.0)
+        self.assertEqual(result.night_diff_hours, 7.0)
+        self.assertEqual(result.night_diff_pay, 70.0)
+
+    def test_day_shift_has_no_night_differential(self) -> None:
+        shift = self.add_shift('2026-08-20', '08:00', '16:00')
+        self.add_log('2026-08-20', '08:00', '16:00', shift)
+
+        result = self.result()
+
+        self.assertEqual(result.regular_hours, 8.0)
+        self.assertEqual(result.night_diff_hours, 0.0)
+        self.assertEqual(result.night_diff_pay, 0.0)
+
     def test_no_schedule_does_not_auto_create_ot(self) -> None:
         self.add_log('2026-08-19', '08:00', '17:01', None)
 
