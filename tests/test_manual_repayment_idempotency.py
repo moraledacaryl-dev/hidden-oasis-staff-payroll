@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from fastapi import HTTPException
 from api.cash_advance_service import ensure_schema
 from api.cash_repayments import ManualRepaymentPayload, record_manual_repayment
 from core.db import get_conn
+from core.integration_outbox import canonical_accounting_payload
 
 
 class ManualRepaymentIdempotencyTests(unittest.TestCase):
@@ -22,6 +24,15 @@ class ManualRepaymentIdempotencyTests(unittest.TestCase):
         conn = get_conn(self.path)
         try:
             conn.execute("CREATE TABLE payroll_runs (id INTEGER PRIMARY KEY, status TEXT)")
+            conn.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT)")
+            conn.execute(
+                "CREATE TABLE employees (id INTEGER PRIMARY KEY, employee_code TEXT, "
+                "full_name TEXT, department TEXT, position TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO employees(id, employee_code, full_name, department, position) "
+                "VALUES(1, 'EMP-1', 'Example Employee', 'Operations', 'Staff')"
+            )
             ensure_schema(conn)
             self.advance_id = int(conn.execute(
                 """
@@ -110,6 +121,57 @@ class ManualRepaymentIdempotencyTests(unittest.TestCase):
         result = self.pay(key=None)
         self.assertFalse(result["already_recorded"])
         self.assertIsNone(self.rows()[0]["idempotency_key"])
+
+    def test_new_manual_repayment_queues_single_accounting_cash_receipt(self) -> None:
+        key = str(uuid4())
+        result = self.pay(key=key)
+        conn = get_conn(self.path)
+        try:
+            rows = conn.execute(
+                "SELECT * FROM integration_outbox WHERE event_type='cash_advance.repaid'"
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+            row = dict(rows[0])
+            self.assertEqual(row["destination"], "accounting")
+            self.assertEqual(row["source_id"], result["repayment_id"])
+            self.assertEqual(row["status"], "Pending")
+            payload = json.loads(row["payload_json"])
+            self.assertEqual(payload["external_id"], f"cash-advance-repayment:{result['repayment_id']}")
+            review = canonical_accounting_payload(row["event_type"], payload)
+            self.assertEqual(review["financial_effect"], "cash_in")
+            self.assertEqual(review["amount"], 30.0)
+            self.assertEqual(review["proposed_links"]["payment_method"], "GCash")
+        finally:
+            conn.close()
+
+    def test_retries_do_not_enqueue_a_second_accounting_receipt(self) -> None:
+        key = str(uuid4())
+        self.pay(key=key)
+        self.pay(key=key)
+        conn = get_conn(self.path)
+        try:
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM integration_outbox WHERE event_type='cash_advance.repaid'"
+            ).fetchone()[0], 1)
+        finally:
+            conn.close()
+
+    def test_failed_accounting_enqueue_rolls_back_repayment_and_balance(self) -> None:
+        with patch("api.cash_repayments.enqueue_event", side_effect=RuntimeError("Outbox unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "Outbox unavailable"):
+                self.pay(key=str(uuid4()))
+        self.assertEqual(self.rows(), [])
+        conn = get_conn(self.path)
+        try:
+            row = conn.execute(
+                "SELECT remaining_balance FROM cash_advances WHERE id=?", (self.advance_id,)
+            ).fetchone()
+            self.assertEqual(float(row[0]), 100.0)
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM integration_outbox").fetchone()[0], 0
+            )
+        finally:
+            conn.close()
 
     def test_uuid_client_key_must_be_well_formed(self) -> None:
         from pydantic import ValidationError

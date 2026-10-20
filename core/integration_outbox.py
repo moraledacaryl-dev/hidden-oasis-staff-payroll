@@ -171,8 +171,17 @@ def enqueue_event(
     source_id: int | None,
     payload: dict[str, Any],
     max_attempts: int = 8,
+    schema_ready: bool = False,
 ) -> int:
-    ensure_integration_schema(conn)
+    if schema_ready:
+        # Callers which must atomically commit the business write and event
+        # have already initialized the outbox BEFORE BEGIN IMMEDIATE.
+        # ensure_integration_schema commits, so do not call it here.
+        if not conn.in_transaction:
+            raise RuntimeError("Transactional enqueue requires an open SQLite transaction")
+        conn.execute("SELECT id FROM integration_outbox LIMIT 0")
+    else:
+        ensure_integration_schema(conn)
     now = now_iso()
     conn.execute(
         """
