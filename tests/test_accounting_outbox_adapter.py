@@ -71,6 +71,47 @@ class AccountingOutboxAdapterTests(unittest.TestCase):
             "bank_transfer",
         )
 
+    def test_paid_adjustment_revision_does_not_create_second_full_cash_out(self):
+        result = canonical_accounting_payload(
+            "payroll.run.paid",
+            _envelope(
+                "payroll.run.paid",
+                {
+                    "totals": {"net_pay": 12000},
+                    "run": {
+                        "id": 42,
+                        "revision_of_run_id": 30,
+                        "revision_treatment": "adjust_paid",
+                    },
+                },
+            ),
+        )
+        self.assertEqual(result["financial_effect"], "reference_only")
+        self.assertEqual(result["amount"], 0.0)
+        self.assertIsNone(result["proposed_journal"])
+        self.assertTrue(result["proposed_links"]["requires_manual_reconciliation"])
+        self.assertEqual(result["proposed_links"]["reported_full_net_pay"], 12000)
+        self.assertEqual(result["proposed_links"]["revision_of_run_id"], 30)
+
+    def test_paid_adjustment_approval_does_not_create_second_full_payable(self):
+        result = canonical_accounting_payload(
+            "payroll.run.approved",
+            _envelope(
+                "payroll.run.approved",
+                {
+                    "totals": {"net_pay": 11000},
+                    "run": {
+                        "id": 42,
+                        "revision_of_run_id": 30,
+                        "revision_treatment": "adjust_paid",
+                    },
+                },
+            ),
+        )
+        self.assertEqual(result["financial_effect"], "reference_only")
+        self.assertEqual(result["amount"], 0.0)
+        self.assertEqual(result["proposed_links"]["reported_full_net_pay"], 11000)
+
     def test_paid_payroll_without_documented_method_does_not_assume_bank_transfer(self):
         result = canonical_accounting_payload(
             "payroll.run.paid",

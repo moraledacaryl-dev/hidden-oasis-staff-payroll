@@ -189,6 +189,21 @@ class PayrollAccountingMoneyTests(unittest.TestCase):
 
         self.assertEqual(after, before)
 
+    def test_paid_adjustment_does_not_queue_full_duplicate_payroll_journal(self) -> None:
+        self.conn.execute("ALTER TABLE payroll_runs ADD COLUMN revision_treatment TEXT")
+        self.conn.execute(
+            "UPDATE payroll_runs SET revision_treatment='adjust_paid' WHERE id=1"
+        )
+        self.conn.commit()
+
+        create_accounting_queue_for_payroll(self.conn, 1)
+
+        count = self.conn.execute(
+            "SELECT COUNT(*) FROM accounting_export_queue "
+            "WHERE source_type='Payroll Run' AND source_id=1"
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
+
     def test_accounting_queue_is_idempotent(self) -> None:
         create_accounting_queue_for_payroll(self.conn, 1)
         create_accounting_queue_for_payroll(self.conn, 1)

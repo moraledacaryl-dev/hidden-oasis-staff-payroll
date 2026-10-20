@@ -378,6 +378,32 @@ def canonical_accounting_payload(event_type: str, envelope: dict[str, Any]) -> d
             links["settlement_source"] = "payroll_deduction_non_cash"
             links["payroll_run_id"] = repayment.get("payroll_run_id")
 
+    if (
+        event_type in {"payroll.run.approved", "payroll.run.paid"}
+        and str(run.get("revision_treatment") or "").strip().lower() == "adjust_paid"
+    ):
+        # An adjustment revision mirrors the full original payroll but is
+        # settled as a difference-only correction. Reporting its full net pay
+        # as a second payable/cash disbursement would double count wages. The
+        # receiver cannot infer the adjustment paid amount from this snapshot,
+        # so keep it reviewable without authorizing a cash or payable posting.
+        full_net_pay = _first_positive(totals.get("net_pay"), run.get("net_pay"))
+        financial_effect = "reference_only"
+        amount = 0.0
+        links = {
+            "category": "Payroll",
+            "subcategory": "Paid Adjustment Revision",
+            "revision_run_id": run.get("id"),
+            "revision_of_run_id": run.get("revision_of_run_id"),
+            "revision_treatment": "adjust_paid",
+            "reported_full_net_pay": full_net_pay,
+            "requires_manual_reconciliation": True,
+            "review_instruction": (
+                "Difference-only paid adjustment: reconcile net changes "
+                "against the already paid original. Do not post full net pay again."
+            ),
+        }
+
     return {
         "source_app": "staff",
         "source_event_id": external_id,
