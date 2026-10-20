@@ -71,7 +71,7 @@ class AccountingOutboxAdapterTests(unittest.TestCase):
             "bank_transfer",
         )
 
-    def test_cash_advance_release_and_repayment_have_opposite_directions(self):
+    def test_cash_advance_release_is_real_cash_out(self):
         released = canonical_accounting_payload(
             "cash_advance.released",
             _envelope(
@@ -79,22 +79,40 @@ class AccountingOutboxAdapterTests(unittest.TestCase):
                 {"cash_advance": {"amount": 1500, "release_method": "cash"}},
             ),
         )
-        repaid = canonical_accounting_payload(
-            "cash_advance.repaid",
-            _envelope(
-                "cash_advance.repaid",
-                {
-                    "repayment": {
-                        "amount": 500,
-                        "payment_method": "payroll_deduction",
-                    }
-                },
-            ),
-        )
         self.assertEqual(released["financial_effect"], "cash_out")
         self.assertEqual(released["amount"], 1500)
-        self.assertEqual(repaid["financial_effect"], "cash_in")
-        self.assertEqual(repaid["amount"], 500)
+
+    def test_payroll_deducted_repayment_does_not_create_fictitious_cash_in(self):
+        for repayment in (
+            {"amount": 500, "payment_method": "payroll_deduction", "payroll_run_id": 12},
+            {"amount": 500, "method": "Payroll Deduction", "payroll_run_id": 12},
+            {"amount": 500, "method": "salary deduction"},
+            {"amount": 500},
+        ):
+            with self.subTest(repayment=repayment):
+                result = canonical_accounting_payload(
+                    "cash_advance.repaid",
+                    _envelope("cash_advance.repaid", {"repayment": repayment}),
+                )
+                self.assertEqual(result["financial_effect"], "reference_only")
+                self.assertEqual(result["amount"], 500)
+                self.assertEqual(result["proposed_links"]["payment_method"], "payroll_deduction")
+                self.assertEqual(result["proposed_links"]["settlement_source"], "payroll_deduction_non_cash")
+                self.assertIsNone(result["proposed_journal"])
+
+    def test_manual_cash_and_bank_repayments_are_cash_in(self):
+        for payment_method in ("Cash", "GCash", "Bank Transfer"):
+            with self.subTest(payment_method=payment_method):
+                result = canonical_accounting_payload(
+                    "cash_advance.repaid",
+                    _envelope(
+                        "cash_advance.repaid",
+                        {"repayment": {"amount": 500, "payment_method": payment_method}},
+                    ),
+                )
+                self.assertEqual(result["financial_effect"], "cash_in")
+                self.assertEqual(result["amount"], 500)
+                self.assertEqual(result["proposed_links"]["payment_method"], payment_method)
 
     def test_13th_month_payment_is_cash_out(self):
         result = canonical_accounting_payload(

@@ -354,13 +354,28 @@ def canonical_accounting_payload(event_type: str, envelope: dict[str, Any]) -> d
         }
     elif event_type == "cash_advance.repaid":
         amount = _first_positive(repayment.get("amount"), body.get("amount"))
-        financial_effect = "cash_in"
+        # Payroll deductions reduce the advance receivable through payroll,
+        # without any additional cash coming into the business. In particular,
+        # historical repayment rows store their method in "method" rather
+        # than "payment_method".
+        raw_method = (
+            repayment.get("payment_method")
+            or repayment.get("method")
+            or body.get("payment_method")
+            or "payroll_deduction"
+        )
+        normalized_method = str(raw_method).strip().lower().replace("-", "_").replace(" ", "_")
+        payroll_deduction = normalized_method in {"payroll_deduction", "salary_deduction"}
+        financial_effect = "reference_only" if payroll_deduction else "cash_in"
         links = {
             "category": "Employee Cash Advance",
             "subcategory": "Repayment",
-            "payment_method": repayment.get("payment_method") or body.get("payment_method") or "payroll_deduction",
+            "payment_method": "payroll_deduction" if payroll_deduction else str(raw_method).strip(),
             "counterparty_name": repayment.get("employee_name") or body.get("employee_name"),
         }
+        if payroll_deduction:
+            links["settlement_source"] = "payroll_deduction_non_cash"
+            links["payroll_run_id"] = repayment.get("payroll_run_id")
 
     return {
         "source_app": "staff",
