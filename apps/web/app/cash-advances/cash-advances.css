@@ -283,6 +283,28 @@
   padding: 12px;
 }
 
+/* Staff delivery visibility only: neither badge confirms Accounting posting. */
+.cash-handoff-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--danger);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-soft);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.cash-history-row .cash-handoff-status {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.35;
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
 .cash-empty-state {
   display: grid;
   place-items: center;
