@@ -102,6 +102,8 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
         advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
         if not advance:
             raise HTTPException(status_code=404, detail="Cash advance not found.")
+        if int(advance.get("release_confirmation_required") or 0) and not str(advance.get("released_at") or "").strip():
+            raise HTTPException(status_code=409, detail="Confirm funds were issued before recording a repayment.")
         current = recalculate_balance(conn, cash_advance_id)
         if current["status"] == "Cancelled":
             raise HTTPException(status_code=409, detail="Cancelled cash advances cannot receive repayments.")
