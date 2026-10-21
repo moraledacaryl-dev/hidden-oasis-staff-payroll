@@ -93,6 +93,55 @@ class HistoricalManualRepaymentOutboxAuditTests(unittest.TestCase):
         self.assertEqual(result["review_candidate_count"], 5)
         self.assertEqual(result["review_candidate_sample"], [])
 
+    def test_manual_method_review_flags_completed_events_and_ambiguous_methods(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.executemany(
+                "INSERT INTO cash_advance_repayments VALUES (?,?,?,?,?,?,?,?,?)",
+                [
+                    (9,80,"2026-09-13",12.50,"Manual","Payroll deduction",
+                     "Payroll deduction","sensitive-ref",1),
+                    (10,80,"2026-09-14",7.25,"Manual","Other","Other",None,1),
+                    (11,80,"2026-09-15",8.15,"Manual",None,None,None,1),
+                ],
+            )
+            conn.execute(
+                "INSERT INTO integration_outbox VALUES (?,?,?,?,?,?)",
+                (26,"accounting","cash_advance.repaid","hidden_oasis_staff_payroll",
+                 "cash-advance-repayment:9","Completed"),
+            )
+        with sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            result = audit_manual_repayment_outbox(conn, sample_limit=100)
+        self.assertEqual(result["manual_repayment_count"], 9)
+        self.assertEqual(result["payment_method_review_count"], 3)
+        self.assertEqual(result["payment_method_review_amount_php"], 27.90)
+        self.assertEqual(result["payment_method_review_by_reason"], {
+            "manual_record_with_payroll_deduction_method": {
+                "count": 1, "amount_php": 12.50,
+            },
+            "missing_receipt_method": {"count": 1, "amount_php": 8.15},
+            "unverified_receipt_method": {"count": 1, "amount_php": 7.25},
+        })
+        sample = result["payment_method_review_sample"]
+        self.assertEqual([row["repayment_id"] for row in sample], [9, 10, 11])
+        self.assertEqual(sample[0]["classification"], "delivered_not_necessarily_posted")
+        self.assertEqual(sample[0]["outbox_status"], "Completed")
+        self.assertNotIn("sensitive-ref", str(sample))
+        self.assertTrue(sample[0]["has_receipt_reference"])
+
+    def test_method_review_zero_limit_preserves_count_and_truncation(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                "INSERT INTO cash_advance_repayments VALUES (?,?,?,?,?,?,?,?,?)",
+                (9,80,"2026-09-13",10,"Manual","Other","Other",None,1),
+            )
+        with sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True) as conn:
+            report = audit_manual_repayment_outbox(conn, sample_limit=0)
+        self.assertEqual(report["payment_method_review_count"], 1)
+        self.assertEqual(report["payment_method_review_amount_php"], 10.0)
+        self.assertEqual(report["payment_method_review_sample"], [])
+        self.assertTrue(report["payment_method_review_sample_truncated"])
+
     def test_read_only_connection_does_not_change_database(self) -> None:
         before = self.path.read_bytes()
         with sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True) as conn:
