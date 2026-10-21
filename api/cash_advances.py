@@ -500,6 +500,8 @@ def cancel_cash_advance(
         summary = recalculate_balance(conn, cash_advance_id)
         if float(summary.get("paid") or 0) > 0:
             raise HTTPException(status_code=409, detail="A cash advance with repayments cannot be cancelled. Reverse the repayments first.")
+        if str(advance.get("released_at") or "").strip():
+            raise HTTPException(status_code=409, detail="A disbursed advance cannot be cancelled as if funds were never issued.")
         _transition_cash_advance(conn, advance=advance, target="Cancelled", allowed_from={"Pending", "Rejected", "Active"}, user=user, reason=payload.reason, reason_required=True)
         response = _transition_response(conn, cash_advance_id)
         conn.commit()
