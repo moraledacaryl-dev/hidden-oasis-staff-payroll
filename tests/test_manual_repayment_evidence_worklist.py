@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import csv
-import os
 from pathlib import Path
 import sqlite3
 import stat
@@ -104,7 +103,7 @@ class HistoricalRepaymentEvidenceExportTests(unittest.TestCase):
         self.assertEqual(destination.read_bytes(), original_bytes)
 
     def test_spreadsheet_formula_injection_is_neutralized(self):
-        for bad in ("=HYPERLINK(1)", "+cmd", "-cmd", "@SUM(1)", "  =evil", "\\t=evil"):
+        for bad in ("=HYPERLINK(1)", "+cmd", "-cmd", "@SUM(1)", "  =evil", chr(9) + "=evil"):
             self.assertTrue(str(_safe_spreadsheet_cell(bad)).startswith("'"))
         self.assertEqual(_safe_spreadsheet_cell("Cash"), "Cash")
         self.assertEqual(_safe_spreadsheet_cell("2026-09-18"), "2026-09-18")
