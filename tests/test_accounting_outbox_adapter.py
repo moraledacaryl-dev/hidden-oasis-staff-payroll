@@ -206,21 +206,45 @@ class AccountingOutboxAdapterTests(unittest.TestCase):
                 )
                 self.assertNotIn("settlement_source", result["proposed_links"])
 
-    def test_legacy_payroll_repayment_source_prevents_cash_in_even_if_method_is_cash(self):
+    def test_conflicting_repayment_evidence_requires_manual_reconciliation(self):
+        for repayment in (
+            {"amount": 500, "source": "Manual", "payment_method": "Payroll deduction"},
+            {"amount": 500, "source": "Manual", "method": "salary_deduction",
+             "payroll_run_id": 12},
+            {"amount": 500, "source": "Payroll", "payment_method": "Cash",
+             "payroll_run_id": 12},
+            {"amount": 500, "source": "Payroll", "payment_method": "GCash"},
+            {"amount": 500, "payment_method": "Bank Transfer", "payroll_run_id": 12},
+        ):
+            with self.subTest(repayment=repayment):
+                result = canonical_accounting_payload(
+                    "cash_advance.repaid",
+                    _envelope("cash_advance.repaid", {"repayment": repayment}),
+                )
+                self.assertEqual(result["financial_effect"], "reference_only")
+                self.assertEqual(result["amount"], 500)
+                self.assertIsNone(result["proposed_journal"])
+                links = result["proposed_links"]
+                self.assertIsNone(links["payment_method"])
+                self.assertTrue(links["requires_manual_reconciliation"])
+                self.assertTrue(links["requires_manual_payment_method_verification"])
+                self.assertNotIn("settlement_source", links)
+                self.assertEqual(links["payroll_run_id"], repayment.get("payroll_run_id"))
+
+    def test_consistent_payroll_repayment_link_is_non_cash(self):
         result = canonical_accounting_payload(
             "cash_advance.repaid",
             _envelope(
                 "cash_advance.repaid",
-                {"repayment": {
-                    "amount": 500,
-                    "payment_method": "Cash",
-                    "source": "Payroll",
-                    "payroll_run_id": 12,
-                }},
+                {"repayment": {"amount": 500, "source": "Payroll",
+                               "payment_method": "Payroll deduction",
+                               "payroll_run_id": 12}},
             ),
         )
         self.assertEqual(result["financial_effect"], "reference_only")
         self.assertEqual(result["proposed_links"]["payment_method"], "payroll_deduction")
+        self.assertEqual(result["proposed_links"]["settlement_source"], "payroll_deduction_non_cash")
+        self.assertNotIn("requires_manual_reconciliation", result["proposed_links"])
 
     def test_manual_cash_and_bank_repayments_are_cash_in(self):
         for payment_method in ("Cash", "GCash", "Bank Transfer"):
