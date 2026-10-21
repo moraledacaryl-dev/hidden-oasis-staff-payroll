@@ -158,7 +158,7 @@ def _safe_spreadsheet_cell(value: object) -> object:
     """Prevent spreadsheet formula interpretation of untrusted Staff text."""
     if not isinstance(value, str):
         return value
-    if value.lstrip().startswith(("=", "+", "-", "@")) or value.startswith(("\\t", "\\r", "\\n")):
+    if value.lstrip().startswith(("=", "+", "-", "@")) or value.startswith((chr(9), chr(13), chr(10))):
         return "'" + value
     return value
 
