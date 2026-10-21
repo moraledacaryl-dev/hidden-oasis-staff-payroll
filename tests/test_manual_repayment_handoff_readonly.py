@@ -24,8 +24,11 @@ class ManualRepaymentHandoffReadonlyTests(unittest.TestCase):
                     active INTEGER DEFAULT 1,
                     payroll_run_id INTEGER
                 );
-                CREATE TABLE payroll_runs (id INTEGER PRIMARY KEY, status TEXT);
-                INSERT INTO payroll_runs VALUES (4,'Paid');
+                CREATE TABLE payroll_runs (
+                    id INTEGER PRIMARY KEY, status TEXT,
+                    period_start TEXT, period_end TEXT
+                );
+                INSERT INTO payroll_runs VALUES (4,'Paid','2026-09-01','2026-09-15');
                 INSERT INTO cash_advance_repayments VALUES
                     (15,12,'2026-07-02','Manual',1,NULL),
                     (29,12,'2026-08-03','Manual',1,NULL),
