@@ -65,12 +65,33 @@ class HistoricalManualRepaymentOutboxAuditTests(unittest.TestCase):
         self.assertEqual(result["missing_staff_outbox_count"], 4)
         self.assertEqual(result["missing_staff_outbox_amount_php"], 170.25)
         self.assertEqual(result["outbox_not_completed_count"], 1)
+        self.assertEqual(result["outbox_not_completed_by_status"], {
+            "Dead Letter": {"count": 1, "amount_php": 60.0},
+        })
         self.assertEqual(result["outbox_not_completed_amount_php"], 60.0)
         self.assertEqual(result["delivered_not_necessarily_posted_count"], 1)
         self.assertEqual(result["review_candidate_count"], 5)
         self.assertEqual([row["repayment_id"] for row in result["review_candidate_sample"]], [1,3,6,7,8])
         self.assertEqual(result["possible_duplicate_groups_count"], 1)
         self.assertEqual(result["possible_duplicate_groups_sample"][0]["repayment_ids"], [6,7])
+
+    def test_status_breakdown_distinguishes_retry_from_dead_letter(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("INSERT INTO integration_outbox VALUES (25, ?, ?, ?, ?, ?)",
+                         ("accounting", "cash_advance.repaid",
+                          "hidden_oasis_staff_payroll", "cash-advance-repayment:1", "Retry"))
+        with sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            result = audit_manual_repayment_outbox(conn, sample_limit=0)
+        self.assertEqual(result["outbox_not_completed_count"], 2)
+        self.assertEqual(result["outbox_not_completed_amount_php"], 185.25)
+        self.assertEqual(result["outbox_not_completed_by_status"], {
+            "Dead Letter": {"count": 1, "amount_php": 60.0},
+            "Retry": {"count": 1, "amount_php": 125.25},
+        })
+        self.assertEqual(result["missing_staff_outbox_count"], 3)
+        self.assertEqual(result["review_candidate_count"], 5)
+        self.assertEqual(result["review_candidate_sample"], [])
 
     def test_read_only_connection_does_not_change_database(self) -> None:
         before = self.path.read_bytes()
