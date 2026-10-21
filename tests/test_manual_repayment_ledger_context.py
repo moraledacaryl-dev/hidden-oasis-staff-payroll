@@ -74,7 +74,7 @@ class HistoricalManualRepaymentLedgerContextTests(unittest.TestCase):
         self.assertEqual(cases[15]["active_manual_repaid_php"], 1000.0)
         self.assertEqual(cases[15]["confirmed_payroll_deductions_php"], 750.0)
         self.assertEqual(cases[15]["calculated_remaining_php"], 250.0)
-        self.assertEqual(cases[21 if 21 in cases else 29]["ledger_opening_php"], 4000.0)
+        self.assertEqual(cases[29]["ledger_opening_php"], 4000.0)
         self.assertEqual(cases[29]["stored_remaining_php"], 3500.0)
         self.assertEqual(cases[30]["unconfirmed_payroll_repayments_php"], 400.0)
         self.assertEqual(cases[30]["inactive_repayment_amount_php"], 50.0)
