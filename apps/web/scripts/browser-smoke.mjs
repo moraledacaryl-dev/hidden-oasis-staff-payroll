@@ -22,7 +22,7 @@ const pages = JSON.parse(
   process.env.BROWSER_SMOKE_PAGES_JSON ||
     JSON.stringify({
       owner: ["/", "/cutoff", "/schedule", "/hr", "/backup", "/settings/users", "/performance-reviews", "/payroll", "/payroll/runs", "/payroll/benefits", "/payslips", "/reports", "/staff", "/staff/manage"],
-      supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances", "/performance-reviews", "/staff"],
+      supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances", "/cash-advances?review=accounting", "/performance-reviews", "/staff"],
       staff: ["/me", "/settings/security"],
     }),
 );
@@ -212,9 +212,21 @@ async function inspectPage(session, role, route, viewport) {
   const failureText = (result.text || "").replace(/Preview · not saved/g, "Preview");
   const matchedFailureText = visibleFailurePatterns.find((pattern) => pattern.test(failureText))?.toString() || null;
   const screenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-  const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-");
+  const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-").replace(/[^a-zA-Z0-9_-]/g, "-");
   const file = path.join(outputDir, `${role}-${viewport.name}-${slug}.png`);
   await writeFile(file, Buffer.from(screenshot.data, "base64"));
+  // The screenshot fixture includes a fully paid advance with a synthetic
+  // missing Staff outbox. Verify the filtered review page retains its
+  // exception and its distinction between "paid" and "cash posted".
+  const accountingQueueCheck = route === "/cash-advances?review=accounting"
+    ? Boolean(
+        result.text?.includes("Accounting handoff review") &&
+        result.text?.includes("1 manual repayment") &&
+        result.text?.includes("₱1,200.00") &&
+        result.text?.includes("Manual repayment requires Staff Accounting handoff review") &&
+        result.text?.includes("Show all advances")
+      )
+    : true;
   let scheduleDropPrompt = null;
   if (role === "owner" && route === "/schedule") {
     const dragStartEvaluation = await session.send("Runtime.evaluate", {
@@ -437,6 +449,7 @@ async function inspectPage(session, role, route, viewport) {
     screenshot: file,
     ...result,
     matchedFailureText,
+    accountingQueueCheck,
     scheduleDropPrompt,
     cutoffWorkflow,
     impersonationWorkflow,
@@ -448,6 +461,7 @@ async function inspectPage(session, role, route, viewport) {
       (result.criticalClippingProblems || []).length === 0 &&
       (result.scheduleClippingProblems || []).length === 0 &&
       !matchedFailureText &&
+      accountingQueueCheck &&
       (!scheduleDropPrompt || (
         scheduleDropPrompt.dispatched &&
         scheduleDropPrompt.visible &&

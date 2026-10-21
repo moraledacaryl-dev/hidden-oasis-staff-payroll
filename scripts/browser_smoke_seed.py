@@ -15,6 +15,8 @@ if str(ROOT) not in sys.path:
 
 from api.main import SESSION_TTL_SECONDS, sign_payload
 from api.staff_self_service import ensure_schema as ensure_staff_self_service_schema
+from api.cash_advance_service import ensure_schema as ensure_cash_advance_schema
+from core.integration_outbox import ensure_integration_schema
 from core.db import get_conn, init_db, now_iso
 
 MANILA = ZoneInfo("Asia/Manila")
@@ -43,6 +45,8 @@ def main() -> int:
     try:
         init_db(conn)
         ensure_staff_self_service_schema(conn)
+        ensure_cash_advance_schema(conn)
+        ensure_integration_schema(conn)
         created_at = now_iso()
         supervisor_employee_id = int(
             conn.execute(
@@ -193,6 +197,28 @@ def main() -> int:
             ) VALUES(?, ?, 2500, 'Active', 1750, ?)
             """,
             (staff_employee_id, monday, created_at),
+        )
+        # Synthetic historical manual receipt with no Staff Accounting
+        # outbox record: confirms the read-only review queue renders even for
+        # a fully paid advance. This test fixture never touches production.
+        exception_advance_id = int(conn.execute(
+            """
+            INSERT INTO cash_advances(
+                employee_id, request_date, advance_date, amount, status,
+                outstanding_balance, remaining_balance, ledger_opening_balance,
+                created_at
+            ) VALUES(?, ?, ?, 1200, 'Fully Paid', 0, 0, 1200, ?)
+            """,
+            (staff_employee_id, monday, monday, created_at),
+        ).lastrowid)
+        conn.execute(
+            """
+            INSERT INTO cash_advance_repayments(
+                cash_advance_id, employee_id, repayment_date, payment_date,
+                amount, source, payment_method, method, active, created_at
+            ) VALUES(?, ?, ?, ?, 1200, 'Manual', 'Cash', 'Cash', 1, ?)
+            """,
+            (exception_advance_id, staff_employee_id, monday, monday, created_at),
         )
         payroll_run_id = int(
             conn.execute(
