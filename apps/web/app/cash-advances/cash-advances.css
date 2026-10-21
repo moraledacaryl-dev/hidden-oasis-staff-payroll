@@ -41,6 +41,75 @@
   gap: 14px;
 }
 
+/* Aggregate Staff delivery exceptions without implying Accounting posting. */
+.cash-accounting-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 17px 18px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.cash-accounting-review-details {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cash-accounting-review-kicker {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.cash-accounting-review-total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 14px;
+  row-gap: 3px;
+}
+
+.cash-accounting-review-total strong {
+  font-size: 1.08rem;
+}
+
+.cash-accounting-review-total span {
+  font-size: 1.1rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.cash-accounting-review-details p {
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.cash-accounting-review-actions {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .cash-accounting-review {
+    display: grid;
+    gap: 13px;
+    padding: 14px;
+  }
+
+  .cash-accounting-review-actions > a {
+    width: 100%;
+    text-align: center;
+  }
+}
+
 .cash-advance-card {
   display: grid;
   gap: 16px;
