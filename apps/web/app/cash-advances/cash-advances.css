@@ -479,3 +479,22 @@
   font-size:.82rem;
   font-weight:750;
 }
+
+/* Confirmed-disbursement attestation remains legible on narrow mobile screens. */
+.cash-release-attestation {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.cash-release-attestation input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+.cash-release-attestation span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
