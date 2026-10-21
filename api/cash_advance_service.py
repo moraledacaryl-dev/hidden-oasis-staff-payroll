@@ -257,10 +257,56 @@ def recalculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
 
 
 def repayment_history(conn, cash_advance_id: int) -> list[dict[str, Any]]:
-    return fetchall(conn, """
+    """Return payment history with *Staff outbox* evidence, never posting claims.
+
+    A completed Staff outbox delivery only means the event was delivered.
+    Accounting review, journal posting and receipt verification are separate.
+    The read endpoint does not create or repair legacy outbox schema.
+    """
+    outbox_columns = (
+        _columns(conn, "integration_outbox")
+        if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='integration_outbox'"
+        ).fetchone() else set()
+    )
+    required = {
+        "id", "status", "destination", "event_type",
+        "external_source", "external_id",
+    }
+    has_outbox = required.issubset(outbox_columns)
+    if has_outbox:
+        handoff_fields = """
+            ,o.status AS accounting_outbox_status,
+            CASE WHEN LOWER(TRIM(COALESCE(r.source,''))) <> 'manual' THEN NULL
+                 WHEN o.id IS NULL THEN 'missing_staff_outbox'
+                 WHEN o.status = 'Completed' THEN 'delivered_posting_unverified'
+                 WHEN o.status = 'Pending' THEN 'pending_delivery'
+                 ELSE 'delivery_requires_review'
+            END AS accounting_handoff_state
+        """
+        handoff_join = """
+            LEFT JOIN integration_outbox o ON o.id = (
+                SELECT MAX(ev.id) FROM integration_outbox ev
+                WHERE ev.destination = 'accounting'
+                  AND ev.external_source = 'hidden_oasis_staff_payroll'
+                  AND ev.event_type = 'cash_advance.repaid'
+                  AND ev.external_id = 'cash-advance-repayment:' || r.id
+            )
+        """
+    else:
+        handoff_fields = """
+            ,NULL AS accounting_outbox_status,
+            CASE WHEN LOWER(TRIM(COALESCE(r.source,''))) = 'manual'
+                 THEN 'outbox_status_unavailable' ELSE NULL
+            END AS accounting_handoff_state
+        """
+        handoff_join = ""
+    return fetchall(conn, f"""
         SELECT r.*,pr.period_start,pr.period_end,pr.status payroll_status
+               {handoff_fields}
         FROM cash_advance_repayments r
         LEFT JOIN payroll_runs pr ON pr.id=r.payroll_run_id
+        {handoff_join}
         WHERE r.cash_advance_id=? AND COALESCE(r.active,1)=1
         ORDER BY date(r.repayment_date) DESC,r.id DESC
     """, (cash_advance_id,))
