@@ -123,6 +123,19 @@ class ManualRepaymentIdempotencyTests(unittest.TestCase):
         self.assertFalse(result["already_recorded"])
         self.assertIsNone(self.rows()[0]["idempotency_key"])
 
+    def test_nonfinite_or_invalid_manual_amount_is_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        for amount in (float("nan"), float("inf"), float("-inf"),
+                       "NaN", "Infinity", "not-a-number", "1e1000000"):
+            with self.subTest(amount=str(amount)):
+                with self.assertRaisesRegex(ValidationError, "valid finite repayment amount"):
+                    ManualRepaymentPayload(
+                        amount=amount, repayment_date="2026-10-20",
+                        payment_method="GCash",
+                    )
+        self.assertEqual(self.rows(), [])
+
     def test_manual_api_rejects_payroll_deduction_as_receipt_method(self) -> None:
         from pydantic import ValidationError
 
