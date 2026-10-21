@@ -112,7 +112,10 @@ class ManualRepaymentHandoffReadonlyTests(unittest.TestCase):
         with sqlite3.connect(self.path) as conn:
             conn.execute("CREATE TABLE integration_outbox (id INTEGER, status TEXT)")
         rows = self._history()
-        self.assertEqual(rows[0]["accounting_handoff_state"], "outbox_status_unavailable")
+        self.assertEqual(
+            next(x for x in rows if x["id"] == 15)["accounting_handoff_state"],
+            "outbox_status_unavailable",
+        )
 
     def test_ui_never_presents_completed_delivery_as_posted(self):
         page = Path("apps/web/app/cash-advances/page.tsx").read_text(encoding="utf-8")
