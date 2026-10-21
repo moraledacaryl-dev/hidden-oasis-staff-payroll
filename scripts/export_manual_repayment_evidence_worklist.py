@@ -154,6 +154,15 @@ def build_worklist(conn: sqlite3.Connection, *, include_all: bool = False) -> tu
     }
 
 
+def _safe_spreadsheet_cell(value: object) -> object:
+    """Prevent spreadsheet formula interpretation of untrusted Staff text."""
+    if not isinstance(value, str):
+        return value
+    if value.lstrip().startswith(("=", "+", "-", "@")) or value.startswith(("\\t", "\\r", "\\n")):
+        return "'" + value
+    return value
+
+
 def export_private_csv(path: Path, rows: list[dict]) -> None:
     """Create a new private file exclusively; refuse overwrite and symlinks."""
     if not path.is_absolute() or not path.parent.is_dir():
@@ -165,7 +174,8 @@ def export_private_csv(path: Path, rows: list[dict]) -> None:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as destination:
             writer = csv.DictWriter(destination, fieldnames=HEADER, extrasaction="raise")
             writer.writeheader()
-            writer.writerows(rows)
+            for item in rows:
+                writer.writerow({key: _safe_spreadsheet_cell(value) for key, value in item.items()})
     except BaseException:
         path.unlink(missing_ok=True)
         raise
