@@ -82,6 +82,13 @@ def audit_manual_repayment_outbox(
     outbox_status_counts: Counter[str] = Counter()
     outbox_status_amount_cents: Counter[str] = Counter()
     details: list[dict] = []
+    method_review_counts: Counter[str] = Counter()
+    method_review_amount_cents: Counter[str] = Counter()
+    method_review_details: list[dict] = []
+    documented_methods = {
+        "cash", "gcash", "bank", "bank_transfer", "bank_deposit",
+        "cheque", "check", "maya",
+    }
     duplicate_groups: dict[tuple, list[int]] = {}
     for row in rows:
         data = dict(row)
@@ -113,6 +120,24 @@ def audit_manual_repayment_outbox(
         # or bank transaction reference values.
         detail["has_receipt_reference"] = bool(data["receipt_reference"])
         details.append(detail)
+
+        # Delivery completion does not establish a valid receipt method. Flag
+        # even Completed events with ambiguous or contradictory manual methods.
+        method = "_".join(
+            str(data["payment_method"] or "").strip().lower()
+            .replace("-", " ").replace("_", " ").split()
+        )
+        reason = None
+        if method in {"payroll_deduction", "salary_deduction"}:
+            reason = "manual_record_with_payroll_deduction_method"
+        elif not method:
+            reason = "missing_receipt_method"
+        elif method not in documented_methods:
+            reason = "unverified_receipt_method"
+        if reason:
+            method_review_counts[reason] += 1
+            method_review_amount_cents[reason] += php_cents(data["amount"])
+            method_review_details.append({**detail, "method_review_reason": reason})
 
         # Repeat exact advance/day/amount/method/reference is a *candidate*
         # duplicate only; two legitimate installments can share these values.
@@ -149,6 +174,14 @@ def audit_manual_repayment_outbox(
         "delivered_not_necessarily_posted_count": categories["delivered_not_necessarily_posted"],
         "review_candidate_count": len(needs_review),
         "review_candidate_sample": needs_review[:sample_limit],
+        "payment_method_review_count": len(method_review_details),
+        "payment_method_review_amount_php": sum(method_review_amount_cents.values()) / 100,
+        "payment_method_review_by_reason": {
+            key: {"count": method_review_counts[key], "amount_php": method_review_amount_cents[key] / 100}
+            for key in sorted(method_review_counts)
+        },
+        "payment_method_review_sample": method_review_details[:sample_limit],
+        "payment_method_review_sample_truncated": len(method_review_details) > sample_limit,
         "review_candidate_sample_truncated": len(needs_review) > sample_limit,
         "possible_duplicate_groups_count": len(duplicates),
         "possible_duplicate_groups_sample": duplicates[:sample_limit],
@@ -158,7 +191,9 @@ def audit_manual_repayment_outbox(
             "Accounting review queue and cash/bank/GCash statements before "
             "any manual adjustment or controlled replay. A Completed outbox "
             "event establishes delivery only, not that Accounting accepted or "
-            "posted the payment. Duplicate candidates may be legitimate."
+            "posted the payment. A method review flag can apply even to an "
+            "outbox event marked Completed; verify actual funds and payroll "
+            "deductions independently. Duplicate candidates may be legitimate."
         ),
     }
 
