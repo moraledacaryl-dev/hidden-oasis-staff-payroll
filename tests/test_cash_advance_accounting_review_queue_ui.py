@@ -39,6 +39,8 @@ class CashAdvanceAccountingReviewQueueContractTests(unittest.TestCase):
         self.assertIn("accountingQueueCheck", self.smoke)
         self.assertIn("Manual repayment requires Staff Accounting handoff review", self.smoke)
         self.assertIn("Page.captureScreenshot", self.smoke)
+        # GitHub artifact ZIPs reject question marks and other unsafe path characters.
+        self.assertIn('replace(/[^a-zA-Z0-9_-]/g, "-")', self.smoke)
         self.assertIn("exception_advance_id", self.seed)
         self.assertIn("'Fully Paid'", self.seed)
         self.assertIn("'Manual', 'Cash', 'Cash'", self.seed)
