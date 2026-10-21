@@ -37,7 +37,7 @@ class CashAdvanceLifecycleContractTests(unittest.TestCase):
         self.assertIn("Reason for reject/cancel", self.form)
 
     def test_proxy_routes_only_named_transition_actions(self) -> None:
-        self.assertIn('new Set(["approve", "reject", "cancel"])', self.proxy)
+        self.assertIn('new Set(["approve", "reject", "cancel", "release"])', self.proxy)
         self.assertIn('`${apiBaseUrl()}/api/v1/cash-advances/${cashAdvanceId}/${action}`', self.proxy)
 
     def test_lifecycle_changes_are_append_only_audited(self) -> None:
