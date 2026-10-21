@@ -274,6 +274,13 @@ def save_cash_advance(
             stored_basis = money(old.get("ledger_opening_balance") if old.get("ledger_opening_balance") is not None else stored_amount)
             if abs(amount - stored_basis) >= 0.005:
                 raise HTTPException(status_code=409, detail="Original amount / balance basis cannot be changed in normal edit. Use owner correction instead.")
+            # Never reassign an already issued financial movement to another
+            # employee or date through an ordinary form edit.
+            if str(old.get("released_at") or "").strip() and (
+                int(payload.employee_id) != int(old["employee_id"])
+                or str(payload.advance_date)[:10] != str(old.get("advance_date") or old.get("request_date") or "")[:10]
+            ):
+                raise HTTPException(status_code=409, detail="Issued advance identity and advance date are immutable. Use an audited correction.")
 
             # Lifecycle status is deliberately immutable through ordinary detail edits.
             # Approval/rejection/cancellation must use explicit transition endpoints.
