@@ -212,11 +212,11 @@ def main() -> int:
         conn.execute(
             """
             INSERT INTO cash_advance_repayments(
-                cash_advance_id, employee_id, repayment_date, amount, source,
-                payment_method, method, active, created_at
-            ) VALUES(?, ?, ?, 1200, 'Manual', 'Cash', 'Cash', 1, ?)
+                cash_advance_id, employee_id, repayment_date, payment_date,
+                amount, source, payment_method, method, active, created_at
+            ) VALUES(?, ?, ?, ?, 1200, 'Manual', 'Cash', 'Cash', 1, ?)
             """,
-            (exception_advance_id, staff_employee_id, monday, created_at),
+            (exception_advance_id, staff_employee_id, monday, monday, created_at),
         )
         payroll_run_id = int(
             conn.execute(
