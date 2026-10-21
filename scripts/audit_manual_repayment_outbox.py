@@ -79,6 +79,8 @@ def audit_manual_repayment_outbox(
 
     categories: Counter[str] = Counter()
     sums_cents: Counter[str] = Counter()
+    outbox_status_counts: Counter[str] = Counter()
+    outbox_status_amount_cents: Counter[str] = Counter()
     details: list[dict] = []
     duplicate_groups: dict[tuple, list[int]] = {}
     for row in rows:
@@ -91,6 +93,11 @@ def audit_manual_repayment_outbox(
         else:
             category = "outbox_not_completed"
         categories[category] += 1
+        if category == "outbox_not_completed":
+            # Keep retryable versus terminal failures visible without exposing
+            # financial references or altering delivery state.
+            outbox_status_counts[status or "(blank)"] += 1
+            outbox_status_amount_cents[status or "(blank)"] += php_cents(data["amount"])
         sums_cents[category] += php_cents(data["amount"])
         detail = {
             "repayment_id": int(data["repayment_id"]),
@@ -134,6 +141,10 @@ def audit_manual_repayment_outbox(
         "missing_staff_outbox_count": categories["missing_staff_outbox"],
         "missing_staff_outbox_amount_php": sums_cents["missing_staff_outbox"] / 100,
         "outbox_not_completed_count": categories["outbox_not_completed"],
+        "outbox_not_completed_by_status": {
+            key: {"count": outbox_status_counts[key], "amount_php": outbox_status_amount_cents[key] / 100}
+            for key in sorted(outbox_status_counts)
+        },
         "outbox_not_completed_amount_php": sums_cents["outbox_not_completed"] / 100,
         "delivered_not_necessarily_posted_count": categories["delivered_not_necessarily_posted"],
         "review_candidate_count": len(needs_review),
