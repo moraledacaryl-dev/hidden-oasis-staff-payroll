@@ -48,9 +48,10 @@ class ManualRepaymentIdempotencyTests(unittest.TestCase):
             conn.close()
 
     def pay(self, *, key: str | None, amount: float = 30, advance_id: int | None = None,
-            reference: str = "receipt-100", notes: str = "received") -> dict:
+            reference: str = "receipt-100", notes: str = "received",
+            payment_method: str = "GCash") -> dict:
         payload = ManualRepaymentPayload(
-            amount=amount, repayment_date="2026-10-20", payment_method="GCash",
+            amount=amount, repayment_date="2026-10-20", payment_method=payment_method,
             reference=reference, notes=notes, idempotency_key=key,
         )
         with (
@@ -138,10 +139,22 @@ class ManualRepaymentIdempotencyTests(unittest.TestCase):
     def test_manual_unknown_receipt_method_remains_reference_only(self) -> None:
         # Existing "Other" clients remain supported, but may not
         # advertise cash movement without a documented receiving method.
-        payload = ManualRepaymentPayload(
-            amount=30, repayment_date="2026-10-20", payment_method="Other",
-        )
-        self.assertEqual(payload.payment_method, "Other")
+        result = self.pay(key=str(uuid4()), payment_method="Other")
+        self.assertFalse(result["already_recorded"])
+        conn = get_conn(self.path)
+        try:
+            rows = conn.execute("SELECT * FROM integration_outbox").fetchall()
+            self.assertEqual(len(rows), 1)
+            row = dict(rows[0])
+            review = canonical_accounting_payload(
+                row["event_type"], json.loads(row["payload_json"]),
+            )
+            self.assertEqual(review["financial_effect"], "reference_only")
+            self.assertTrue(
+                review["proposed_links"]["requires_manual_payment_method_verification"]
+            )
+        finally:
+            conn.close()
 
     def test_new_manual_repayment_queues_single_accounting_cash_receipt(self) -> None:
         key = str(uuid4())
