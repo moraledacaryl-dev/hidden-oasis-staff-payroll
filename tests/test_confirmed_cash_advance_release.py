@@ -29,7 +29,7 @@ class ConfirmedCashAdvanceReleaseTests(unittest.TestCase):
         self.path = Path(tmp.name) / "staff.sqlite"
         with get_conn(self.path) as conn:
             conn.executescript("""
-                CREATE TABLE payroll_runs (id INTEGER PRIMARY KEY, status TEXT);
+                CREATE TABLE payroll_runs (id INTEGER PRIMARY KEY, status TEXT, period_start TEXT, period_end TEXT);
                 CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
                 CREATE TABLE employees (
                     id INTEGER PRIMARY KEY, employee_code TEXT, full_name TEXT,
