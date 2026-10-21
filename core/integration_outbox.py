@@ -372,19 +372,30 @@ def canonical_accounting_payload(event_type: str, envelope: dict[str, Any]) -> d
             or repayment.get("method")
             or body.get("payment_method")
         )
-        normalized_method = str(raw_method or "").strip().lower().replace("-", "_").replace(" ", "_")
+        normalized_method = "_".join(
+            str(raw_method or "").strip().lower().replace("-", " ").replace("_", " ").split()
+        )
         source = str(repayment.get("source") or "").strip().lower()
+        method_is_payroll = normalized_method in {"payroll_deduction", "salary_deduction"}
+        method_is_receipt = normalized_method in {
+            "cash", "gcash", "bank", "bank_transfer", "bank_deposit",
+            "cheque", "check", "maya",
+        }
+        run_linked_as_payroll = repayment.get("payroll_run_id") is not None and source != "manual"
+        # Legacy source, method, and payroll-run links can disagree. Do not
+        # select either a cash receipt or an accepted payroll deduction when
+        # their evidence conflicts. Accounting must reconcile these manually.
+        settlement_conflict = (
+            (source == "manual" and method_is_payroll)
+            or (source == "payroll" and method_is_receipt)
+            or (run_linked_as_payroll and method_is_receipt)
+        )
         payroll_deduction = (
-            normalized_method in {"payroll_deduction", "salary_deduction"}
-            or source == "payroll"
-            or (repayment.get("payroll_run_id") is not None and source != "manual")
+            not settlement_conflict
+            and (method_is_payroll or source == "payroll" or run_linked_as_payroll)
         )
         documented_receipt = (
-            not payroll_deduction
-            and normalized_method in {
-                "cash", "gcash", "bank", "bank_transfer", "bank_deposit",
-                "cheque", "check", "maya",
-            }
+            not settlement_conflict and not payroll_deduction and method_is_receipt
         )
         financial_effect = "cash_in" if documented_receipt else "reference_only"
         links = {
@@ -397,7 +408,17 @@ def canonical_accounting_payload(event_type: str, envelope: dict[str, Any]) -> d
             ),
             "counterparty_name": repayment.get("employee_name") or body.get("employee_name"),
         }
-        if payroll_deduction:
+        if settlement_conflict:
+            links["requires_manual_reconciliation"] = True
+            links["requires_manual_payment_method_verification"] = True
+            links["repayment_source"] = repayment.get("source")
+            links["reported_payment_method"] = raw_method
+            links["payroll_run_id"] = repayment.get("payroll_run_id")
+            links["review_instruction"] = (
+                "Conflicting repayment source, method, or payroll-run linkage. "
+                "Reconcile the actual receipt and payroll deduction before posting."
+            )
+        elif payroll_deduction:
             links["settlement_source"] = "payroll_deduction_non_cash"
             links["payroll_run_id"] = repayment.get("payroll_run_id")
         elif not documented_receipt:
