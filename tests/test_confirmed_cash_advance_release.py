@@ -196,6 +196,30 @@ class ConfirmedCashAdvanceReleaseTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 409)
         self.assertEqual(self.read("SELECT * FROM cash_advance_repayments"), [])
 
+    def test_released_advance_cannot_be_reassigned_or_backdated_by_normal_edit(self):
+        advance_id = self.advance()
+        self.confirm(advance_id)
+        with (
+            patch("api.cash_advances.require_cash_advance_editor", return_value=self.user),
+            patch("api.cash_advances.get_conn", side_effect=self.connection),
+        ):
+            with self.assertRaises(HTTPException) as error:
+                save_cash_advance(
+                    CashAdvancePayload(
+                        id=advance_id, employee_id=1, advance_date="2026-10-21",
+                        amount=3000, repayment_method="Payroll deduction",
+                        deduction_per_payroll=500,
+                    ),
+                    authorization="Bearer test", x_api_key=None,
+                )
+        self.assertEqual(error.exception.status_code, 409)
+        actual = self.read(
+            "SELECT advance_date, released_at FROM cash_advances WHERE id=?",
+            (advance_id,),
+        )[0]
+        self.assertEqual(actual["advance_date"], "2026-10-20")
+        self.assertEqual(actual["released_at"], "2026-10-20")
+
     def test_released_advance_cannot_be_cancelled_as_undisbursed(self):
         advance_id = self.advance()
         self.confirm(advance_id)
