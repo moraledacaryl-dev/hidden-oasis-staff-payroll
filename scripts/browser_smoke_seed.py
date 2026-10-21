@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 from api.main import SESSION_TTL_SECONDS, sign_payload
 from api.staff_self_service import ensure_schema as ensure_staff_self_service_schema
+from api.cash_advance_service import ensure_schema as ensure_cash_advance_schema
 from core.db import get_conn, init_db, now_iso
 
 MANILA = ZoneInfo("Asia/Manila")
@@ -43,6 +44,7 @@ def main() -> int:
     try:
         init_db(conn)
         ensure_staff_self_service_schema(conn)
+        ensure_cash_advance_schema(conn)
         created_at = now_iso()
         supervisor_employee_id = int(
             conn.execute(
