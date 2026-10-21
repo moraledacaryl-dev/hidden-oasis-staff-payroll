@@ -13,7 +13,18 @@ import { currentSession } from "@/lib/session";
 import "./cash-advances.css";
 
 type Employee = { id: number; full_name: string };
-type Repayment = { id: number; repayment_date: string; amount: number; source: string; payment_method?: string | null; period_start?: string | null; period_end?: string | null; created_by?: string | null };
+type Repayment = {
+  id: number;
+  repayment_date: string;
+  amount: number;
+  source: string;
+  payment_method?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  created_by?: string | null;
+  accounting_handoff_state?: string | null;
+  accounting_outbox_status?: string | null;
+};
 type Advance = {
   id: number;
   employee_id: number;
@@ -34,6 +45,20 @@ type Advance = {
 };
 
 const activeStatuses = new Set(["Active", "Approved", "Partially Paid", "Released"]);
+
+// Only Staff outbox transport is visible here. An Accounting delivery is NOT
+// evidence of accepted review, posted journal, or verified cash custody.
+function accountingHandoffLabel(repayment: Repayment): string | null {
+  if (repayment.source?.trim().toLowerCase() !== "manual") return null;
+  switch (repayment.accounting_handoff_state) {
+    case "missing_staff_outbox": return "No Staff Accounting handoff";
+    case "pending_delivery": return "Accounting delivery queued";
+    case "delivered_posting_unverified": return "Delivered · posting unverified";
+    case "delivery_requires_review":
+      return `Accounting delivery needs review (${repayment.accounting_outbox_status || "Unknown"})`;
+    default: return "Accounting handoff unavailable";
+  }
+}
 
 async function loadAdvances(): Promise<Advance[]> {
   const response = await fetch(`${apiBaseUrl()}/api/v1/cash-advances`, { headers: await backendHeaders(), cache: "no-store" });
@@ -111,13 +136,18 @@ export default async function CashAdvancesPage() {
           <div className="cash-progress" aria-label={`${Math.round(paidPercent)}% repaid`}><div className="cash-progress-track"><span style={{ width: `${paidPercent}%` }} /></div><div className="cash-progress-label"><span>{Math.round(paidPercent)}% repaid</span><span>{balance <= 0 ? "Complete" : `${peso(balance)} left`}</span></div></div>
           {credit > 0 ? <div className="cash-reason"><span>Employee credit</span><p>{peso(credit)} was over-deducted and requires settlement.</p>{isOwner ? <CashAdvanceCreditSettlementForm advanceId={item.id} employeeId={item.employee_id} credit={credit} options={advances} /> : null}</div> : null}
           {item.reason ? <div className="cash-reason"><span>Reason</span><p>{item.reason}</p></div> : null}
+          {(item.repayments || []).some((repayment) => repayment.accounting_handoff_state === "missing_staff_outbox") ? (
+            <p className="cash-handoff-warning">
+              Manual repayment without Staff Accounting handoff. Verify the original receipt and Accounting ledger before any replay; a fully paid advance does not confirm cash posting.
+            </p>
+          ) : null}
           <div className="cash-card-footer">
             <div className="cash-primary-actions">
               <ManualRepaymentForm advanceId={item.id} balance={balance} employeeName={item.full_name || "employee"} />
               {canEditExisting ? <CashAdvanceForm employees={employees} item={item} canEditExisting isOwner={isOwner} /> : null}
               {isOwner ? <CashAdvanceBalanceCorrection advanceId={item.id} employeeName={item.full_name || "employee"} currentBasis={basis} totalRepaid={repaid} /> : null}
             </div>
-            <details className="cash-history"><summary>Repayment history <span>{item.repayments?.length || 0}</span></summary><div className="cash-history-list">{(item.repayments || []).map((repayment) => <div className="cash-history-row" key={repayment.id}><div><strong>{peso(repayment.amount)}</strong><span>{repayment.source}</span></div><div><strong>{formatDate(repayment.repayment_date)}</strong><span>{repayment.source === "Payroll" ? `${repayment.period_start || ""}–${repayment.period_end || ""}` : repayment.payment_method || "—"}</span></div><div><span>Recorded by</span><strong>{repayment.created_by || "—"}</strong></div></div>)}{!item.repayments?.length ? <p className="cash-empty-history">No repayments recorded yet.</p> : null}</div></details>
+            <details className="cash-history"><summary>Repayment history <span>{item.repayments?.length || 0}</span></summary><div className="cash-history-list">{(item.repayments || []).map((repayment) => <div className="cash-history-row" key={repayment.id}><div><strong>{peso(repayment.amount)}</strong><span>{repayment.source}</span></div><div><strong>{formatDate(repayment.repayment_date)}</strong><span>{repayment.source === "Payroll" ? `${repayment.period_start || ""}–${repayment.period_end || ""}` : repayment.payment_method || "—"}</span></div><div><span>Recorded by</span><strong>{repayment.created_by || "—"}</strong>{accountingHandoffLabel(repayment) ? <span className="cash-handoff-status">{accountingHandoffLabel(repayment)}</span> : null}</div></div>)}{!item.repayments?.length ? <p className="cash-empty-history">No repayments recorded yet.</p> : null}</div></details>
           </div>
           {original !== basis ? <div className="cash-reason"><span>Original recorded amount</span><p>{peso(original)} · corrected balance basis {peso(basis)}</p></div> : null}
         </article>;
