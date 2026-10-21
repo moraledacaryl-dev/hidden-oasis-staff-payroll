@@ -212,7 +212,7 @@ async function inspectPage(session, role, route, viewport) {
   const failureText = (result.text || "").replace(/Preview · not saved/g, "Preview");
   const matchedFailureText = visibleFailurePatterns.find((pattern) => pattern.test(failureText))?.toString() || null;
   const screenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-  const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-");
+  const slug = route === "/" ? "dashboard" : route.replace(/^\/|\/$/g, "").replaceAll("/", "-").replace(/[^a-zA-Z0-9_-]/g, "-");
   const file = path.join(outputDir, `${role}-${viewport.name}-${slug}.png`);
   await writeFile(file, Buffer.from(screenshot.data, "base64"));
   // The screenshot fixture includes a fully paid advance with a synthetic
