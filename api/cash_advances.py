@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from datetime import date
+from typing import Any, Literal
+from zoneinfo import ZoneInfo
+from datetime import datetime
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from api.cash_advance_service import (
     CashAdvancePayload,
@@ -19,12 +22,33 @@ from api.cash_advance_service import (
 )
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.money import money
+from core.drawer import create_drawer_cash_advance_movement
+from core.integration_accounting import build_cash_advance_release_payload
+from core.integration_outbox import enqueue_event, ensure_integration_schema
 
 router = APIRouter(prefix="/api/v1")
 
 
 class LifecyclePayload(BaseModel):
     reason: str | None = None
+
+
+class ReleasePayload(BaseModel):
+    # Separate physical disbursement from approval. Never infer cash movement.
+    release_date: date
+    release_method: Literal["Cash Drawer", "GCash", "Bank Transfer"]
+    reference: str | None = None
+    confirmed_received: bool = False
+
+    @field_validator("reference")
+    @classmethod
+    def clean_reference(cls, value: str | None) -> str | None:
+        cleaned = (value or "").strip()
+        if len(cleaned) > 160:
+            raise ValueError("Release reference must be at most 160 characters.")
+        return cleaned or None
+
+
 
 
 def _columns(conn, table: str) -> set[str]:
@@ -117,6 +141,8 @@ def _insert_cash_advance(
         "outstanding_balance": amount,
         "ledger_opening_balance": amount,
         "status": "Pending",
+        # Existing records stay out of this prospective-only release workflow.
+        "release_confirmation_required": 1,
         "notes": payload.notes,
         "created_by": display_name,
         "created_at": stamp,
@@ -248,6 +274,13 @@ def save_cash_advance(
             stored_basis = money(old.get("ledger_opening_balance") if old.get("ledger_opening_balance") is not None else stored_amount)
             if abs(amount - stored_basis) >= 0.005:
                 raise HTTPException(status_code=409, detail="Original amount / balance basis cannot be changed in normal edit. Use owner correction instead.")
+            # Never reassign an already issued financial movement to another
+            # employee or date through an ordinary form edit.
+            if str(old.get("released_at") or "").strip() and (
+                int(payload.employee_id) != int(old["employee_id"])
+                or str(payload.advance_date)[:10] != str(old.get("advance_date") or old.get("request_date") or "")[:10]
+            ):
+                raise HTTPException(status_code=409, detail="Issued advance identity and advance date are immutable. Use an audited correction.")
 
             # Lifecycle status is deliberately immutable through ordinary detail edits.
             # Approval/rejection/cancellation must use explicit transition endpoints.
@@ -346,6 +379,96 @@ def approve_cash_advance(
         conn.close()
 
 
+@router.post("/cash-advances/{cash_advance_id}/release")
+def confirm_cash_advance_release(
+    cash_advance_id: int,
+    payload: ReleasePayload,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    """Confirm funds actually issued, then atomically queue Accounting review.
+
+    Historical records are excluded. Delivery is not an Accounting posting.
+    """
+    user = require_cash_advance_editor(authorization, x_api_key)
+    if not payload.confirmed_received:
+        raise HTTPException(status_code=422, detail="Confirm that the funds were actually issued.")
+    if payload.release_date > datetime.now(ZoneInfo("Asia/Manila")).date():
+        raise HTTPException(status_code=422, detail="Release date cannot be in the future.")
+    if payload.release_method != "Cash Drawer" and not payload.reference:
+        raise HTTPException(status_code=422, detail="Enter the actual transfer reference.")
+    conn = get_conn(DB_PATH)
+    try:
+        ensure_schema(conn)
+        # Schema initialization commits: it must precede the money transaction.
+        ensure_integration_schema(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        advance = _load_for_transition(conn, cash_advance_id)
+        if int(advance.get("release_confirmation_required") or 0) != 1:
+            raise HTTPException(status_code=409, detail="Historical advances require a separate reconciliation process.")
+        reference = payload.reference or f"CA-{cash_advance_id}"
+        existing_date = str(advance.get("released_at") or "")[:10]
+        if existing_date:
+            identical = (
+                existing_date == payload.release_date.isoformat()
+                and advance.get("release_method") == payload.release_method
+                and str(advance.get("release_reference") or "") == reference
+            )
+            if not identical:
+                raise HTTPException(status_code=409, detail="Advance was released with different details. Use an audited correction.")
+            conn.rollback()
+            return {"ok": True, "already_recorded": True, "cash_advance_id": cash_advance_id}
+
+        if _canonical_status(advance.get("status")) != "Active":
+            raise HTTPException(status_code=409, detail="Approve the advance before confirming disbursement.")
+        if not str(advance.get("approved_at") or "").strip():
+            raise HTTPException(status_code=409, detail="An attributed approval is required before release.")
+        if payload.release_date < date.fromisoformat(str(advance.get("advance_date") or advance.get("request_date"))[:10]):
+            raise HTTPException(status_code=422, detail="Release date cannot precede the advance date.")
+        paid = calculate_balance(conn, cash_advance_id)["paid"]
+        if paid > 0:
+            raise HTTPException(status_code=409, detail="Repayments already exist; reconcile this advance historically instead.")
+
+        _transition_cash_advance(
+            conn, advance=advance, target="Released", allowed_from={"Active"}, user=user,
+            reason="Confirmed funds issued; method and reference recorded separately.",
+        )
+        conn.execute(
+            """UPDATE cash_advances
+               SET release_method=?, release_reference=?, released_at=?, released_by=?
+               WHERE id=?""",
+            (
+                payload.release_method, reference, payload.release_date.isoformat(),
+                str(user.get("display_name") or "System"), cash_advance_id,
+            ),
+        )
+        if payload.release_method == "Cash Drawer":
+            movement_id = create_drawer_cash_advance_movement(
+                conn, cash_advance_id, actor=str(user.get("display_name") or "System"), commit=False,
+            )
+            if movement_id is None:
+                raise HTTPException(status_code=409, detail="Cash drawer movement could not be linked.")
+        event = build_cash_advance_release_payload(conn, cash_advance_id)
+        enqueue_event(
+            conn,
+            destination="accounting",
+            event_type=event["event_type"],
+            external_source=event["external_source"],
+            external_id=event["external_id"],
+            source_type="Cash Advance",
+            source_id=cash_advance_id,
+            payload=event,
+            schema_ready=True,
+        )
+        conn.commit()
+        return {"ok": True, "already_recorded": False, "cash_advance_id": cash_advance_id}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 @router.post("/cash-advances/{cash_advance_id}/reject")
 def reject_cash_advance(
     cash_advance_id: int,
@@ -384,6 +507,8 @@ def cancel_cash_advance(
         summary = recalculate_balance(conn, cash_advance_id)
         if float(summary.get("paid") or 0) > 0:
             raise HTTPException(status_code=409, detail="A cash advance with repayments cannot be cancelled. Reverse the repayments first.")
+        if str(advance.get("released_at") or "").strip():
+            raise HTTPException(status_code=409, detail="A disbursed advance cannot be cancelled as if funds were never issued.")
         _transition_cash_advance(conn, advance=advance, target="Cancelled", allowed_from={"Pending", "Rejected", "Active"}, user=user, reason=payload.reason, reason_required=True)
         response = _transition_response(conn, cash_advance_id)
         conn.commit()

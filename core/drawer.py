@@ -11,6 +11,8 @@ def create_drawer_cash_advance_movement(
     cash_advance_id: int,
     actor: str = "Admin",
     drawer_name: str | None = None,
+    *,
+    commit: bool = True,
 ) -> int | None:
     """Create one drawer cash-out movement for a released cash advance.
 
@@ -56,7 +58,8 @@ def create_drawer_cash_advance_movement(
         "INSERT INTO audit_logs(actor, action, table_name, record_id, details, created_at) VALUES(?,?,?,?,?,?)",
         (actor, "Created linked drawer cash-out for cash advance", "cash_advances", cash_advance_id, f"drawer_movement_id={movement_id}", now_iso()),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return movement_id
 
 

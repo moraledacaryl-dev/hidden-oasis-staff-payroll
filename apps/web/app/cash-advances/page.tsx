@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CashAdvanceBalanceCorrection } from "@/components/CashAdvanceBalanceCorrection";
 import { CashAdvanceForm } from "@/components/CashAdvanceForm";
+import { ConfirmCashAdvanceRelease } from "@/components/ConfirmCashAdvanceRelease";
 import { CashAdvanceCreditSettlementForm } from "@/components/CashAdvanceCreditSettlementForm";
 import { ManualRepaymentForm } from "@/components/ManualRepaymentForm";
 import { Shell } from "@/components/Shell";
@@ -39,6 +40,9 @@ type Advance = {
   total_repaid?: number;
   overpayment_credit?: number;
   repayment_method?: string;
+  release_confirmation_required?: number | null;
+  released_at?: string | null;
+  release_method?: string | null;
   status: string;
   reason?: string | null;
   repayments?: Repayment[];
@@ -189,6 +193,13 @@ export default async function CashAdvancesPage({
           <div className="cash-progress" aria-label={`${Math.round(paidPercent)}% repaid`}><div className="cash-progress-track"><span style={{ width: `${paidPercent}%` }} /></div><div className="cash-progress-label"><span>{Math.round(paidPercent)}% repaid</span><span>{balance <= 0 ? "Complete" : `${peso(balance)} left`}</span></div></div>
           {credit > 0 ? <div className="cash-reason"><span>Employee credit</span><p>{peso(credit)} was over-deducted and requires settlement.</p>{isOwner ? <CashAdvanceCreditSettlementForm advanceId={item.id} employeeId={item.employee_id} credit={credit} options={advances} /> : null}</div> : null}
           {item.reason ? <div className="cash-reason"><span>Reason</span><p>{item.reason}</p></div> : null}
+          {item.released_at ? (
+            <div className="cash-reason"><span>Funds issued</span>
+              <p>{formatDate(item.released_at)} · {item.release_method || "Method not recorded"} · Accounting handoff is not proof of journal posting</p>
+            </div>
+          ) : Number(item.release_confirmation_required || 0) === 1 ? (
+            <p className="cash-handoff-warning">Awaiting disbursement confirmation. Approval alone does not establish that cash was issued. Record actual release before collecting repayments.</p>
+          ) : null}
           {(item.repayments || []).some(needsAccountingHandoffReview) ? (
             <p className="cash-handoff-warning">
               Manual repayment requires Staff Accounting handoff review. Verify the original receipt and Accounting ledger before any replay; a fully paid advance does not confirm cash posting.
@@ -196,7 +207,12 @@ export default async function CashAdvancesPage({
           ) : null}
           <div className="cash-card-footer">
             <div className="cash-primary-actions">
-              <ManualRepaymentForm advanceId={item.id} balance={balance} employeeName={item.full_name || "employee"} />
+              {canEditExisting && Number(item.release_confirmation_required || 0) === 1 && !item.released_at && item.status === "Active" ? (
+                <ConfirmCashAdvanceRelease advanceId={item.id} employeeName={item.full_name || "employee"} amount={original} />
+              ) : null}
+              {Number(item.release_confirmation_required || 0) !== 1 || item.released_at ? (
+                <ManualRepaymentForm advanceId={item.id} balance={balance} employeeName={item.full_name || "employee"} />
+              ) : null}
               {canEditExisting ? <CashAdvanceForm employees={employees} item={item} canEditExisting isOwner={isOwner} /> : null}
               {isOwner ? <CashAdvanceBalanceCorrection advanceId={item.id} employeeName={item.full_name || "employee"} currentBasis={basis} totalRepaid={repaid} /> : null}
             </div>

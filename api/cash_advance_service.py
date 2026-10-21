@@ -121,6 +121,12 @@ def ensure_schema(conn) -> None:
         "approved_by_name": "TEXT",
         "approved_at": "TEXT",
         "approval_note": "TEXT",
+        "release_confirmation_required": "INTEGER NOT NULL DEFAULT 0",
+        "release_method": "TEXT",
+        "release_reference": "TEXT",
+        "released_at": "TEXT",
+        "released_by": "TEXT",
+        "drawer_movement_id": "INTEGER",
     })
 
     conn.execute("UPDATE cash_advances SET advance_date=COALESCE(NULLIF(advance_date,''), request_date, date('now'))")
@@ -242,6 +248,8 @@ def calculate_balance(conn, cash_advance_id: int) -> dict[str, Any]:
         status = old_status
     elif old_status == "Approved":
         status = "Approved"
+    elif old_status == "Released":
+        status = "Released"
     else:
         status = "Active"
     return {"amount": money(row.get("amount") or 0), "paid": total_paid, "balance": balance, "status": status}

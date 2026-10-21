@@ -666,6 +666,10 @@ def compute_employee_payroll(conn: sqlite3.Connection, emp: dict[str, Any], peri
     )
     ca_deduction = 0.0
     for ca in ca_rows:
+        if ca.get("release_confirmation_required") and (
+            not ca.get("released_at") or str(ca["released_at"])[:10] > period_end
+        ):
+            continue
         raw = ca.get("custom_next_deduction")
         scheduled = float(raw) if raw not in (None, "") else float(ca.get("repayment_per_cutoff") or 0)
         if scheduled <= 0 or ca_capacity <= ca_deduction:
@@ -808,6 +812,10 @@ def apply_cash_advance_repayments(conn: sqlite3.Connection, run_id: int) -> None
         for ca in advances:
             if remaining <= 0:
                 break
+            if ca.get("release_confirmation_required") and (
+                not ca.get("released_at") or str(ca["released_at"])[:10] > str(run.get("period_end") or "")
+            ):
+                continue
             amount = money(
                 min(
                     remaining,

@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const cashAdvanceId = Number(body.cash_advance_id || body.id || 0);
   const action = String(body.action || "");
-  const transitionActions = new Set(["approve", "reject", "cancel"]);
+  const transitionActions = new Set(["approve", "reject", "cancel", "release"]);
   const isCorrection = action === "correct_amount" && cashAdvanceId > 0;
   const isTransition = transitionActions.has(action) && cashAdvanceId > 0;
   const isSettlement = action === "settle_credit" && cashAdvanceId > 0;
@@ -35,7 +35,12 @@ export async function POST(request: Request) {
         reference: body.reference || null,
       }
     : isTransition
-      ? action === "approve" ? {} : { reason: body.reason || null }
+      ? action === "approve" ? {} : action === "release" ? {
+          release_date: body.release_date,
+          release_method: body.release_method,
+          reference: body.reference || null,
+          confirmed_received: body.confirmed_received === true,
+        } : { reason: body.reason || null }
       : isSettlement
         ? {
             amount: body.amount,
