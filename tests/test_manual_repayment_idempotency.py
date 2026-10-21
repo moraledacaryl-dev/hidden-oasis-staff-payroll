@@ -122,6 +122,27 @@ class ManualRepaymentIdempotencyTests(unittest.TestCase):
         self.assertFalse(result["already_recorded"])
         self.assertIsNone(self.rows()[0]["idempotency_key"])
 
+    def test_manual_api_rejects_payroll_deduction_as_receipt_method(self) -> None:
+        from pydantic import ValidationError
+
+        for method in ("Payroll deduction", "payroll_deduction", "salary-deduction",
+                       " Salary  Deduction "):
+            with self.subTest(method=method):
+                with self.assertRaisesRegex(ValidationError, "cannot be recorded as manual"):
+                    ManualRepaymentPayload(
+                        amount=30, repayment_date="2026-10-20",
+                        payment_method=method,
+                    )
+        self.assertEqual(self.rows(), [])
+
+    def test_manual_unknown_receipt_method_remains_reference_only(self) -> None:
+        # Existing "Other" clients remain supported, but may not
+        # advertise cash movement without a documented receiving method.
+        payload = ManualRepaymentPayload(
+            amount=30, repayment_date="2026-10-20", payment_method="Other",
+        )
+        self.assertEqual(payload.payment_method, "Other")
+
     def test_new_manual_repayment_queues_single_accounting_cash_receipt(self) -> None:
         key = str(uuid4())
         result = self.pay(key=key)
