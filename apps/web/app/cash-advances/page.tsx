@@ -46,6 +46,20 @@ type Advance = {
 
 const activeStatuses = new Set(["Active", "Approved", "Partially Paid", "Released"]);
 
+// These are Staff delivery exceptions, not proof that Accounting lacks a
+// legitimate journal or that cash was received. Do not include Pending or
+// Completed: those states require separate downstream posting verification.
+const handoffReviewStates = new Set([
+  "missing_staff_outbox",
+  "delivery_requires_review",
+  "outbox_status_unavailable",
+]);
+
+function needsAccountingHandoffReview(repayment: Repayment): boolean {
+  return repayment.source?.trim().toLowerCase() === "manual" &&
+    handoffReviewStates.has(repayment.accounting_handoff_state || "");
+}
+
 // Only Staff outbox transport is visible here. An Accounting delivery is NOT
 // evidence of accepted review, posted journal, or verified cash custody.
 function accountingHandoffLabel(repayment: Repayment): string | null {
@@ -84,7 +98,10 @@ function statusLabel(status: string): string {
   return status === "Approved" || status === "Released" ? "Active" : status || "Active";
 }
 
-export default async function CashAdvancesPage() {
+export default async function CashAdvancesPage({
+  searchParams,
+}: { searchParams?: Promise<{ review?: string }> }) {
+  const reviewOnly = (await searchParams)?.review === "accounting";
   const session = await currentSession();
   if (!session) redirect("/login");
   if (!["owner", "payroll", "supervisor"].includes(session.role_key)) {
@@ -105,6 +122,19 @@ export default async function CashAdvancesPage() {
   const totalRepaid = advances.reduce((sum, item) => sum + Number(item.total_repaid || 0), 0);
   const proposedDeduction = active.reduce((sum, item) => sum + Number(item.deduction_per_payroll || 0), 0);
   const creditToSettle = advances.reduce((sum, item) => sum + Number(item.overpayment_credit || 0), 0);
+  const handoffExceptions = advances.flatMap((item) =>
+    (item.repayments || []).filter(needsAccountingHandoffReview)
+  );
+  const exceptionAmountCentavos = handoffExceptions.reduce(
+    (total, repayment) => total + Math.round(Number(repayment.amount || 0) * 100), 0
+  );
+  const affectedAdvanceIds = new Set(
+    advances.filter((item) => (item.repayments || []).some(needsAccountingHandoffReview))
+      .map((item) => item.id)
+  );
+  const visibleAdvances = reviewOnly
+    ? advances.filter((item) => affectedAdvanceIds.has(item.id))
+    : advances;
 
   return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div className="page cash-advance-page people-page">
     <PageHeading eyebrow="People" title="Cash advances" description="Track active employee balances, proposed payroll deductions, repayments, and overpayment credits." actions={<Link className="button secondary" href="/staff">Staff directory</Link>} />
@@ -114,9 +144,32 @@ export default async function CashAdvancesPage() {
       <div className="cash-summary-card"><span>Proposed next deductions</span><strong>{peso(proposedDeduction)}</strong></div>
       <div className="cash-summary-card"><span>Credits to settle</span><strong>{peso(creditToSettle)}</strong></div>
     </section>
+    <section className="cash-accounting-review" aria-label="Staff Accounting handoff exceptions">
+      <div className="cash-accounting-review-details">
+        <span className="cash-accounting-review-kicker">Accounting handoff review</span>
+        <div className="cash-accounting-review-total">
+          <strong>{handoffExceptions.length} manual repayment{handoffExceptions.length === 1 ? "" : "s"}</strong>
+          <span>{peso(exceptionAmountCentavos / 100)}</span>
+        </div>
+        <p>
+          Missing, unsuccessful or unavailable Staff delivery records. This is not
+          confirmation of an unposted Accounting receipt or missing funds.
+          Reconcile original receipts before any event replay.
+        </p>
+      </div>
+      <div className="cash-accounting-review-actions">
+        {reviewOnly ? (
+          <Link className="button secondary" href="/cash-advances">Show all advances</Link>
+        ) : (
+          <Link className="button secondary" href="/cash-advances?review=accounting">
+            Review affected advances ({affectedAdvanceIds.size})
+          </Link>
+        )}
+      </div>
+    </section>
     <MobileSection title="Add cash advance" description="Open the form to record an employee advance"><section><CashAdvanceForm employees={employees} isOwner={isOwner} /></section></MobileSection>
-    <section className="cash-card-list">
-      {advances.map((item) => {
+    <section className="cash-card-list" aria-label={reviewOnly ? "Advances needing Accounting handoff review" : "Cash advance records"}>
+      {visibleAdvances.map((item) => {
         const original = Number(item.amount || 0);
         const basis = Number(item.ledger_opening_balance ?? item.amount ?? 0);
         const balance = Number(item.remaining_balance || 0);
@@ -136,9 +189,9 @@ export default async function CashAdvancesPage() {
           <div className="cash-progress" aria-label={`${Math.round(paidPercent)}% repaid`}><div className="cash-progress-track"><span style={{ width: `${paidPercent}%` }} /></div><div className="cash-progress-label"><span>{Math.round(paidPercent)}% repaid</span><span>{balance <= 0 ? "Complete" : `${peso(balance)} left`}</span></div></div>
           {credit > 0 ? <div className="cash-reason"><span>Employee credit</span><p>{peso(credit)} was over-deducted and requires settlement.</p>{isOwner ? <CashAdvanceCreditSettlementForm advanceId={item.id} employeeId={item.employee_id} credit={credit} options={advances} /> : null}</div> : null}
           {item.reason ? <div className="cash-reason"><span>Reason</span><p>{item.reason}</p></div> : null}
-          {(item.repayments || []).some((repayment) => repayment.accounting_handoff_state === "missing_staff_outbox") ? (
+          {(item.repayments || []).some(needsAccountingHandoffReview) ? (
             <p className="cash-handoff-warning">
-              Manual repayment without Staff Accounting handoff. Verify the original receipt and Accounting ledger before any replay; a fully paid advance does not confirm cash posting.
+              Manual repayment requires Staff Accounting handoff review. Verify the original receipt and Accounting ledger before any replay; a fully paid advance does not confirm cash posting.
             </p>
           ) : null}
           <div className="cash-card-footer">
@@ -152,7 +205,12 @@ export default async function CashAdvancesPage() {
           {original !== basis ? <div className="cash-reason"><span>Original recorded amount</span><p>{peso(original)} · corrected balance basis {peso(basis)}</p></div> : null}
         </article>;
       })}
-      {!advances.length ? <section className="card cash-empty-state"><h2>No cash advances</h2><p className="muted">No employee advance records have been created.</p></section> : null}
+      {!visibleAdvances.length ? <section className="card cash-empty-state">
+        <h2>{reviewOnly ? "No Staff handoff exceptions" : "No cash advances"}</h2>
+        <p className="muted">{reviewOnly
+          ? "No active manual repayments need a Staff Accounting delivery review. Delivered items still require separate Accounting posting verification."
+          : "No employee advance records have been created."}</p>
+      </section> : null}
     </section>
     <section className="people-card"><h2>Portfolio position</h2><p>{peso(totalRepaid)} has been repaid across all recorded advances.</p></section>
   </div></Shell>;
