@@ -34,6 +34,8 @@ class CashAdvanceAccountingReviewQueueContractTests(unittest.TestCase):
 
     def test_browser_smoke_captures_exception_queue_on_all_viewports(self):
         self.assertIn('"/cash-advances?review=accounting"', self.smoke)
+        ci_workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn('"/cash-advances?review=accounting"', ci_workflow)
         self.assertIn("accountingQueueCheck", self.smoke)
         self.assertIn("Manual repayment requires Staff Accounting handoff review", self.smoke)
         self.assertIn("Page.captureScreenshot", self.smoke)
