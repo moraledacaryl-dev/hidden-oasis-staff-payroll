@@ -30,6 +30,13 @@ class ManualRepaymentPayload(BaseModel):
         method = str(value or "").strip()
         if not method:
             raise ValueError("Choose the actual repayment method; do not assume Cash.")
+        # This endpoint records money received outside payroll. A salary
+        # deduction must be created by payroll itself; accepting that method
+        # here could reduce an advance without a matching cash receipt or
+        # an approved payroll deduction.
+        normalized = " ".join(method.lower().replace("-", " ").replace("_", " ").split())
+        if normalized in {"payroll deduction", "salary deduction"}:
+            raise ValueError("Payroll deductions cannot be recorded as manual repayments.")
         return method
 
     @field_validator("amount", mode="before")
