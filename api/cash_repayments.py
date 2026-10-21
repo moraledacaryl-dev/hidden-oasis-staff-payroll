@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -30,12 +31,28 @@ class ManualRepaymentPayload(BaseModel):
         method = str(value or "").strip()
         if not method:
             raise ValueError("Choose the actual repayment method; do not assume Cash.")
+        # This endpoint records money received outside payroll. A salary
+        # deduction must be created by payroll itself; accepting that method
+        # here could reduce an advance without a matching cash receipt or
+        # an approved payroll deduction.
+        normalized = " ".join(method.lower().replace("-", " ").replace("_", " ").split())
+        if normalized in {"payroll deduction", "salary deduction"}:
+            raise ValueError("Payroll deductions cannot be recorded as manual repayments.")
         return method
 
     @field_validator("amount", mode="before")
     @classmethod
     def quantize_amount(cls, value: Any) -> float:
-        return money(value)
+        # Decimal('NaN') quantizes to NaN, which can bypass <= 0 and
+        # remaining-balance guards. Reject nonfinite and malformed values
+        # before they can reach the repayment or accounting ledgers.
+        try:
+            parsed = Decimal(str(value))
+            if not parsed.is_finite():
+                raise ValueError("Repayment must have a finite amount.")
+            return money(parsed)
+        except (InvalidOperation, ValueError, TypeError, OverflowError) as exc:
+            raise ValueError("Enter a valid finite repayment amount.") from exc
 
 
 @router.post("/cash-advances/{cash_advance_id}/manual-repayments")
