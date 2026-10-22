@@ -6,6 +6,8 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 from api.payroll_drafts import create_payroll_draft
 from api.payroll_recalculate import recalculate_draft
 from api.payroll_service import PayrollDraftRequest, create_payroll_draft as create_legacy_draft
@@ -138,8 +140,9 @@ class FuturePayrollStatutoryPersistenceTests(unittest.TestCase):
     def test_missing_dated_snapshot_fails_closed_and_rolls_back_draft(self) -> None:
         result = self.calculation()
         del result._statutory_snapshots
-        with self.assertRaises(ValueError):
+        with self.assertRaises(HTTPException) as raised:
             self.draft(result)
+        self.assertEqual(raised.exception.status_code, 409)
         with get_conn(self.db) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM payroll_runs").fetchone()[0], 0)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM payroll_items").fetchone()[0], 0)
@@ -173,8 +176,10 @@ class FuturePayrollStatutoryPersistenceTests(unittest.TestCase):
             conn.execute("DELETE FROM payroll_statutory_months WHERE payroll_run_id=?", (earlier_id,))
             conn.commit()
 
-        with self.assertRaisesRegex(ValueError, "lacks a statutory snapshot"):
+        with self.assertRaises(HTTPException) as raised:
             self.draft(self.calculation())
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("lacks a statutory snapshot", str(raised.exception.detail))
         with get_conn(self.db) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM payroll_runs").fetchone()[0], 1)
             self.assertEqual(conn.execute(
@@ -207,11 +212,13 @@ class FuturePayrollStatutoryPersistenceTests(unittest.TestCase):
             date(2026, 6, 1): {"gross_pay": 50},
             date(2026, 7, 1): {"gross_pay": 1950, "sss_ee": 100},
         })
-        with self.assertRaisesRegex(ValueError, "2026-06"):
+        with self.assertRaises(HTTPException) as raised:
             self.draft(
                 july_result, start=date(2026, 6, 30),
                 end=date(2026, 7, 14), label="Manual cross-month",
             )
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("2026-06", str(raised.exception.detail))
 
     def test_paid_run_guard_preserves_existing_snapshot(self) -> None:
         run_id = self.draft(self.calculation())
