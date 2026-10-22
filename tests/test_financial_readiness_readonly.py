@@ -30,7 +30,10 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
                 );
                 CREATE TABLE payroll_items (
                     id INTEGER PRIMARY KEY, payroll_run_id INTEGER,
-                    gross_pay REAL, total_deductions REAL, net_pay REAL
+                    gross_pay REAL, total_deductions REAL, net_pay REAL,
+                    sss_ee REAL DEFAULT 0, sss_er REAL DEFAULT 0, sss_ec REAL DEFAULT 0,
+                    philhealth_ee REAL DEFAULT 0, philhealth_er REAL DEFAULT 0,
+                    pagibig_ee REAL DEFAULT 0, pagibig_er REAL DEFAULT 0
                 );
                 CREATE TABLE cash_advances (id INTEGER PRIMARY KEY);
                 CREATE TABLE cash_advance_repayments (
@@ -260,6 +263,83 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
         self.assertEqual(statutory["payroll_run_status_counts_all"], {"Draft": 1, "Paid": 1})
         self.assertEqual(statutory["current_payroll_run_status_counts"], {"Draft": 1})
         self.assertIn("no_paid_or_locked_runs_for_statutory_recognition", report["human_review_checks"])
+
+    def test_saved_paid_contributions_remain_historical_unallocated_evidence(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months WHERE payroll_run_id=1")
+            conn.execute(
+                """UPDATE payroll_items
+                   SET sss_ee=200, sss_er=400, sss_ec=10,
+                       philhealth_ee=50, philhealth_er=50,
+                       pagibig_ee=100, pagibig_er=100
+                   WHERE id=1"""
+            )
+        report = self.run_audit()
+        evidence = report["historical_paid_item_statutory_evidence"]
+        self.assertEqual(evidence["source"], "historical_saved_payroll_items_without_month_attribution")
+        self.assertTrue(evidence["no_financial_entries_inferred"])
+        self.assertEqual(evidence["missing_snapshot_paid_runs"], 1)
+        self.assertEqual(evidence["payroll_items_in_affected_runs"], 1)
+        self.assertEqual(evidence["runs_with_nonzero_saved_statutory_values"], 1)
+        self.assertEqual(evidence["runs_crossing_calendar_months"], 0)
+        self.assertEqual(evidence["saved_unallocated_statutory_fields_php"], {
+            "sss_ee": 200.0, "sss_er": 400.0, "sss_ec": 10.0,
+            "philhealth_ee": 50.0, "philhealth_er": 50.0,
+            "pagibig_ee": 100.0, "pagibig_er": 100.0,
+        })
+        self.assertIn(
+            "historical_paid_item_statutory_values_need_month_allocation_review",
+            report["human_review_checks"],
+        )
+        self.assertEqual(report["statutory_recorded_evidence"]["recognized_obligations_php_by_program"]["sss"], 0)
+        self.assertEqual(report["blocking_checks"], [])
+
+    def test_saved_items_spanning_months_are_not_attributed_to_single_month(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute(
+                "UPDATE payroll_runs SET period_start='2026-09-29',period_end='2026-10-14' WHERE id=1"
+            )
+            conn.execute("UPDATE payroll_items SET sss_ee=150 WHERE id=1")
+        result = self.run_audit()["historical_paid_item_statutory_evidence"]
+        self.assertEqual(result["runs_crossing_calendar_months"], 1)
+        self.assertTrue(result["run_sample"][0]["crosses_calendar_month"])
+        self.assertEqual(result["saved_unallocated_statutory_fields_php"]["sss_ee"], 150)
+        self.assertNotIn("2026-10", result["saved_unallocated_statutory_fields_php"])
+
+    def test_saved_item_evidence_excludes_superseded_and_nonsettled_runs(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute(
+                """INSERT INTO payroll_runs(
+                    id, period_start, period_end, status, paid_at
+                ) VALUES(2,'2026-10-15','2026-10-29','Approved',NULL)"""
+            )
+            conn.execute("UPDATE payroll_items SET sss_ee=300 WHERE id=1")
+            conn.execute(
+                """INSERT INTO payroll_items(
+                    id, payroll_run_id, gross_pay, total_deductions, net_pay, sss_ee
+                ) VALUES(2,2,2000,400,1600,500)"""
+            )
+            conn.execute("UPDATE payroll_runs SET superseded_by_run_id=2 WHERE id=1")
+        evidence = self.run_audit()["historical_paid_item_statutory_evidence"]
+        self.assertEqual(evidence["missing_snapshot_paid_runs"], 0)
+        self.assertEqual(evidence["payroll_items_in_affected_runs"], 0)
+        self.assertEqual(evidence["saved_unallocated_statutory_fields_php"]["sss_ee"], 0)
+
+    def test_negative_saved_statutory_values_get_human_review(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute("UPDATE payroll_items SET sss_ee=-10 WHERE id=1")
+        report = self.run_audit()
+        self.assertEqual(
+            report["historical_paid_item_statutory_evidence"]["negative_saved_contribution_fields_count"], 1
+        )
+        self.assertIn(
+            "negative_saved_statutory_contribution_fields_need_review",
+            report["human_review_checks"],
+        )
+        self.assertEqual(report["blocking_checks"], [])
 
     def test_backup_metadata_never_claims_restore_proven(self) -> None:
         result = backup_metadata(self.backup_dir, max_age_hours=26)
