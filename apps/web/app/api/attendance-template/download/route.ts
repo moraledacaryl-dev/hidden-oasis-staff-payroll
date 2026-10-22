@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import { addIsoDays, mondayOfWeek } from "@/lib/period";
 import type { ScheduleEmployee } from "@/lib/schedule-types";
+import { csvCell } from "@/lib/csv-security.mjs";
+import { currentSession } from "@/lib/session";
 
 const COLUMNS = [
   "work_date",
@@ -22,12 +24,6 @@ const COLUMNS = [
   "review_note",
 ];
 
-function csvCell(value: string | number | null | undefined) {
-  const text = String(value ?? "");
-  if (!/[",\n]/.test(text)) return text;
-  return `"${text.replaceAll('"', '""')}"`;
-}
-
 function validIsoDate(value: string | null) {
   return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
@@ -43,9 +39,23 @@ async function loadEmployees(): Promise<ScheduleEmployee[]> {
 }
 
 export async function GET(request: NextRequest) {
+  const session = await currentSession();
+  if (!session) return new Response("Authentication required.", { status: 401, headers: { "Cache-Control": "no-store" } });
+  if (!["owner", "payroll", "supervisor"].includes(session.role_key)) {
+    return new Response("Attendance export access denied.", { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
+
   const params = request.nextUrl.searchParams;
-  const start = validIsoDate(params.get("start")) ? params.get("start")! : mondayOfWeek();
-  const days = Math.min(31, Math.max(1, Number(params.get("days") || 7) || 7));
+  const suppliedStart = params.get("start");
+  if (suppliedStart !== null && !validIsoDate(suppliedStart)) {
+    return new Response("Invalid start date.", { status: 400 });
+  }
+  const start = suppliedStart ?? mondayOfWeek();
+  const requestedDays = params.get("days");
+  const days = requestedDays === null ? 7 : Number(requestedDays);
+  if (!Number.isSafeInteger(days) || days < 1 || days > 31) {
+    return new Response("Days must be an integer from 1 to 31.", { status: 400 });
+  }
   const employees = await loadEmployees();
   const dates = Array.from({ length: days }, (_, index) => addIsoDays(start, index));
 
@@ -78,6 +88,8 @@ export async function GET(request: NextRequest) {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename=${fileName}`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
