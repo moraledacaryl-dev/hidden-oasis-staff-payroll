@@ -1,0 +1,7 @@
+{
+  "release_sha": "6c63a181edb624e84bfa69001391de1ad01f59b0",
+  "target_environment": "production",
+  "source_pull_request": 193,
+  "purpose": "User-authorized Staff Group 13 final read-only operational certification and regression hardening release",
+  "financial_data_changes_authorized": false
+}
