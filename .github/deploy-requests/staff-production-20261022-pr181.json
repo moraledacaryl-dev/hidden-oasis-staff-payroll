@@ -1,0 +1,7 @@
+{
+  "release_sha": "cadb8b2d2350f3c790eb7fd01cb5023925bdfb7f",
+  "target_environment": "production",
+  "source_pull_request": 181,
+  "purpose": "User-authorized Staff & Payroll UI production release",
+  "financial_data_changes_authorized": false
+}
