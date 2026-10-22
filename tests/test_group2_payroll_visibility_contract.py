@@ -26,8 +26,15 @@ class Group2PayrollVisibilityTests(unittest.TestCase):
 
     def test_dashboard_work_in_progress_excludes_superseded(self) -> None:
         source = self.read("apps/web/app/controls/page.tsx")
-        self.assertIn('!run.superseded_by_run_id', source)
-        self.assertIn('["Paid", "Released", "Locked"]', source)
+        backend = self.read("api/payroll_drafts.py")
+        self.assertIn("getPayrollRunHistory({ page: 1, pageSize: 4 })", source)
+        self.assertIn("history.summary.draft + history.summary.review + history.summary.approved", source)
+        self.assertIn("history.summary.paid", source)
+        self.assertIn("history.summary.superseded", source)
+        # The backend summary, not a truncated client-side list, excludes
+        # superseded runs from the current workflow and paid counts.
+        self.assertIn("COALESCE(superseded_by_run_id,0)=0 AND status='Draft'", backend)
+        self.assertIn("status IN ('Paid','Released','Locked')", backend)
 
     def test_reports_do_not_call_projected_contributions_paid(self) -> None:
         source = self.read("apps/web/app/reports/page.tsx")
