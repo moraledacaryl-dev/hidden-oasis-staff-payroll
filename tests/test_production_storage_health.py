@@ -7,7 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from api.production_health import filesystem_capacity
+from api.production_health import backup_age_limit_hours, filesystem_capacity
+from core.offsite_backups import offsite_configuration_status
 
 
 class ProductionStorageHealthTests(unittest.TestCase):
@@ -68,6 +69,52 @@ class ProductionStorageHealthTests(unittest.TestCase):
             rows = filesystem_capacity([self.root])
         self.assertEqual(rows[0]["minimum_free_gib"], 2.0)
         self.assertFalse(rows[0]["deployment_space_ok"])
+
+
+    def test_offsite_configuration_status_uses_s3_and_never_exposes_secrets(self) -> None:
+        variables = {
+            "STAFF_PAYROLL_OFFSITE_S3_ENDPOINT": "https://backups.example.com",
+            "STAFF_PAYROLL_OFFSITE_S3_BUCKET": "private-bucket",
+            "STAFF_PAYROLL_OFFSITE_S3_ACCESS_KEY_ID": "private-access-id",
+            "STAFF_PAYROLL_OFFSITE_S3_SECRET_ACCESS_KEY": "private-secret",
+        }
+        with patch.dict(os.environ, variables, clear=True):
+            status = offsite_configuration_status()
+        self.assertEqual(status, "s3_configured_not_verified")
+        self.assertNotIn("private", status)
+
+    def test_offsite_status_incomplete_s3_does_not_claim_configuration(self) -> None:
+        with patch.dict(os.environ, {
+            "STAFF_PAYROLL_OFFSITE_S3_ENDPOINT": "https://backups.example.com",
+            "STAFF_PAYROLL_OFFSITE_S3_BUCKET": "private-bucket",
+        }, clear=True):
+            self.assertEqual(offsite_configuration_status(), "s3_configuration_incomplete")
+        with patch.dict(os.environ, {
+            "STAFF_PAYROLL_OFFSITE_S3_ENDPOINT": "http://insecure.example.com",
+            "STAFF_PAYROLL_OFFSITE_S3_BUCKET": "private-bucket",
+            "STAFF_PAYROLL_OFFSITE_S3_ACCESS_KEY_ID": "key",
+            "STAFF_PAYROLL_OFFSITE_S3_SECRET_ACCESS_KEY": "secret",
+        }, clear=True):
+            self.assertEqual(offsite_configuration_status(), "s3_configuration_incomplete")
+
+    def test_offsite_status_directory_precedence_and_absence(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(offsite_configuration_status(), "not_configured")
+        with patch.dict(os.environ, {
+            "STAFF_PAYROLL_OFFSITE_BACKUP_DIR": "/mnt/remote",
+            "STAFF_PAYROLL_OFFSITE_S3_ENDPOINT": "http://unused",
+        }, clear=True):
+            self.assertEqual(offsite_configuration_status(), "directory_configured")
+
+    def test_backup_age_limit_matches_deploy_preflight_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(backup_age_limit_hours(), 26)
+        with patch.dict(os.environ, {"STAFF_PAYROLL_MAX_BACKUP_AGE_HOURS": "48"}):
+            self.assertEqual(backup_age_limit_hours(), 48)
+        with patch.dict(os.environ, {"STAFF_PAYROLL_MAX_BACKUP_AGE_HOURS": "invalid"}):
+            self.assertEqual(backup_age_limit_hours(), 26)
+        with patch.dict(os.environ, {"STAFF_PAYROLL_MAX_BACKUP_AGE_HOURS": "0"}):
+            self.assertEqual(backup_age_limit_hours(), 1)
 
 
 if __name__ == "__main__":
