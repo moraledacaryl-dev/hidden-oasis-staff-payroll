@@ -36,8 +36,19 @@ export default async function ProductionHealthPage() {
           <div className="system-health-card"><span>Required tables</span><strong>{healthyTables}/{tableChecks.length}</strong><small>Schema presence</small></div>
           <div className="system-health-card"><span>Configuration</span><strong>{configuredSecrets}/{secretChecks.length}</strong><small>Required secrets</small></div>
           <div className="system-health-card"><span>Backups</span><strong>{health.backup_count}</strong><small>{health.latest_backup?.created_at || "No backup found"}</small></div>
+          <div className="system-health-card"><span>Release</span><strong>{health.release_verified ? "Verified" : "Not verified"}</strong><small>{health.active_release_sha?.slice(0, 12) || "No active SHA found"}</small></div>
         </section>
 
+        <section className="system-panel">
+          <header><div><h2>Production release identity</h2><p>Read-only comparison of the active release symlink and deployment state marker. A GitHub merge alone does not verify a deployment.</p></div></header>
+          <div className="system-panel-body">
+            <div className="table-wrap"><table><tbody>
+              <tr><th>Active release SHA</th><td><code>{health.active_release_sha || "Unavailable"}</code></td></tr>
+              <tr><th>Deployment marker SHA</th><td><code>{health.deployed_sha || "Unavailable"}</code></td></tr>
+              <tr><th>Agreement</th><td><YesNo value={health.release_verified} /></td></tr>
+            </tbody></table></div>
+          </div>
+        </section>
         <section className="system-panel"><header><div><h2>Core paths</h2><p>Server-side locations and the identity used for this check.</p></div></header><div className="system-panel-body"><div className="table-wrap"><table><tbody><tr><th>Database</th><td>{health.database_path || "—"}</td></tr><tr><th>Backup directory</th><td>{health.backup_dir || "—"}</td></tr><tr><th>Checked by</th><td>{health.checked_by || session.display_name}</td></tr></tbody></table></div></div></section>
 
         <section className="system-grid"><div className="system-panel"><header><div><h2>Required tables</h2><p>Application schema checks.</p></div></header><div className="system-panel-body system-check-list">{tableChecks.map(([key, value]) => <div className="system-check-row" key={key}><strong>{key}</strong><p>Database table</p><YesNo value={value} /></div>)}</div></div><div className="system-panel"><header><div><h2>Configuration</h2><p>Required runtime settings.</p></div></header><div className="system-panel-body system-check-list">{secretChecks.map(([key, value]) => <div className="system-check-row" key={key}><strong>{key}</strong><p>Environment configuration</p><YesNo value={value} /></div>)}<div className="system-check-row"><strong>Backup encryption</strong><p>Encryption configuration</p><YesNo value={health.backup_encryption_configured} /></div><div className="system-check-row"><strong>Off-server backup</strong><p>External recovery copy</p><YesNo value={health.offsite_backup_configured} /></div></div></div></section>
