@@ -1,5 +1,6 @@
 import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import type { ApiMeta, Employee, PayrollPreview } from "./types";
+import type { ScheduleShift } from "./schedule-types";
 
 export { apiBaseUrl, backendHeaders };
 
@@ -81,6 +82,7 @@ export function getEmployees(): Promise<Employee[]> { return apiGet<Employee[]>(
 export function getAttendanceExceptions(periodStart: string, periodEnd: string): Promise<AttendanceException[]> { return apiGet<AttendanceException[]>(`/api/v1/attendance/exceptions?start_date=${periodStart}&end_date=${periodEnd}`, true); }
 export function getAttendanceReviews(periodStart: string, periodEnd: string): Promise<AttendanceReview[]> { return apiGet<AttendanceReview[]>(`/api/v1/attendance/reviews?start_date=${periodStart}&end_date=${periodEnd}`, true); }
 export function getSchedules(periodStart: string, periodEnd: string): Promise<ScheduleRow[]> { return apiGet<ScheduleRow[]>(`/api/v1/schedules?start_date=${periodStart}&end_date=${periodEnd}`, true); }
+export function getScheduleWeek(weekStart: string): Promise<{ items: ScheduleShift[] }> { return apiGet(`/api/v1/schedules/week?week_start=${encodeURIComponent(weekStart)}`, true); }
 export function getMonthlyBenefits(month: string): Promise<MonthlyBenefitsResponse> { return apiGet<MonthlyBenefitsResponse>(`/api/v1/payroll/benefits/monthly?month=${encodeURIComponent(month)}`, true); }
 export function getPayrollRuns(): Promise<PayrollRun[]> { return apiGet<PayrollRun[]>("/api/v1/payroll/runs", true); }
 export function getPayrollRunHistory(filters: { status?: string; start?: string; end?: string; view?: "all" | "current" | "superseded"; page?: number; pageSize?: number } = {}): Promise<PayrollRunHistory> {

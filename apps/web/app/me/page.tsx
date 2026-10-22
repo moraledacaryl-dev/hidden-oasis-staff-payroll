@@ -1,5 +1,6 @@
 import { MobileSection } from "@/components/MobileSection";
 import Link from "next/link";
+import { CalendarDays, Sun, Clock3, ReceiptText } from "lucide-react";
 import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -69,10 +70,10 @@ export default async function MyPortalPage() {
         </header>
 
         <nav className="staff-quick-grid" aria-label="Staff portal sections">
-          <a className="staff-quick-link" href="#my-schedule"><strong>My schedule</strong><span>Published shifts and change requests</span></a>
-          <a className="staff-quick-link" href="#my-leave"><strong>Leave</strong><span>Balances, requests, and history</span></a>
-          <a className="staff-quick-link" href="#my-attendance"><strong>Attendance</strong><span>Recorded time and decisions</span></a>
-          <a className="staff-quick-link" href="#my-payslips"><strong>Payslips</strong><span>Approved and paid payroll</span></a>
+          <a className="staff-quick-link" href="#my-schedule"><CalendarDays size={22} strokeWidth={1.7} aria-hidden="true" /><strong>My schedule</strong><span>Published shifts and change requests</span></a>
+          <a className="staff-quick-link" href="#my-leave"><Sun size={22} strokeWidth={1.7} aria-hidden="true" /><strong>Leave</strong><span>Balances, requests, and history</span></a>
+          <a className="staff-quick-link" href="#my-attendance"><Clock3 size={22} strokeWidth={1.7} aria-hidden="true" /><strong>Attendance</strong><span>Recorded time and decisions</span></a>
+          <a className="staff-quick-link" href="#my-payslips"><ReceiptText size={22} strokeWidth={1.7} aria-hidden="true" /><strong>Payslips</strong><span>Approved and paid payroll</span></a>
         </nav>
 
         <MobileSection title="Pay summary" description={latest ? `Latest net pay ${peso(latest.net_pay)}` : "No approved payroll yet"}><section className="staff-summary">

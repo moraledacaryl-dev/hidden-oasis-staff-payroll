@@ -7,6 +7,7 @@
   box-shadow:0 1px 2px rgba(18,34,27,.04)!important;
 }
 [class*="controlsHead"]{
+  flex-wrap:wrap;
   align-items:center!important;
   gap:18px!important;
 }
@@ -17,8 +18,12 @@
   max-width:650px!important;
   font-size:11px!important;
 }
+[class*="controlsHead"]>div:first-child{
+  flex:1 1 260px;
+}
 [class*="weekNav"]{
-  flex-wrap:nowrap!important;
+  flex:1 1 540px;
+  flex-wrap:wrap!important;
 }
 [class*="weekNav"]>.button,
 [class*="weekNav"]>a{
@@ -28,7 +33,7 @@
   font-size:11px!important;
 }
 [class*="publishInline"]{
-  min-width:max-content!important;
+  min-width:0!important;
 }
 [class*="publishInline"] .button,
 [class*="publishInline"] button{

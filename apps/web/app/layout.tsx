@@ -25,6 +25,7 @@ import "./payroll/runs/[id]/payroll-review-hierarchy.css";
 import "./ui-audit-fixes.css";
 import "./payroll-employee-lines.css";
 import "./mobile-refinement.css";
+import "./staff-identity.css";
 
 export const metadata: Metadata = {
   title: "Hidden Oasis Staff Payroll",

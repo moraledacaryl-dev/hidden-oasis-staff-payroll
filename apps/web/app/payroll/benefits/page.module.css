@@ -1,0 +1,45 @@
+.page { gap:20px; }
+.monthBar { display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; padding:18px 22px; background:var(--surface); border:1px solid var(--line); border-radius:15px; }
+.monthBar form { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+.monthBar label { display:grid; gap:7px; font-size:12px; font-weight:600; color:var(--muted); }
+.monthBar>span { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:13px; }
+.agencies { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; }
+.agency { min-width:0; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.agency header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.agency header h2 { font-size:16px; flex:1; }
+.agency header :global(.badge) { font-size:10px; }
+.agencyIcon { display:grid; place-items:center; width:38px; height:38px; border-radius:11px; background:#e5f1ea; color:#2c6b57; }
+.agency:nth-child(2) .agencyIcon { color:#a05a50; background:#f9e8e2; }
+.agency:nth-child(3) .agencyIcon { color:#52678b; background:#e9edf6; }
+.balanceLabel { display:block; margin-top:22px; font-size:12px; color:var(--muted); }
+.balance { display:block; margin:5px 0 20px; font-size:29px; letter-spacing:-.04em; font-weight:600; overflow-wrap:anywhere; }
+.agency dl,.contributions dl { margin:0; display:grid; gap:10px; }
+.agency dl { border-top:1px solid var(--line); padding-top:17px; }
+.agency dl>div,.contributions dl>div { display:flex; justify-content:space-between; gap:12px; font-size:12px; }
+.agency dt,.contributions dt { color:var(--muted); }
+.agency dd,.contributions dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.note { color:var(--muted); font-size:12px; line-height:1.5; margin:0; }
+.employeeList { display:grid; gap:10px; }
+.employee { border:1px solid var(--line); border-radius:12px; min-width:0; }
+.employee>summary { display:grid; grid-template-columns:38px minmax(0,1fr) auto minmax(120px,auto) 18px; align-items:center; gap:15px; padding:16px; cursor:pointer; list-style:none; }
+.employee>summary::-webkit-details-marker { display:none; }
+.employee>summary:hover { background:var(--accent-softer); border-radius:12px; }
+.avatar { display:grid; place-items:center; width:38px; height:38px; border-radius:12px; background:#f1e2d4; color:#785237; font-size:12px; }
+.employeeName,.employeeDue { display:grid; gap:4px; }
+.employeeName strong { font-size:14px; font-weight:600; overflow-wrap:anywhere; }
+.employeeName>span,.employeeDue small { font-size:11px; color:var(--muted); }
+.employeeDue { text-align:right; }
+.employeeDue strong { font-size:15px; }
+.employee[open] .chevron { transform:rotate(180deg); }
+.employeeDetails { padding:20px; border-top:1px solid var(--line); }
+.coverage { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-size:12px; color:var(--muted); margin-bottom:18px; }
+.contributions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.contributions>div { padding:16px; background:#f7f9f5; border-radius:10px; min-width:0; }
+.contributions h3,.settlement h3,.history h3 { margin:0 0 13px; font-size:14px; font-weight:600; }
+.settlement { display:flex; justify-content:space-between; align-items:center; gap:18px; flex-wrap:wrap; padding:20px 0; }
+.settlement p { color:var(--muted); font-size:12px; margin:5px 0; line-height:1.5; }
+.sourceRuns { display:grid; gap:7px; padding-top:15px; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
+.sourceRuns a { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
+.history { border-top:1px solid var(--line); margin-top:24px; padding-top:22px; }
+@media(max-width:1100px) { .agencies{grid-template-columns:1fr}.agency dl{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:25px}.contributions{grid-template-columns:1fr} }
+@media(max-width:620px) { .monthBar{padding:16px;gap:14px}.monthBar form,.monthBar label,.monthBar button{width:100%}.monthBar input{min-width:0;width:100%}.agency{padding:18px}.agency dl{grid-template-columns:1fr}.employee>summary{grid-template-columns:34px minmax(0,1fr) 18px;gap:10px;padding:13px}.employee>summary>:nth-child(3){grid-column:2;grid-row:2;justify-self:start}.employeeDue{grid-column:2;grid-row:3;text-align:left}.chevron{grid-column:3;grid-row:1}.employeeDetails{padding:14px}.balance{font-size:27px} }

@@ -157,7 +157,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
 
         <section className={styles.controlsCard}>
           <div className={styles.controlsHead}>
-            <div><h2>Schedule controls</h2><p>Published schedules are immediately visible to staff. Post-publication changes require a reason and remain in history.</p></div>
+            <div><h2>Schedule controls</h2><p>Publishing makes shifts visible to staff. Later changes require a reason.</p></div>
             <div className={styles.weekNav}><Link className="button secondary" href={filterHref(selectedDepartment, selectedPosition, selectedEmployeeId, previousWeekStart)}>‹ Previous</Link><Link className="button secondary" href={filterHref(selectedDepartment, selectedPosition, selectedEmployeeId, mondayOfWeek())}>This week</Link><Link className="button secondary" href={filterHref(selectedDepartment, selectedPosition, selectedEmployeeId, addWeek(week.week_start, 1))}>Next ›</Link><div className={styles.publishInline}><SchedulePublishControl weekStart={week.week_start} /></div></div>
           </div>
           <div className={styles.legend}><span>Shift</span><span>Rest Day</span><span>Approved Leave</span><span>Open day</span></div>

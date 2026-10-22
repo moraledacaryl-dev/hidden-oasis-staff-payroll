@@ -285,6 +285,31 @@ async function inspectPage(session, role, route, viewport) {
       expression: `document.querySelector('[role="dialog"] button:last-of-type')?.click()`,
     });
   }
+  let benefitsDetails = null;
+  if (route === "/payroll/benefits") {
+    const details = await session.send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const trigger = [...document.querySelectorAll("details > summary")].find(node => node.textContent.includes("Employee due"));
+        if (!trigger) return null;
+        trigger.click();
+        trigger.scrollIntoView({ block: "start", behavior: "instant" });
+        const panel = trigger.parentElement;
+        const rect = panel.getBoundingClientRect();
+        return { open: panel.open, fitsWidth: rect.left >= 0 && rect.right <= innerWidth && panel.scrollWidth <= panel.clientWidth + 2, hasContributions: ["SSS", "PhilHealth", "Pag-IBIG", "Source payroll runs"].every(text => panel.textContent.includes(text)), canRecord: [...panel.querySelectorAll("button")].some(button => button.textContent.includes("Record paid separately")) };
+      })()`,
+    });
+    benefitsDetails = details.result?.value || null;
+    if (benefitsDetails) {
+      const screenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+      await writeFile(path.join(outputDir, `${role}-${viewport.name}-${slug}-employee.png`), Buffer.from(screenshot.data, "base64"));
+    }
+  }
+  if (route === "/") {
+    await session.send("Runtime.evaluate", { expression: `[...document.querySelectorAll("h2")].find(node => node.textContent === "Scheduled today")?.scrollIntoView({block:"start",behavior:"instant"})` });
+    const screenshot = await session.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    await writeFile(path.join(outputDir, `${role}-${viewport.name}-${slug}-roster.png`), Buffer.from(screenshot.data, "base64"));
+  }
   let interactiveSurface = null;
   const interactiveConfig = (
     (route === "/attendance/review" && ["owner", "supervisor"].includes(role))
@@ -293,7 +318,9 @@ async function inspectPage(session, role, route, viewport) {
         ? { selector: ".request-row", expectedActions: ["Close"], name: "shift-request-review" }
         : (route === "/cash-advances" && role === "owner")
           ? { triggerText: "Edit details", expectedActions: ["Close", "Save details"], name: "cash-advance-edit" }
-          : null
+          : (route === "/payroll/benefits" && benefitsDetails?.canRecord)
+            ? { triggerText: "Record paid separately", expectedActions: ["Cancel", "Record payment"], name: "benefit-payment" }
+            : null
   );
   if (interactiveConfig) {
     const opened = await session.send("Runtime.evaluate", {
@@ -454,6 +481,7 @@ async function inspectPage(session, role, route, viewport) {
     cutoffWorkflow,
     impersonationWorkflow,
     interactiveSurface,
+    benefitsDetails,
     ok: result.href?.startsWith(`${baseUrl}${route}`) &&
       !result.pageOverflow &&
       !result.hasNextError &&
@@ -462,6 +490,7 @@ async function inspectPage(session, role, route, viewport) {
       (result.scheduleClippingProblems || []).length === 0 &&
       !matchedFailureText &&
       accountingQueueCheck &&
+      (!benefitsDetails || (benefitsDetails.open && benefitsDetails.fitsWidth && benefitsDetails.hasContributions && benefitsDetails.canRecord === (role !== "supervisor"))) &&
       (!scheduleDropPrompt || (
         scheduleDropPrompt.dispatched &&
         scheduleDropPrompt.visible &&

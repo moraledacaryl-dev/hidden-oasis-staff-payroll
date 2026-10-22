@@ -42,7 +42,7 @@ export default async function HrPage() {
   const annualReviews = records.filter((record) => record.record_type === "Annual Review").length;
 
   return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div className="page people-page">
-    <PageHeading eyebrow="People" title="HR and leave" description="Manage leave requests, employee entitlements, formal records, and long-term people history." actions={<><Link className="button secondary" href="/staff">Staff directory</Link>{session.role_key !== "payroll" ? <Link className="button secondary" href="/performance-reviews">Performance reviews</Link> : null}</>} />
+    <PageHeading eyebrow="People" title="HR and leave" description="Leave requests, balances, and HR records." actions={<><Link className="button secondary" href="/staff">Staff directory</Link>{session.role_key !== "payroll" ? <Link className="button secondary" href="/performance-reviews">Performance reviews</Link> : null}</>} />
     <section className="people-kpis"><div className="people-kpi"><span>Pending leave requests</span><strong>{pendingLeaves}</strong></div><div className="people-kpi"><span>Active entitlements</span><strong>{activeEntitlements}</strong></div><div className="people-kpi"><span>Open formal records</span><strong>{openRecords}</strong></div><div className="people-kpi"><span>Annual reviews recorded</span><strong>{annualReviews}</strong></div></section>
 
     <div className="hr-overview">

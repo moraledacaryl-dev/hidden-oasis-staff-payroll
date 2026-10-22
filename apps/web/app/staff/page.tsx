@@ -43,7 +43,7 @@ export default async function StaffPage({ searchParams }: { searchParams: Promis
   return (
     <Shell allowedRoles={["owner", "payroll", "supervisor"]}>
       <div className="page people-page">
-        <PageHeading eyebrow="People" title="Staff directory" description="One operational identity per worker across scheduling, attendance, HR, and payroll." actions={canEdit ? <><Link className="button secondary" href="/staff/manage">Manage records</Link><Link className="button" href="/staff/manage?add=1#add-employee">Add employee</Link></> : undefined} />
+        <PageHeading eyebrow="People" title="Staff directory" description="Employee records and department assignments." actions={canEdit ? <><Link className="button secondary" href="/staff/manage">Manage records</Link><Link className="button" href="/staff/manage?add=1#add-employee">Add employee</Link></> : undefined} />
 
         <MobileSection title="Workforce totals" description={`${active} active · ${onLeave} on leave`}><section className="people-kpis">
           <div className="people-kpi"><span>Active staff</span><strong>{active}</strong></div>

@@ -1,0 +1,7 @@
+.remittance { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; align-items:end; }
+.remittance label { display:grid; gap:7px; min-width:0; color:var(--muted); font-size:12px; font-weight:600; }
+.remittance input,.remittance select { width:100%; min-width:0; }
+.remittance>button { grid-column:1/-1; justify-self:start; }
+.message { grid-column:1/-1; margin:0; font-size:13px; }
+@media(max-width:1050px) { .remittance{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media(max-width:620px) { .remittance{grid-template-columns:1fr}.remittance>button{width:100%} }
