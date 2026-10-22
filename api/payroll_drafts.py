@@ -24,6 +24,7 @@ from core.money import money
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
 from core.payroll_split_shift_policy import compute_payroll_per_shift
 from core.quality import build_payroll_preflight_checks, summarize_checks
+from core.statutory_snapshots import persist_computed_draft_snapshots
 
 router = APIRouter(prefix="/api/v1")
 
@@ -251,6 +252,7 @@ def create_payroll_draft(
                 f"VALUES({','.join('?' for _ in values)})",
                 values,
             )
+            persist_computed_draft_snapshots(conn, run_id, result, start, end)
 
         mark_eligible_corrections_applied(conn, run_id, start)
         conn.commit()

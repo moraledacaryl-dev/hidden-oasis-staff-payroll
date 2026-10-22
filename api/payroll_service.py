@@ -13,6 +13,7 @@ from core.db import DB_PATH, fetchall, fetchone, get_conn
 from core.payroll_engine import REVIEW_STATUS, compute_payroll, update_payroll_status
 from core.payroll_maker_checker import assert_distinct_checker
 from core.quality import build_payroll_preflight_checks, summarize_checks
+from core.statutory_snapshots import persist_computed_draft_snapshots
 
 class PayrollDraftRequest(BaseModel):
     period_start: date
@@ -83,6 +84,7 @@ def create_payroll_draft(payload: PayrollDraftRequest, authorization: str | None
             data = item_dict(result)
             values = [run_id] + [data.get(c, 0) for c in cols] + [ts]
             conn.execute(f"INSERT INTO payroll_items (payroll_run_id,{','.join(cols)},created_at) VALUES ({','.join('?' for _ in values)})", values)
+            persist_computed_draft_snapshots(conn, run_id, result, start, end)
         mark_eligible_corrections_applied(conn, run_id, start)
         conn.commit()
         run = fetchone(conn, "SELECT * FROM payroll_runs WHERE id=?", (run_id,)) or {}
