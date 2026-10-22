@@ -14,6 +14,7 @@ from api.security import (
     role_to_key,
     sign_payload,
 )
+from core.active_employee_status import is_active_employee_status
 from core.audit import log_audit
 from core.db import DB_PATH, fetchone, get_conn
 
@@ -60,11 +61,10 @@ def start_impersonation(
         target_role = role_to_key(target.get("role"))
         if target_role not in {"supervisor", "staff"}:
             raise HTTPException(status_code=422, detail="Only General Manager or staff accounts can be viewed.")
-        employee_status = str(target.get("employee_status") or "").strip().lower()
         if target_role == "staff" and (
             not target.get("employee_id")
-            or not employee_status
-            or employee_status in {"inactive", "terminated"}
+            or not target.get("employee_status")
+            or not is_active_employee_status(target.get("employee_status"))
         ):
             raise HTTPException(status_code=409, detail="Choose a staff account linked to an active employee.")
 
