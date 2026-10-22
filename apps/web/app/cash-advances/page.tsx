@@ -121,7 +121,20 @@ export default async function CashAdvancesPage({
   }
 
   const [advances, employees] = loaded.map((result) => result.status === "fulfilled" ? result.value : []) as [Advance[], Employee[]];
-  const active = advances.filter((item) => activeStatuses.has(item.status) && Number(item.remaining_balance || 0) > 0);
+  // Approval is not disbursement. Prospective approved-but-unissued
+  // advances must not inflate the issued outstanding or deduction metrics.
+  const awaitingRelease = advances.filter((item) =>
+    Number(item.release_confirmation_required || 0) === 1 &&
+    !item.released_at &&
+    activeStatuses.has(item.status) &&
+    Number(item.remaining_balance || 0) > 0
+  );
+  const awaitingReleaseAmount = awaitingRelease.reduce((sum, item) => sum + Number(item.remaining_balance || 0), 0);
+  const active = advances.filter((item) =>
+    activeStatuses.has(item.status) &&
+    Number(item.remaining_balance || 0) > 0 &&
+    !(Number(item.release_confirmation_required || 0) === 1 && !item.released_at)
+  );
   const totalBalance = active.reduce((sum, item) => sum + Number(item.remaining_balance || 0), 0);
   const totalRepaid = advances.reduce((sum, item) => sum + Number(item.total_repaid || 0), 0);
   const proposedDeduction = active.reduce((sum, item) => sum + Number(item.deduction_per_payroll || 0), 0);
@@ -147,6 +160,7 @@ export default async function CashAdvancesPage({
       <div className="cash-summary-card emphasis"><span>Outstanding</span><strong>{peso(totalBalance)}</strong></div>
       <div className="cash-summary-card"><span>Proposed next deductions</span><strong>{peso(proposedDeduction)}</strong></div>
       <div className="cash-summary-card"><span>Credits to settle</span><strong>{peso(creditToSettle)}</strong></div>
+      <div className="cash-summary-card"><span>Approved, not issued</span><strong>{peso(awaitingReleaseAmount)}</strong><small>{awaitingRelease.length} advance{awaitingRelease.length === 1 ? "" : "s"} awaiting funds</small></div>
     </section>
     <section className="cash-accounting-review" aria-label="Staff Accounting handoff exceptions">
       <div className="cash-accounting-review-details">
@@ -187,7 +201,7 @@ export default async function CashAdvancesPage({
             <StatusBadge label={statusLabel(item.status)} tone={item.status === "Fully Paid" ? "ok" : item.status === "Cancelled" ? "danger" : "warning"} />
           </div>
           <div className="cash-card-main">
-            <div className="cash-balance-block"><span>Remaining balance</span><strong>{peso(balance)}</strong><small>of {peso(basis)} balance basis</small></div>
+            <div className="cash-balance-block"><span>{Number(item.release_confirmation_required || 0) === 1 && !item.released_at ? "Pending disbursement" : "Remaining balance"}</span><strong>{peso(balance)}</strong><small>{Number(item.release_confirmation_required || 0) === 1 && !item.released_at ? "Not yet included in issued outstanding" : `of ${peso(basis)} balance basis`}</small></div>
             <div className="cash-card-facts"><div><span>Repaid</span><strong>{peso(repaid)}</strong></div><div><span>Advance date</span><strong>{formatDate(item.advance_date)}</strong></div><div><span>Repayment</span><strong>{item.repayment_method || "Payroll deduction"}</strong></div></div>
           </div>
           <div className="cash-progress" aria-label={`${Math.round(paidPercent)}% repaid`}><div className="cash-progress-track"><span style={{ width: `${paidPercent}%` }} /></div><div className="cash-progress-label"><span>{Math.round(paidPercent)}% repaid</span><span>{balance <= 0 ? "Complete" : `${peso(balance)} left`}</span></div></div>
