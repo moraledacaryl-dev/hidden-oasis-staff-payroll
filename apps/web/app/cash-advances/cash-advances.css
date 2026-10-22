@@ -4,7 +4,7 @@
 
 .cash-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -497,4 +497,14 @@
 .cash-release-attestation span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Pending-issuance disclosure is part of the financial dashboard, not cash out. */
+.cash-summary-card small {
+  color: var(--muted);
+  font-size: .76rem;
+  line-height: 1.45;
+}
+@media (max-width: 1100px) and (min-width: 721px) {
+  .cash-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
