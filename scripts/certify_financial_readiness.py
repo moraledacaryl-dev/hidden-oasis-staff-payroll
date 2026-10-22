@@ -475,6 +475,8 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
             reviews.append("historical_cross_month_statutory_deduction_pattern_review")
         if transition.get("ambiguous_following_run_count"):
             reviews.append("historical_cross_month_following_payroll_ambiguity")
+        if transition.get("ambiguous_preceding_reference_count"):
+            reviews.append("historical_cross_month_preceding_reference_ambiguity")
         if statutory.get("current_nonsettled_runs_with_paid_at"):
             reviews.append("paid_payroll_status_and_timestamp_require_review")
         if statutory.get("zero_recognized_contributions_needs_source_status_review"):
@@ -526,6 +528,10 @@ def main() -> int:
     if args.limit < 0 or args.max_backup_age_hours < 1:
         parser.error("--limit must be nonnegative and --max-backup-age-hours positive")
     with sqlite3.connect(args.db.resolve().as_uri() + "?mode=ro", uri=True) as conn:
+        # Hold one consistent read snapshot across every money, statutory and
+        # outbox query while live payroll writers continue independently.
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("BEGIN")
         report = certify(conn, sample_limit=args.limit, backup_dir=args.backup_dir,
                          max_backup_age_hours=args.max_backup_age_hours)
     print(json.dumps(report, indent=2, default=str))
