@@ -30,7 +30,11 @@ BACKUP_SUFFIXES = (".sqlite", ".sqlite.fernet", ".zip", ".zip.fernet")
 REQUIRED = {
     "payroll_runs": {"id", "period_start", "period_end", "status", "paid_at",
                      "revision_of_run_id", "revision_treatment", "superseded_by_run_id"},
-    "payroll_items": {"id", "payroll_run_id", "gross_pay", "total_deductions", "net_pay"},
+    "payroll_items": {
+        "id", "payroll_run_id", "gross_pay", "total_deductions", "net_pay",
+        "sss_ee", "sss_er", "sss_ec", "philhealth_ee", "philhealth_er",
+        "pagibig_ee", "pagibig_er",
+    },
     "cash_advances": {"id"},
     "cash_advance_repayments": {"id", "cash_advance_id", "payroll_run_id", "amount",
                                 "active", "reversal_reason", "reversed_at",
@@ -131,6 +135,92 @@ def check_versions(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
         "by_reason": dict(classes),
         "sample": problems,
         "sample_truncated": sum(classes.values()) > limit,
+    }
+
+
+STATUTORY_ITEM_FIELDS = (
+    "sss_ee", "sss_er", "sss_ec",
+    "philhealth_ee", "philhealth_er",
+    "pagibig_ee", "pagibig_er",
+)
+
+
+def check_saved_paid_statutory_items(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
+    """Observe saved Paid/Locked item values, without creating monthly liability rows.
+
+    These are historical stored payroll values, NOT official month allocations,
+    confirmed employee withholding, agency remittances, or safe backfill input.
+    """
+    saved_cents = Counter()
+    samples: list[dict[str, Any]] = []
+    missing_run_count = 0
+    item_count = 0
+    nonzero_count = 0
+    cross_month_count = 0
+    negative_amount_item_count = 0
+    for run in conn.execute("""
+        SELECT pr.id, pr.period_start, pr.period_end
+        FROM payroll_runs pr
+        WHERE pr.status IN ('Paid','Locked')
+          AND COALESCE(pr.superseded_by_run_id,0)=0
+          AND EXISTS(SELECT 1 FROM payroll_items pi WHERE pi.payroll_run_id=pr.id)
+          AND NOT EXISTS(
+              SELECT 1 FROM payroll_statutory_months sm WHERE sm.payroll_run_id=pr.id
+          )
+        ORDER BY pr.id
+    """):
+        missing_run_count += 1
+        per_run = Counter()
+        run_item_count = 0
+        for item in conn.execute("""
+            SELECT sss_ee, sss_er, sss_ec, philhealth_ee, philhealth_er,
+                   pagibig_ee, pagibig_er
+            FROM payroll_items WHERE payroll_run_id=? ORDER BY id
+        """, (int(run["id"]),)):
+            run_item_count += 1
+            item_count += 1
+            for name in STATUTORY_ITEM_FIELDS:
+                amount = cents(item[name])
+                per_run[name] += amount
+                saved_cents[name] += amount
+                if amount < 0:
+                    negative_amount_item_count += 1
+        nonzero_count += any(per_run.values())
+        period_start = str(run["period_start"] or "")
+        period_end = str(run["period_end"] or "")
+        spans_months = period_start[:7] != period_end[:7]
+        cross_month_count += spans_months
+        if len(samples) < limit:
+            samples.append({
+                "payroll_run_id": int(run["id"]),
+                "period_start": period_start,
+                "period_end": period_end,
+                "crosses_calendar_month": spans_months,
+                "payroll_items": run_item_count,
+                "saved_statutory_fields_php": {
+                    name: per_run[name] / 100 for name in STATUTORY_ITEM_FIELDS
+                },
+            })
+    return {
+        "source": "historical_saved_payroll_items_without_month_attribution",
+        "no_financial_entries_inferred": True,
+        "missing_snapshot_paid_runs": missing_run_count,
+        "payroll_items_in_affected_runs": item_count,
+        "runs_with_nonzero_saved_statutory_values": nonzero_count,
+        "runs_crossing_calendar_months": cross_month_count,
+        "negative_saved_contribution_fields_count": negative_amount_item_count,
+        "saved_unallocated_statutory_fields_php": {
+            name: saved_cents[name] / 100 for name in STATUTORY_ITEM_FIELDS
+        },
+        "run_sample": samples,
+        "run_sample_truncated": missing_run_count > limit,
+        "interpretation": (
+            "These are historical payroll item values, not verified monthly "
+            "liabilities or evidence of agency receipt. Do not insert snapshots "
+            "or issue remittances from aggregate cutoff totals, especially for "
+            "periods spanning calendar months. Reconcile dated original payroll "
+            "evidence and external official agency receipts first."
+        ),
     }
 
 
@@ -352,6 +442,8 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
             ("money_arithmetic", lambda: check_money(conn, sample_limit)),
             ("payroll_revision_references", lambda: check_versions(conn, sample_limit)),
             ("statutory_recorded_evidence", lambda: check_statutory(conn, sample_limit)),
+            ("historical_paid_item_statutory_evidence",
+             lambda: check_saved_paid_statutory_items(conn, sample_limit)),
             ("paid_adjustment_reversal_audit", lambda: audit_paid_adjustment_reversals(conn)),
             ("manual_repayment_outbox_audit", lambda: audit_manual_repayment_outbox(conn, sample_limit=sample_limit)),
         )
@@ -374,6 +466,11 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
             reviews.append("statutory_obligations_need_external_remittance_reconciliation")
         if statutory.get("current_paid_or_locked_runs_missing_snapshots"):
             reviews.append("settled_payroll_missing_statutory_snapshots")
+        saved_items = result.get("historical_paid_item_statutory_evidence", {})
+        if saved_items.get("runs_with_nonzero_saved_statutory_values"):
+            reviews.append("historical_paid_item_statutory_values_need_month_allocation_review")
+        if saved_items.get("negative_saved_contribution_fields_count"):
+            reviews.append("negative_saved_statutory_contribution_fields_need_review")
         if statutory.get("current_nonsettled_runs_with_paid_at"):
             reviews.append("paid_payroll_status_and_timestamp_require_review")
         if statutory.get("zero_recognized_contributions_needs_source_status_review"):
