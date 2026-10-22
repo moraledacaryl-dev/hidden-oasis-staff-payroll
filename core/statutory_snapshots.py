@@ -94,16 +94,23 @@ def assert_prior_month_statutory_coverage(
     # Production startup initializes this table; direct Draft API/test
     # invocation must also be safe before a prior-month coverage query.
     ensure_statutory_snapshot_schema(conn)
+    run_columns = {
+        str(row[1]) for row in conn.execute("PRAGMA table_info(payroll_runs)")
+    }
+    current_filter = (
+        "AND COALESCE(pr.superseded_by_run_id,0)=0"
+        if "superseded_by_run_id" in run_columns else ""
+    )
     for segment in calendar_month_segments(period_start, period_end):
         earlier = conn.execute(
-            """
+            f"""
             SELECT pr.id
             FROM payroll_runs pr
             JOIN payroll_items pi ON pi.payroll_run_id=pr.id
             WHERE pi.employee_id=?
               AND pr.id<>?
               AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
-              AND COALESCE(pr.superseded_by_run_id,0)=0
+              {current_filter}
               AND date(pr.period_start) < date(?)
               AND date(pr.period_start) <= date(?)
               AND date(pr.period_end) >= date(?)
