@@ -21,7 +21,7 @@ BENEFIT_FIELDS = {
 def _is_current_missing_snapshot(run: Any, snapshot_runs: set[int]) -> bool:
     return (
         str(run["status"]) in {"Paid", "Locked"}
-        and run["superseded_by_run_id"] is None
+        and not run["superseded_by_run_id"]
         and int(run["id"]) not in snapshot_runs
     )
 
@@ -161,6 +161,7 @@ def audit_historical_statutory_cutoff_transitions(
         twice_prior = Counter()
         zero_then_twice_prior = Counter()
         pattern_samples: list[dict[str, Any]] = []
+        flagged_employee_count = 0
         for employee_id in joint_ids:
             cross = cross_items[employee_id]
             follow = following_items[employee_id]
@@ -186,6 +187,8 @@ def audit_historical_statutory_cutoff_transitions(
                     flags.append(benefit + "_about_twice_preceding_cutoff")
                 if zero_to_positive and twice:
                     zero_then_twice_prior[benefit] += 1
+            if flags:
+                flagged_employee_count += 1
             if flags and len(pattern_samples) < limit:
                 pattern_samples.append({
                     "employee_id": employee_id,
@@ -224,9 +227,7 @@ def audit_historical_statutory_cutoff_transitions(
                 (name, zero_then_twice_prior[name]) for name in BENEFIT_FIELDS
             ),
             "employee_id_pattern_sample": pattern_samples,
-            "employee_id_pattern_sample_truncated": any(
-                zero_then_positive.values()
-            ) and len(pattern_samples) == limit and limit < len(joint_ids),
+            "employee_id_pattern_sample_truncated": flagged_employee_count > limit,
         }
         if len(reviews) < limit:
             reviews.append(record)
