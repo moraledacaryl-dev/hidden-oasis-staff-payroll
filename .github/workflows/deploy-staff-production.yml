@@ -105,17 +105,19 @@ jobs:
           envs: RELEASE_SHA
           script: |
             set -euo pipefail
+            # Run the entire server deployment as root, including Git access
+            # to /root/repos. Support root or passwordless-sudo SSH identities.
+            HELPER="$(mktemp /tmp/staff-production-release.XXXXXX)"
+            trap 'rm -f "$HELPER"' EXIT
+            cat > "$HELPER" <<'STAFF_ROOT_DEPLOY'
+            #!/usr/bin/env bash
+            set -euo pipefail
             export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            RELEASE_SHA="$1"
+            [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
             APP_ROOT=/root/repos/hidden-oasis-staff-payroll
             test -d "$APP_ROOT/.git"
-            # The canonical deployment requires root. Run it as root even
-            # when the SSH identity is a passwordless-sudo deployment user.
-            if [[ "$(id -u)" -eq 0 ]]; then
-              ROOT_RUN=(bash)
-            else
-              sudo -n true || { echo "Passwordless sudo is required"; exit 1; }
-              ROOT_RUN=(sudo -n bash)
-            fi
+            test -r /etc/hiddenoasis/staff-payroll.env
             cd "$APP_ROOT"
             test -z "$(git status --porcelain)" || {
               echo "Dirty server checkout: deployment refused" >&2; exit 1;
@@ -126,19 +128,18 @@ jobs:
               echo "Server origin/main does not contain release SHA" >&2; exit 1;
             }
             git switch --detach "$RELEASE_SHA"
-            # Validate production identity and backup encryption under root,
-            # without emitting any secret. The canonical script independently
-            # sources the env, and cannot run without its preflight gates.
-            "${ROOT_RUN[@]}" -c '
-              set -euo pipefail
-              test -r /etc/hiddenoasis/staff-payroll.env
-              set -a
-              source /etc/hiddenoasis/staff-payroll.env
-              set +a
-              test "${STAFF_PAYROLL_ENV:-}" = production
-              test -n "${STAFF_PAYROLL_BACKUP_KEY:-}"
-            '
-            "${ROOT_RUN[@]}" "$APP_ROOT/scripts/deploy_production_retained.sh"
+            # Validate production identity and encryption before first backup.
+            # Never print secrets; the canonical script repeats its own gates.
+            set -a
+            source /etc/hiddenoasis/staff-payroll.env
+            set +a
+            test "${STAFF_PAYROLL_ENV:-}" = production || {
+              echo "Production environment flag is missing" >&2; exit 1;
+            }
+            test -n "${STAFF_PAYROLL_BACKUP_KEY:-}" || {
+              echo "Backup encryption key is missing" >&2; exit 1;
+            }
+            bash "$APP_ROOT/scripts/deploy_production_retained.sh"
             test "$(cat /var/lib/hiddenoasis/staff-payroll/deployed-sha)" = "$RELEASE_SHA"
             test "$(readlink -f /opt/hiddenoasis/staff-payroll/current)" = "/opt/hiddenoasis/staff-payroll/releases/$RELEASE_SHA"
             systemctl is-active --quiet staff-payroll-api.service
@@ -147,6 +148,13 @@ jobs:
             curl -fsS http://127.0.0.1:8001/health >/dev/null
             curl -fsS http://127.0.0.1:3001/login >/dev/null
             echo "STAFF_PRODUCTION_DEPLOYMENT_PASS sha=$RELEASE_SHA"
+            STAFF_ROOT_DEPLOY
+            chmod 0600 "$HELPER"
+            if [[ "$(id -u)" -eq 0 ]]; then
+              bash "$HELPER" "$RELEASE_SHA"
+            else
+              sudo -n bash "$HELPER" "$RELEASE_SHA"
+            fi
 
       - name: Verify live unauthenticated login endpoint
         shell: bash
