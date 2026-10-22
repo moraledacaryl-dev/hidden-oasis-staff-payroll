@@ -76,6 +76,59 @@ STATUTORY_MONEY_COLUMNS = (
 )
 
 
+def assert_prior_month_statutory_coverage(
+    conn: Any,
+    run_id: int,
+    employee_id: int,
+    period_start: str,
+    period_end: str,
+) -> None:
+    """Avoid applying MTD contribution targets over missing prior paid evidence.
+
+    Prior non-superseded, non-Draft payrolls that overlap a contribution month
+    must have a snapshot for this employee/month. Missing history is a review
+    gate, never permission to recreate or mutate Paid payroll.
+    """
+    from .statutory_periods import calendar_month_segments
+
+    for segment in calendar_month_segments(period_start, period_end):
+        earlier = conn.execute(
+            """
+            SELECT pr.id
+            FROM payroll_runs pr
+            JOIN payroll_items pi ON pi.payroll_run_id=pr.id
+            WHERE pi.employee_id=?
+              AND pr.id<>?
+              AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked')
+              AND COALESCE(pr.superseded_by_run_id,0)=0
+              AND date(pr.period_start) < date(?)
+              AND date(pr.period_start) <= date(?)
+              AND date(pr.period_end) >= date(?)
+              AND NOT EXISTS(
+                  SELECT 1 FROM payroll_statutory_months sm
+                  WHERE sm.payroll_run_id=pr.id
+                    AND sm.employee_id=pi.employee_id
+                    AND sm.month_start=?
+              )
+            ORDER BY pr.period_start, pr.id
+            LIMIT 1
+            """,
+            (
+                employee_id, run_id, segment.start.isoformat(),
+                segment.month_end.isoformat(), segment.month_start.isoformat(),
+                segment.month_start.isoformat(),
+            ),
+        ).fetchone()
+        if earlier is not None:
+            raise ValueError(
+                "Earlier payroll run #"
+                + str(earlier[0])
+                + " lacks a statutory snapshot for "
+                + segment.month_start.isoformat()[:7]
+                + "; reconcile original payroll evidence before creating a later Draft"
+            )
+
+
 def persist_computed_draft_snapshots(
     conn: Any,
     run_id: int,
@@ -99,6 +152,9 @@ def persist_computed_draft_snapshots(
     if not isinstance(snapshots, Mapping):
         raise ValueError("Draft payroll calculation is missing dated statutory snapshots")
 
+    assert_prior_month_statutory_coverage(
+        conn, run_id, int(result.employee_id), period_start, period_end
+    )
     expected_months = {segment.month_start for segment in calendar_month_segments(period_start, period_end)}
     if set(snapshots) != expected_months:
         raise ValueError("Draft statutory snapshots must match the exact cutoff calendar months")
