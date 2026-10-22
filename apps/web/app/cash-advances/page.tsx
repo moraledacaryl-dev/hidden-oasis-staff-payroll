@@ -224,7 +224,8 @@ export default async function CashAdvancesPage({
               {canEditExisting && Number(item.release_confirmation_required || 0) === 1 && !item.released_at && item.status === "Active" ? (
                 <ConfirmCashAdvanceRelease advanceId={item.id} employeeName={item.full_name || "employee"} amount={original} />
               ) : null}
-              {Number(item.release_confirmation_required || 0) !== 1 || item.released_at ? (
+              {canEditExisting && item.status !== "Cancelled" &&
+              (Number(item.release_confirmation_required || 0) !== 1 || item.released_at) ? (
                 <ManualRepaymentForm advanceId={item.id} balance={balance} employeeName={item.full_name || "employee"} />
               ) : null}
               {canEditExisting ? <CashAdvanceForm employees={employees} item={item} canEditExisting isOwner={isOwner} /> : null}
