@@ -164,6 +164,55 @@ class FuturePayrollStatutoryPersistenceTests(unittest.TestCase):
                 (run_id,),
             ).fetchone()[0], 0)
 
+    def test_missing_earlier_paid_month_snapshot_blocks_later_draft_without_mutation(self) -> None:
+        earlier_id = self.draft(
+            self.calculation(), start=date(2026, 6, 1), end=date(2026, 6, 14)
+        )
+        with get_conn(self.db) as conn:
+            conn.execute("UPDATE payroll_runs SET status='Paid' WHERE id=?", (earlier_id,))
+            conn.execute("DELETE FROM payroll_statutory_months WHERE payroll_run_id=?", (earlier_id,))
+            conn.commit()
+
+        with self.assertRaisesRegex(ValueError, "lacks a statutory snapshot"):
+            self.draft(self.calculation())
+        with get_conn(self.db) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM payroll_runs").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT status FROM payroll_runs WHERE id=?", (earlier_id,)
+            ).fetchone()[0], "Paid")
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM payroll_items").fetchone()[0], 1)
+
+    def test_valid_earlier_paid_month_snapshots_do_not_block_later_draft(self) -> None:
+        earlier_id = self.draft(
+            self.calculation(gross=1000, sss=50),
+            start=date(2026, 6, 1), end=date(2026, 6, 14)
+        )
+        with get_conn(self.db) as conn:
+            conn.execute("UPDATE payroll_runs SET status='Paid' WHERE id=?", (earlier_id,))
+            conn.commit()
+        new_id = self.draft(self.calculation(gross=2000, sss=100))
+        self.assertEqual(self.snapshots(new_id), [("2026-06-01", 2000.0, 100.0)])
+        self.assertEqual(self.snapshots(earlier_id), [("2026-06-01", 1000.0, 50.0)])
+
+    def test_cross_month_earlier_missing_history_blocks_only_affected_month(self) -> None:
+        earlier_id = self.draft(
+            self.calculation(), start=date(2026, 6, 15), end=date(2026, 6, 29)
+        )
+        with get_conn(self.db) as conn:
+            conn.execute("UPDATE payroll_runs SET status='Paid' WHERE id=?", (earlier_id,))
+            conn.execute("DELETE FROM payroll_statutory_months WHERE payroll_run_id=?", (earlier_id,))
+            conn.commit()
+
+        july_result = self.calculation(by_month={
+            date(2026, 6, 1): {"gross_pay": 50},
+            date(2026, 7, 1): {"gross_pay": 1950, "sss_ee": 100},
+        })
+        with self.assertRaisesRegex(ValueError, "2026-06"):
+            self.draft(
+                july_result, start=date(2026, 6, 30),
+                end=date(2026, 7, 14), label="Manual cross-month",
+            )
+
     def test_paid_run_guard_preserves_existing_snapshot(self) -> None:
         run_id = self.draft(self.calculation())
         with get_conn(self.db) as conn:
