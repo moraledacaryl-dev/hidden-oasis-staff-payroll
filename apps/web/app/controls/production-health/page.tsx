@@ -25,6 +25,8 @@ export default async function ProductionHealthPage() {
   const secretChecks = Object.entries(health.secrets_configured || {});
   const healthyTables = tableChecks.filter(([, value]) => value).length;
   const configuredSecrets = secretChecks.filter(([, value]) => value).length;
+  const diskCapacity = health.disk_capacity || [];
+  const diskSpaceOK = diskCapacity.length > 0 && diskCapacity.every((entry) => entry.deployment_space_ok);
 
   return (
     <Shell allowedRoles={["owner", "payroll"]}>
@@ -36,7 +38,28 @@ export default async function ProductionHealthPage() {
           <div className="system-health-card"><span>Required tables</span><strong>{healthyTables}/{tableChecks.length}</strong><small>Schema presence</small></div>
           <div className="system-health-card"><span>Configuration</span><strong>{configuredSecrets}/{secretChecks.length}</strong><small>Required secrets</small></div>
           <div className="system-health-card"><span>Backups</span><strong>{health.backup_count}</strong><small>{health.latest_backup?.created_at || "No backup found"}</small></div>
-          <div className="system-health-card"><span>Release</span><strong>{health.release_verified ? "Verified" : "Not verified"}</strong><small>{health.active_release_sha?.slice(0, 12) || "No active SHA found"}</small></div>
+          <div className="system-health-card"><span>Release</span><strong>{health.release_verified ? "Verified" : "Not verified"}</strong><small>{health.active_release_sha?.slice(0, 12) || "No active SHA found"}</small></div><div className="system-health-card"><span>Deployment disk space</span><strong>{diskSpaceOK ? "Ready" : "Review needed"}</strong><small>{diskCapacity.length ? `${diskCapacity.length} filesystem(s) checked` : "Capacity data unavailable"}</small></div>
+        </section>
+
+        <section className="system-panel">
+          <header><div><h2>Deployment storage readiness</h2><p>Live, read-only disk and inode capacity checks using the same minimum limits as the deployment preflight. Passing today does not guarantee enough room for a future build or backup.</p></div></header>
+          <div className="system-panel-body">
+            <div className="table-wrap"><table>
+              <thead><tr><th>Filesystem</th><th>Available</th><th>Free space</th><th>Free inodes</th><th>Deploy minimum</th><th>Result</th></tr></thead>
+              <tbody>
+                {diskCapacity.map((entry) => <tr key={entry.path}>
+                  <td><code>{entry.path}</code></td>
+                  <td>{entry.free_gib === undefined ? "—" : `${entry.free_gib.toFixed(2)} GiB`}</td>
+                  <td>{entry.free_percent === undefined ? "—" : `${entry.free_percent}%`}</td>
+                  <td>{entry.free_inode_percent === undefined ? "—" : `${entry.free_inode_percent}%`}</td>
+                  <td>{entry.minimum_free_percent === undefined ? "—" : `${entry.minimum_free_gib} GiB, ${entry.minimum_free_percent}% space, ${entry.minimum_inode_percent}% inodes`}</td>
+                  <td>{entry.error ? entry.error : <YesNo value={entry.deployment_space_ok} />}</td>
+                </tr>)}
+                {diskCapacity.length === 0 ? <tr><td colSpan={6}>Storage status unavailable. Check the server before attempting deployment.</td></tr> : null}
+              </tbody>
+            </table></div>
+            {!diskSpaceOK ? <p className="muted">Storage is below the deployment safety threshold or cannot be inspected. Do not bypass the preflight; review inactive releases and backups on the server.</p> : null}
+          </div>
         </section>
 
         <section className="system-panel">
