@@ -90,6 +90,7 @@ def audit_historical_statutory_cutoff_transitions(
     reviews: list[dict[str, Any]] = []
     affected = 0
     ambiguous_successors = 0
+    ambiguous_preceding = 0
     without_successor = 0
     pairs_examined = 0
     for run, start, end in current:
@@ -138,10 +139,15 @@ def audit_historical_statutory_cutoff_transitions(
             if candidate[2] < start
             and (start - candidate[2]) <= timedelta(days=45)
         ]
-        prior = (
-            max(prior_candidates, key=lambda x: (x[2], int(x[0]["id"])))
-            if prior_candidates else None
-        )
+        # Multiple current Paid/Locked runs ending on the same nearest prior
+        # date do not establish a unique baseline. Do not use an arbitrary ID
+        # to suggest that an employee's contribution doubled.
+        latest_prior_end = max((candidate[2] for candidate in prior_candidates), default=None)
+        prior_ties = [candidate for candidate in prior_candidates
+                      if candidate[2] == latest_prior_end]
+        prior_reference_ambiguous = len(prior_ties) > 1
+        ambiguous_preceding += int(prior_reference_ambiguous)
+        prior = prior_ties[0] if len(prior_ties) == 1 else None
 
         cross_items, cross_duplicates, cross_count, cross_totals = _items(
             conn, int(run["id"])
@@ -206,6 +212,11 @@ def audit_historical_statutory_cutoff_transitions(
                 int(prior[0]["id"]) if prior is not None else None
             ),
             "status": "source_pattern_comparison_not_payment_verification",
+            "preceding_reference_ambiguous": prior_reference_ambiguous,
+            "candidate_preceding_run_ids_sample": (
+                sorted(int(c[0]["id"]) for c in prior_ties)[:limit]
+                if prior_reference_ambiguous else []
+            ),
             "cross_month_payroll_items": cross_count,
             "following_payroll_items": following_count,
             "matched_employee_count": len(joint_ids),
@@ -239,6 +250,7 @@ def audit_historical_statutory_cutoff_transitions(
         "cross_month_following_pairs_examined": pairs_examined,
         "cross_month_runs_without_following_match": without_successor,
         "ambiguous_following_run_count": ambiguous_successors,
+        "ambiguous_preceding_reference_count": ambiguous_preceding,
         "invalid_period_run_count": len(invalid_period_run_ids),
         "invalid_period_ids_sample": invalid_period_run_ids[:limit],
         "transition_review_sample": reviews,
