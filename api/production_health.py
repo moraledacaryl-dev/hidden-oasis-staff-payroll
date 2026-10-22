@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,39 @@ def backup_age_hours(created_at: str) -> float:
     return round(max(0.0, (utc_now() - created).total_seconds()) / 3600, 1)
 
 
+def release_state() -> dict[str, Any]:
+    """Read deployment evidence without modifying the active release.
+
+    A state marker alone is not proof of the running release: the immutable
+    active symlink must resolve to the matching SHA-named release directory.
+    """
+    runtime_base = Path(os.getenv("STAFF_PAYROLL_RUNTIME_BASE", "/opt/hiddenoasis/staff-payroll"))
+    state_file = Path(os.getenv(
+        "STAFF_PAYROLL_DEPLOY_STATE_FILE", "/var/lib/hiddenoasis/staff-payroll/deployed-sha"
+    ))
+    try:
+        marker = state_file.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        marker = ""
+    deployed_sha = marker if re.fullmatch(r"[0-9a-f]{40}", marker) else None
+
+    active_sha = None
+    try:
+        current = runtime_base / "current"
+        if current.is_symlink():
+            target = current.resolve(strict=True)
+            releases = (runtime_base / "releases").resolve()
+            if target.parent == releases and target.is_dir() and re.fullmatch(r"[0-9a-f]{40}", target.name):
+                active_sha = target.name
+    except (OSError, RuntimeError):
+        pass
+    return {
+        "deployed_sha": deployed_sha,
+        "active_release_sha": active_sha,
+        "release_verified": bool(deployed_sha and active_sha and deployed_sha == active_sha),
+    }
+
+
 @router.get("/production/health")
 def production_health(
     response: Response,
@@ -83,6 +117,7 @@ def production_health(
             "checked_at": utc_iso(),
             "request_id": request_id,
             "checked_by": user.get("display_name"),
+            **release_state(),
             "database_path": str(db_path),
             "database_exists": db_path.exists(),
             "backup_dir": str(backup_dir),
