@@ -125,6 +125,27 @@ class HistoricalStatutoryCutoffTransitionTests(unittest.TestCase):
         self.assertEqual(out["cross_month_runs_without_following_match"], 1)
         self.assertEqual(out["cross_month_following_pairs_examined"], 0)
 
+    def test_ambiguous_preceding_reference_never_infers_doubled_contributions(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """INSERT INTO payroll_runs VALUES
+                (12,'Paid',NULL,'2026-08-16','2026-08-30')"""
+            )
+            self.item(conn, 12, 1, ph=100, pi=50, sss=110)
+        out = self.report()
+        row = out["transition_review_sample"][0]
+        self.assertEqual(out["ambiguous_preceding_reference_count"], 1)
+        self.assertTrue(row["preceding_reference_ambiguous"])
+        self.assertEqual(row["candidate_preceding_run_ids_sample"], [11, 12])
+        self.assertIsNone(row["preceding_reference_run_id"])
+        self.assertEqual(row["matched_with_preceding_run_count"], 0)
+        self.assertEqual(row["follow_about_twice_prior_employee_counts"], {
+            "philhealth": 0, "pagibig": 0,
+        })
+        self.assertEqual(
+            row["zero_in_cross_positive_in_follow_employee_counts"]["philhealth"], 2,
+        )
+
     def test_missing_prior_reference_does_not_infer_double_deductions(self) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.execute("UPDATE payroll_runs SET status='Approved' WHERE id=11")
