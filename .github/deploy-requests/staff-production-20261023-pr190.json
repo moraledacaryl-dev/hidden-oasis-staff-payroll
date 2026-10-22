@@ -1,0 +1,7 @@
+{
+  "release_sha": "2905c9a7201fefeb833367d6a1017144cd8d64f1",
+  "target_environment": "production",
+  "source_pull_request": 190,
+  "purpose": "User-authorized Group 11 Staff read-only statutory audit and browser smoke hardening production release",
+  "financial_data_changes_authorized": false
+}
