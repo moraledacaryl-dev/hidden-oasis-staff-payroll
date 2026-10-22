@@ -45,6 +45,9 @@ jobs:
         working-directory: apps/web
       - run: npm audit --omit=dev --audit-level=high
         working-directory: apps/web
+      - name: Test spreadsheet export safety
+        run: npm run test:security
+        working-directory: apps/web
       - name: Run frontend lint
         working-directory: apps/web
         run: |
