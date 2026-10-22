@@ -92,6 +92,9 @@ def create_payroll_draft(payload: PayrollDraftRequest, authorization: str | None
         return {"ok": True, "run": run, "checks": checks, "mode": "draft_saved_not_released"}
     except HTTPException:
         conn.rollback(); raise
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     finally:
         conn.close()
 
