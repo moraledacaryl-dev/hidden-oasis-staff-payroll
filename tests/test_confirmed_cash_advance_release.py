@@ -196,6 +196,48 @@ class ConfirmedCashAdvanceReleaseTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 409)
         self.assertEqual(self.read("SELECT * FROM cash_advance_repayments"), [])
 
+    def test_approved_but_not_issued_cannot_change_identity_or_date(self):
+        advance_id = self.advance()
+        with (
+            patch("api.cash_advances.require_cash_advance_editor", return_value=self.user),
+            patch("api.cash_advances.get_conn", side_effect=self.connection),
+        ):
+            with self.assertRaises(HTTPException) as error:
+                save_cash_advance(
+                    CashAdvancePayload(
+                        id=advance_id, employee_id=1, advance_date="2026-10-21",
+                        amount=3000, repayment_method="Payroll deduction",
+                        deduction_per_payroll=500,
+                    ),
+                    authorization="Bearer test", x_api_key=None,
+                )
+        self.assertEqual(error.exception.status_code, 409)
+        row = self.read(
+            "SELECT advance_date, released_at FROM cash_advances WHERE id=?",
+            (advance_id,),
+        )[0]
+        self.assertEqual(row["advance_date"], "2026-10-20")
+        self.assertIsNone(row["released_at"])
+
+    def test_repayment_cannot_predate_confirmed_disbursement(self):
+        advance_id = self.advance()
+        self.confirm(advance_id)
+        with (
+            patch("api.cash_repayments.require_cash_advance_editor", return_value=self.user),
+            patch("api.cash_repayments.get_conn", side_effect=self.connection),
+        ):
+            with self.assertRaises(HTTPException) as error:
+                record_manual_repayment(
+                    advance_id,
+                    ManualRepaymentPayload(
+                        amount=200, repayment_date="2026-10-19",
+                        payment_method="GCash", reference="repayment-before-release",
+                    ),
+                    authorization="Bearer test", x_api_key=None,
+                )
+        self.assertEqual(error.exception.status_code, 422)
+        self.assertEqual(self.read("SELECT * FROM cash_advance_repayments"), [])
+
     def test_released_advance_cannot_be_reassigned_or_backdated_by_normal_edit(self):
         advance_id = self.advance()
         self.confirm(advance_id)

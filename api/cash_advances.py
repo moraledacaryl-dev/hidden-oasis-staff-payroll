@@ -276,11 +276,21 @@ def save_cash_advance(
                 raise HTTPException(status_code=409, detail="Original amount / balance basis cannot be changed in normal edit. Use owner correction instead.")
             # Never reassign an already issued financial movement to another
             # employee or date through an ordinary form edit.
-            if str(old.get("released_at") or "").strip() and (
+            # Approval belongs to the original employee and advance date.
+            # Changing either after approval would invalidate the sign-off,
+            # even if no physical disbursement has occurred yet.
+            has_approval = (
+                int(old.get("release_confirmation_required") or 0) == 1
+                and (
+                    str(old.get("approved_at") or "").strip()
+                    or str(old.get("released_at") or "").strip()
+                )
+            )
+            if has_approval and (
                 int(payload.employee_id) != int(old["employee_id"])
                 or str(payload.advance_date)[:10] != str(old.get("advance_date") or old.get("request_date") or "")[:10]
             ):
-                raise HTTPException(status_code=409, detail="Issued advance identity and advance date are immutable. Use an audited correction.")
+                raise HTTPException(status_code=409, detail="Approved advance identity and advance date are immutable. Use an audited correction.")
 
             # Lifecycle status is deliberately immutable through ordinary detail edits.
             # Approval/rejection/cancellation must use explicit transition endpoints.

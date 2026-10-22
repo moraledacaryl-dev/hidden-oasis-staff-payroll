@@ -26,6 +26,14 @@ class CashRepaymentWriteAuthorizationTests(unittest.TestCase):
                 cash_service.require_cash_advance_editor("Bearer supervisor", None)
         self.assertEqual(ctx.exception.status_code, 403)
 
+    def test_supervisor_ui_does_not_offer_write_only_repayment_action(self) -> None:
+        from pathlib import Path
+
+        source = Path("apps/web/app/cash-advances/page.tsx").read_text(encoding="utf-8")
+        self.assertIn('canEditExisting && item.status !== "Cancelled"', source)
+        self.assertIn("<ManualRepaymentForm advanceId={item.id}", source)
+        self.assertIn('Number(item.release_confirmation_required || 0) !== 1 || item.released_at', source)
+
     def test_owner_and_payroll_remain_authorized_financial_editors(self) -> None:
         for role in ("owner", "payroll"):
             with self.subTest(role=role):
