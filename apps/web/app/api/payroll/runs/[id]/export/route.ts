@@ -1,15 +1,8 @@
 import { NextResponse } from "next/server";
 import { getPayrollCorrections, getPayrollRunReview } from "@/lib/api";
+import { csvDocument } from "@/lib/csv-security.mjs";
+import { currentSession } from "@/lib/session";
 
-function csvCell(value: unknown): string {
-  const text = value == null ? "" : String(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
-
-function toCsv(headers: string[], rows: unknown[][]): string {
-  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
-}
 
 function download(csv: string, filename: string) {
   return new NextResponse(csv, {
@@ -17,21 +10,33 @@ function download(csv: string, filename: string) {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${filename}"`,
-      "Cache-Control": "no-store",
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await currentSession();
+  if (!session) return new Response("Authentication required.", { status: 401, headers: { "Cache-Control": "no-store" } });
+  if (!["owner", "payroll"].includes(session.role_key)) {
+    return new Response("Payroll export access denied.", { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
   const { id } = await params;
   const runId = Number(id);
+  if (!Number.isSafeInteger(runId) || runId <= 0) {
+    return new Response("Invalid payroll run.", { status: 400, headers: { "Cache-Control": "no-store" } });
+  }
   const type = new URL(request.url).searchParams.get("type") || "items";
+  if (!["items", "summary", "corrections"].includes(type)) {
+    return new Response("Unsupported export type.", { status: 400, headers: { "Cache-Control": "no-store" } });
+  }
   const review = await getPayrollRunReview(runId);
   const run = review.run;
 
   if (type === "corrections") {
     const corrections = await getPayrollCorrections(runId);
-    const csv = toCsv(
+    const csv = csvDocument(
       ["created_at", "employee", "type", "status", "amount", "apply_to_next_run", "applied_to_run_id", "reason", "created_by"],
       corrections.items.map((item) => [
         item.created_at || "",
@@ -59,14 +64,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       current.net += Number(item.net_pay || 0);
       byDepartment.set(key, current);
     }
-    const csv = toCsv(
+    const csv = csvDocument(
       ["department", "employees", "gross_pay", "deductions", "net_pay"],
       Array.from(byDepartment.entries()).map(([department, total]) => [department, total.employees, total.gross.toFixed(2), total.deductions.toFixed(2), total.net.toFixed(2)]),
     );
     return download(csv, `payroll-run-${run.id}-department-summary.csv`);
   }
 
-  const csv = toCsv(
+  const csv = csvDocument(
     [
       "employee", "department", "regular_hours", "regular_pay", "ot_hours", "ot_pay", "night_diff_pay", "holiday_pay", "paid_leave_pay", "other_earnings", "gross_pay", "sss", "philhealth", "pagibig", "tax", "cash_advance", "other_deductions", "total_deductions", "net_pay", "warnings",
     ],
