@@ -119,6 +119,28 @@ class OwnerImpersonationTests(unittest.TestCase):
             self.start_view(self.unlinked_staff_id)
         self.assertEqual(unlinked.exception.status_code, 409)
 
+    def test_owner_cannot_impersonate_separated_employee_accounts(self) -> None:
+        # Staff account active flag alone is insufficient for access to
+        # payroll or employee self-service. Use canonical employment status.
+        for status in ("Inactive", "Terminated", "Resigned", "Separated"):
+            with self.subTest(status=status):
+                conn = get_conn(self.db_path)
+                try:
+                    conn.execute("UPDATE employees SET status=? WHERE id=?", (status, self.employee_id))
+                    conn.commit()
+                finally:
+                    conn.close()
+                with self.assertRaises(HTTPException) as denied:
+                    self.start_view(self.staff_id)
+                self.assertEqual(denied.exception.status_code, 409)
+        conn = get_conn(self.db_path)
+        try:
+            conn.execute("UPDATE employees SET status='On Leave' WHERE id=?", (self.employee_id,))
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertTrue(self.start_view(self.staff_id)["ok"])
+
     def test_owner_session_revocation_invalidates_view_session(self) -> None:
         token = self.start_view(self.supervisor_id)["access_token"]
         conn = get_conn(self.db_path)
