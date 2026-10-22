@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from api.security import current_user_from_token, require_api_key
+from core.active_employee_status import is_active_employee_status
 from core.db import DB_PATH, fetchall, fetchone, get_conn
 
 router = APIRouter(prefix="/api/v1")
@@ -26,8 +27,8 @@ def my_payroll(
         employee_id = int(account.get("employee_id") or 0) if account else 0
         if not employee_id:
             raise HTTPException(status_code=403, detail="Account is not linked to an employee record.")
-        employee = fetchone(conn, "SELECT * FROM employees WHERE id=? AND COALESCE(status, 'Active') != 'Inactive'", (employee_id,))
-        if not employee:
+        employee = fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,))
+        if not employee or not is_active_employee_status(employee.get("status")):
             raise HTTPException(status_code=403, detail="Linked employee record is inactive or missing.")
         employee_id = int(employee.get("id"))
         rows = fetchall(
