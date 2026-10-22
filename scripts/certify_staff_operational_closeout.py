@@ -12,8 +12,13 @@ import json
 import os
 import re
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from scripts.certify_financial_readiness import certify
 from scripts.verify_manual_repayment_review_queue import verify_review_queue
