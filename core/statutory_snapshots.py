@@ -91,6 +91,9 @@ def assert_prior_month_statutory_coverage(
     """
     from .statutory_periods import calendar_month_segments
 
+    # Production startup initializes this table; direct Draft API/test
+    # invocation must also be safe before a prior-month coverage query.
+    ensure_statutory_snapshot_schema(conn)
     for segment in calendar_month_segments(period_start, period_end):
         earlier = conn.execute(
             """
