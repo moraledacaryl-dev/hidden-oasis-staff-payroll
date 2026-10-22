@@ -262,6 +262,9 @@ def create_payroll_draft(
     except HTTPException:
         conn.rollback()
         raise
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     finally:
         conn.close()
 
