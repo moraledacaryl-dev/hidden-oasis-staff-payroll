@@ -166,7 +166,7 @@ class FuturePayrollStatutoryPersistenceTests(unittest.TestCase):
 
     def test_missing_earlier_paid_month_snapshot_blocks_later_draft_without_mutation(self) -> None:
         earlier_id = self.draft(
-            self.calculation(), start=date(2026, 6, 1), end=date(2026, 6, 14)
+            self.calculation(), start=date(2026, 6, 1), end=date(2026, 6, 14), label="Manual June first-half"
         )
         with get_conn(self.db) as conn:
             conn.execute("UPDATE payroll_runs SET status='Paid' WHERE id=?", (earlier_id,))
@@ -185,7 +185,7 @@ class FuturePayrollStatutoryPersistenceTests(unittest.TestCase):
     def test_valid_earlier_paid_month_snapshots_do_not_block_later_draft(self) -> None:
         earlier_id = self.draft(
             self.calculation(gross=1000, sss=50),
-            start=date(2026, 6, 1), end=date(2026, 6, 14)
+            start=date(2026, 6, 1), end=date(2026, 6, 14), label="Manual June first-half"
         )
         with get_conn(self.db) as conn:
             conn.execute("UPDATE payroll_runs SET status='Paid' WHERE id=?", (earlier_id,))
