@@ -58,9 +58,9 @@ class Group14EmployeePayrollIsolationTests(unittest.TestCase):
                 ).lastrowid)
                 for employee_id, net in zip(self.employee_ids, (1123.50, 1987.75)):
                     conn.execute(
-                        """INSERT INTO payroll_items(payroll_run_id,employee_id,gross_pay,total_deductions,net_pay)
-                           VALUES(?,?,?,100,?)""",
-                        (run_id, employee_id, net + 100, net),
+                        """INSERT INTO payroll_items(payroll_run_id,employee_id,gross_pay,total_deductions,net_pay,created_at)
+                           VALUES(?,?,?,100,?,?)""",
+                        (run_id, employee_id, net + 100, net, stamp),
                     )
                 conn.commit()
 
