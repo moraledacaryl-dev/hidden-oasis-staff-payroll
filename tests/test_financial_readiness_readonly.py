@@ -254,7 +254,7 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
                 ) VALUES(2,'2026-10-01','2026-10-14','Draft',NULL,1)"""
             )
             conn.execute("UPDATE payroll_runs SET superseded_by_run_id=2 WHERE id=1")
-            conn.execute("INSERT INTO payroll_items VALUES(2,2,2000,400,1600)")
+            conn.execute("INSERT INTO payroll_items(id,payroll_run_id,gross_pay,total_deductions,net_pay) VALUES(2,2,2000,400,1600)")
         report = self.run_audit()
         statutory = report["statutory_recorded_evidence"]
         self.assertEqual(statutory["current_payroll_runs"], 1)
