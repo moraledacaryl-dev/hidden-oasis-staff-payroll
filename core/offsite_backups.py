@@ -16,6 +16,22 @@ S3_ENV_NAMES = (
 )
 
 
+def offsite_configuration_status() -> str:
+    """Sanitized configuration state; never claim an offsite backup exists.
+
+    This reads only environment variable presence and the expected HTTPS scheme.
+    Verification of a remote copy belongs to the independent backup preflight.
+    """
+    if os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR", "").strip():
+        return "directory_configured"
+    values = [os.getenv(name, "").strip() for name in S3_ENV_NAMES]
+    if not any(values):
+        return "not_configured"
+    if not all(values) or not values[0].startswith("https://"):
+        return "s3_configuration_incomplete"
+    return "s3_configured_not_verified"
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
