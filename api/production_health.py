@@ -15,6 +15,7 @@ from core.audit import log_audit
 from core.backups import BackupVerificationError, backup_path, create_backup_package, list_backups, verify_backup
 from core.db import DB_PATH, fetchone, get_conn
 from core.observability import normalize_request_id, parse_timestamp_utc, utc_iso, utc_now
+from core.offsite_backups import offsite_configuration_status
 
 router = APIRouter(prefix="/api/v1")
 
@@ -107,6 +108,13 @@ def filesystem_capacity(paths: list[Path]) -> list[dict[str, Any]]:
     return result
 
 
+def backup_age_limit_hours() -> int:
+    try:
+        return max(1, int(os.getenv("STAFF_PAYROLL_MAX_BACKUP_AGE_HOURS", "26")))
+    except ValueError:
+        return 26
+
+
 def backup_age_hours(created_at: str) -> float:
     created = parse_timestamp_utc(created_at)
     return round(max(0.0, (utc_now() - created).total_seconds()) / 3600, 1)
@@ -174,6 +182,7 @@ def production_health(
         checks = database_checks(conn)
         latest_backup = backups[0] if backups else None
         age_hours = backup_age_hours(str(latest_backup["created_at"])) if latest_backup else None
+        offsite_status = offsite_configuration_status()
         return {
             "ok": checks["integrity"].lower() == "ok" and checks["writable"],
             "checked_at": utc_iso(),
@@ -187,8 +196,11 @@ def production_health(
             "backup_count": len(backups),
             "latest_backup": latest_backup,
             "backup_age_hours": age_hours,
+            "backup_max_age_hours": backup_age_limit_hours(),
             "backup_encryption_configured": bool(os.getenv("STAFF_PAYROLL_BACKUP_KEY")),
-            "offsite_backup_configured": bool(os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR")),
+            "offsite_backup_configuration_status": offsite_status,
+            "offsite_backup_configured": offsite_status in {"directory_configured", "s3_configured_not_verified"},
+            "offsite_backup_copy_verified": False,  # This health endpoint does no remote I/O.
             "database_checks": checks,
             "tables": {
                 "payroll_runs": table_exists(conn, "payroll_runs"),

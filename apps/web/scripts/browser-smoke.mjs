@@ -21,7 +21,7 @@ const payrollRunId = Number(smokeFixture.payroll_run_id || 0);
 const pages = JSON.parse(
   process.env.BROWSER_SMOKE_PAGES_JSON ||
     JSON.stringify({
-      owner: ["/", "/cutoff", "/schedule", "/hr", "/backup", "/settings/users", "/performance-reviews", "/payroll", "/payroll/runs", "/payroll/benefits", "/payslips", "/reports", "/staff", "/staff/manage"],
+      owner: ["/", "/cutoff", "/schedule", "/hr", "/backup", "/settings/users", "/performance-reviews", "/payroll", "/payroll/runs", "/payroll/benefits", "/payslips", "/reports", "/launch", "/controls", "/controls/production-health", "/staff", "/staff/manage"],
       supervisor: ["/", "/attendance", "/schedule/requests", "/cash-advances", "/cash-advances?review=accounting", "/performance-reviews", "/staff"],
       staff: ["/me", "/settings/security"],
     }),
