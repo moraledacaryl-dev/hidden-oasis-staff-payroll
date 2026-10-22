@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.audit_historical_statutory_calendar import audit_historical_paid_statutory_calendar_buckets
+from scripts.audit_historical_statutory_cutoff_transitions import audit_historical_statutory_cutoff_transitions
 from scripts.audit_manual_repayment_outbox import audit_manual_repayment_outbox
 from scripts.audit_paid_adjustment_reversals import audit_paid_adjustment_reversals
 from core.offsite_backups import S3_ENV_NAMES
@@ -32,7 +33,7 @@ REQUIRED = {
     "payroll_runs": {"id", "period_start", "period_end", "status", "paid_at",
                      "revision_of_run_id", "revision_treatment", "superseded_by_run_id"},
     "payroll_items": {
-        "id", "payroll_run_id", "gross_pay", "total_deductions", "net_pay",
+        "id", "payroll_run_id", "employee_id", "gross_pay", "total_deductions", "net_pay",
         "sss_ee", "sss_er", "sss_ec", "philhealth_ee", "philhealth_er",
         "pagibig_ee", "pagibig_er",
     },
@@ -447,6 +448,8 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
              lambda: check_saved_paid_statutory_items(conn, sample_limit)),
             ("historical_paid_statutory_calendar_review",
              lambda: audit_historical_paid_statutory_calendar_buckets(conn, sample_limit)),
+            ("historical_statutory_cutoff_transition_review",
+             lambda: audit_historical_statutory_cutoff_transitions(conn, sample_limit)),
             ("paid_adjustment_reversal_audit", lambda: audit_paid_adjustment_reversals(conn)),
             ("manual_repayment_outbox_audit", lambda: audit_manual_repayment_outbox(conn, sample_limit=sample_limit)),
         )
@@ -479,6 +482,11 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
             reviews.append("cross_month_historical_statutory_values_unallocated")
         if calendar_review.get("invalid_period_run_count"):
             reviews.append("historical_payroll_period_dates_require_review")
+        transition = result.get("historical_statutory_cutoff_transition_review", {})
+        if transition.get("cross_month_following_pairs_examined"):
+            reviews.append("historical_cross_month_statutory_deduction_pattern_review")
+        if transition.get("ambiguous_following_run_count"):
+            reviews.append("historical_cross_month_following_payroll_ambiguity")
         if statutory.get("current_nonsettled_runs_with_paid_at"):
             reviews.append("paid_payroll_status_and_timestamp_require_review")
         if statutory.get("zero_recognized_contributions_needs_source_status_review"):
