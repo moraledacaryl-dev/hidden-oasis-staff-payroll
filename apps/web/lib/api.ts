@@ -25,6 +25,7 @@ export type AttendanceException = {
 export type AttendanceReview = { id: number; time_log_id: number; reviewer: string; decision: string; reason: string; approved_ot_hours: number; created_at: string; work_date: string; employee_code: string; full_name: string; department?: string | null; position?: string | null };
 export type ScheduleRow = { id: number; employee_id: number; employee_code?: string | null; full_name?: string | null; work_date: string; shift_start?: string | null; shift_end?: string | null; start_time?: string | null; end_time?: string | null; attendance_status?: string | null; leave_status?: string | null; status?: string | null; notes?: string | null };
 export type PayrollRun = { id: number; period_start: string; period_end: string; payout_date: string; run_label: string; status: string; prepared_by?: string | null; approved_by?: string | null; approved_at?: string | null; paid_at?: string | null; locked_at?: string | null; reopen_reason?: string | null; validation_summary?: string | null; revision_of_run_id?: number | null; revision_reason?: string | null; revision_treatment?: string | null; superseded_by_run_id?: number | null; created_at: string; totals?: { employees: number; gross_pay: number; net_pay: number; total_deductions: number } };
+export type PayrollRunHistory = { items: PayrollRun[]; total: number; page: number; page_size: number; pages: number; summary: { draft: number; review: number; approved: number; paid: number; superseded: number } };
 export type PayrollReviewItem = { id: number; employee_id: number; employee_name: string; employee_code?: string | null; department: string; position?: string | null; gross_pay: number; net_pay: number; total_deductions: number; regular_hours: number; regular_pay: number; approved_ot_hours: number; ot_pay: number; night_diff_hours: number; night_diff_pay: number; holiday_pay: number; paid_leave_pay: number; freelance_pay: number; other_earnings: number; late_minutes: number; undertime_minutes: number; unpaid_absence_days: number; sss_ee: number; philhealth_ee: number; pagibig_ee: number; tax: number; cash_advance_deduction: number; other_deductions: number; warnings?: string | null; leave_summary?: string[] };
 export type PayrollRunReview = { ok: boolean; run: PayrollRun; items: PayrollReviewItem[]; mode: string };
 export type PayrollCorrection = { id: number; payroll_run_id: number; employee_id: number; employee_name?: string | null; department?: string | null; adjustment_type: "Earning" | "Deduction" | "Note" | string; amount: number; reason: string; apply_to_next_run: number; status?: string | null; applied_to_run_id?: number | null; applied_at?: string | null; voided_by?: string | null; void_reason?: string | null; voided_at?: string | null; created_by?: string | null; created_at?: string | null };
@@ -82,6 +83,16 @@ export function getAttendanceReviews(periodStart: string, periodEnd: string): Pr
 export function getSchedules(periodStart: string, periodEnd: string): Promise<ScheduleRow[]> { return apiGet<ScheduleRow[]>(`/api/v1/schedules?start_date=${periodStart}&end_date=${periodEnd}`, true); }
 export function getMonthlyBenefits(month: string): Promise<MonthlyBenefitsResponse> { return apiGet<MonthlyBenefitsResponse>(`/api/v1/payroll/benefits/monthly?month=${encodeURIComponent(month)}`, true); }
 export function getPayrollRuns(): Promise<PayrollRun[]> { return apiGet<PayrollRun[]>("/api/v1/payroll/runs", true); }
+export function getPayrollRunHistory(filters: { status?: string; start?: string; end?: string; view?: "all" | "current" | "superseded"; page?: number; pageSize?: number } = {}): Promise<PayrollRunHistory> {
+  const query = new URLSearchParams();
+  if (filters.status) query.set("status", filters.status);
+  if (filters.start) query.set("start", filters.start);
+  if (filters.end) query.set("end", filters.end);
+  if (filters.view && filters.view !== "all") query.set("view", filters.view);
+  query.set("page", String(filters.page || 1));
+  query.set("page_size", String(filters.pageSize || 25));
+  return apiGet<PayrollRunHistory>(`/api/v1/payroll/runs/history?${query.toString()}`, true);
+}
 export function getPayrollRunReview(runId: number): Promise<PayrollRunReview> { return apiGet<PayrollRunReview>(`/api/v1/payroll/runs/${runId}/review`, true); }
 export function getPayrollRunChangeDelta(runId: number): Promise<PayrollRunChangeDelta> { return apiGet<PayrollRunChangeDelta>(`/api/v1/payroll/runs/${runId}/change-delta`, true); }
 export function getPayrollCorrections(runId: number): Promise<PayrollCorrectionsResponse> { return apiGet<PayrollCorrectionsResponse>(`/api/v1/payroll/runs/${runId}/corrections`, true); }
