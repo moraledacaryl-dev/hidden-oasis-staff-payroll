@@ -12,6 +12,7 @@ from core.payroll_engine import add_payroll_lines
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustments
 from core.payroll_split_shift_policy import compute_payroll_per_shift
 from core.quality import build_payroll_preflight_checks, summarize_checks
+from core.statutory_snapshots import persist_computed_draft_snapshots
 
 router = APIRouter(prefix="/api/v1")
 
@@ -209,6 +210,9 @@ def recalculate_draft(
                     values,
                 )
                 add_payroll_lines(conn, int(cursor.lastrowid), result)
+            persist_computed_draft_snapshots(
+                conn, run_id, result, run["period_start"], run["period_end"]
+            )
 
         computed_employee_ids = set(result_by_employee)
         for employee_id, item in existing_by_employee.items():
@@ -221,6 +225,10 @@ def recalculate_draft(
                 )
             conn.execute("DELETE FROM payroll_item_lines WHERE payroll_item_id=?", (item["id"],))
             conn.execute("DELETE FROM payroll_items WHERE id=?", (item["id"],))
+            conn.execute(
+                "DELETE FROM payroll_statutory_months WHERE payroll_run_id=? AND employee_id=?",
+                (run_id, employee_id),
+            )
 
         conn.execute(
             "UPDATE payroll_runs SET validation_summary=?, prepared_by=? WHERE id=?",
