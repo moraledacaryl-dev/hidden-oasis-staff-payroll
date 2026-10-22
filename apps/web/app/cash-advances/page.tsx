@@ -98,14 +98,25 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function statusLabel(status: string): string {
-  return status === "Approved" || status === "Released" ? "Active" : status || "Active";
+type CashAdvanceView = "all" | "awaiting" | "outstanding" | "closed";
+
+function statusLabel(item: Advance): string {
+  if (item.status === "Fully Paid" || item.status === "Cancelled") return item.status;
+  if (Number(item.release_confirmation_required || 0) === 1) {
+    if (item.released_at && item.status === "Released") return "Funds issued";
+    if (!item.released_at && activeStatuses.has(item.status)) return "Approved · not issued";
+  }
+  return item.status || "Unknown";
 }
 
 export default async function CashAdvancesPage({
   searchParams,
-}: { searchParams?: Promise<{ review?: string }> }) {
-  const reviewOnly = (await searchParams)?.review === "accounting";
+}: { searchParams?: Promise<{ review?: string; view?: string }> }) {
+  const params = await searchParams;
+  const reviewOnly = params?.review === "accounting";
+  const selectedView: CashAdvanceView =
+    params?.view === "awaiting" || params?.view === "outstanding" || params?.view === "closed"
+      ? params.view : "all";
   const session = await currentSession();
   if (!session) redirect("/login");
   if (!["owner", "payroll", "supervisor"].includes(session.role_key)) {
@@ -149,8 +160,12 @@ export default async function CashAdvancesPage({
     advances.filter((item) => (item.repayments || []).some(needsAccountingHandoffReview))
       .map((item) => item.id)
   );
+  const closed = advances.filter((item) => item.status === "Fully Paid" || item.status === "Cancelled");
   const visibleAdvances = reviewOnly
     ? advances.filter((item) => affectedAdvanceIds.has(item.id))
+    : selectedView === "awaiting" ? awaitingRelease
+    : selectedView === "outstanding" ? active
+    : selectedView === "closed" ? closed
     : advances;
 
   return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div className="page cash-advance-page people-page">
@@ -186,6 +201,20 @@ export default async function CashAdvancesPage({
       </div>
     </section>
     <MobileSection title="Add cash advance" description="Open the form to record an employee advance"><section><CashAdvanceForm employees={employees} isOwner={isOwner} /></section></MobileSection>
+    <nav className="cash-record-filters" aria-label="Cash advance record filters">
+      {([
+        { key: "all", href: "/cash-advances", label: "All records", count: advances.length },
+        { key: "awaiting", href: "/cash-advances?view=awaiting", label: "Awaiting funds", count: awaitingRelease.length },
+        { key: "outstanding", href: "/cash-advances?view=outstanding", label: "Outstanding", count: active.length },
+        { key: "closed", href: "/cash-advances?view=closed", label: "Closed", count: closed.length },
+      ] as const).map((filter) =>
+        <Link key={filter.key} href={filter.href}
+          className={`cash-record-filter${!reviewOnly && selectedView === filter.key ? " is-selected" : ""}`}
+          aria-current={!reviewOnly && selectedView === filter.key ? "page" : undefined}>
+          {filter.label} <span>{filter.count}</span>
+        </Link>
+      )}
+    </nav>
     <section className="cash-card-list" aria-label={reviewOnly ? "Advances needing Accounting handoff review" : "Cash advance records"}>
       {visibleAdvances.map((item) => {
         const original = Number(item.amount || 0);
@@ -198,7 +227,7 @@ export default async function CashAdvancesPage({
         return <article className={`cash-advance-card${isClosed ? " is-closed" : ""}`} key={item.id}>
           <div className="cash-card-header">
             <div className="cash-card-person"><div className="cash-avatar" aria-hidden="true">{(item.full_name || "E").trim().charAt(0).toUpperCase()}</div><div><h2>{item.full_name || "Employee"}</h2><p>{item.employee_code || "No code"} · {item.department || "Unassigned"}</p></div></div>
-            <StatusBadge label={statusLabel(item.status)} tone={item.status === "Fully Paid" ? "ok" : item.status === "Cancelled" ? "danger" : "warning"} />
+            <StatusBadge label={statusLabel(item)} tone={item.status === "Fully Paid" ? "ok" : item.status === "Cancelled" ? "danger" : "warning"} />
           </div>
           <div className="cash-card-main">
             <div className="cash-balance-block"><span>{Number(item.release_confirmation_required || 0) === 1 && !item.released_at ? "Pending disbursement" : "Remaining balance"}</span><strong>{peso(balance)}</strong><small>{Number(item.release_confirmation_required || 0) === 1 && !item.released_at ? "Not yet included in issued outstanding" : `of ${peso(basis)} balance basis`}</small></div>
@@ -222,7 +251,7 @@ export default async function CashAdvancesPage({
           <div className="cash-card-footer">
             <div className="cash-primary-actions">
               {canEditExisting && Number(item.release_confirmation_required || 0) === 1 && !item.released_at && item.status === "Active" ? (
-                <ConfirmCashAdvanceRelease advanceId={item.id} employeeName={item.full_name || "employee"} amount={original} />
+                <ConfirmCashAdvanceRelease advanceId={item.id} employeeName={item.full_name || "employee"} amount={original} advanceDate={item.advance_date} />
               ) : null}
               {canEditExisting && item.status !== "Cancelled" &&
               (Number(item.release_confirmation_required || 0) !== 1 || item.released_at) ? (
@@ -237,10 +266,10 @@ export default async function CashAdvancesPage({
         </article>;
       })}
       {!visibleAdvances.length ? <section className="card cash-empty-state">
-        <h2>{reviewOnly ? "No Staff handoff exceptions" : "No cash advances"}</h2>
+        <h2>{reviewOnly ? "No Staff handoff exceptions" : selectedView === "all" ? "No cash advances" : "No matching advances"}</h2>
         <p className="muted">{reviewOnly
           ? "No active manual repayments need a Staff Accounting delivery review. Delivered items still require separate Accounting posting verification."
-          : "No employee advance records have been created."}</p>
+          : selectedView === "all" ? "No employee advance records have been created." : "No advances match this filter. Select All records to see the full history."}</p>
       </section> : null}
     </section>
     <section className="people-card"><h2>Portfolio position</h2><p>{peso(totalRepaid)} has been repaid across all recorded advances.</p></section>

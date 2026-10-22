@@ -6,8 +6,8 @@ import { AppDrawer } from "@/components/AppSurface";
 import { clientRequest } from "@/lib/client-request";
 
 export function ConfirmCashAdvanceRelease({
-  advanceId, employeeName, amount,
-}: { advanceId: number; employeeName: string; amount: number }) {
+  advanceId, employeeName, amount, advanceDate,
+}: { advanceId: number; employeeName: string; amount: number; advanceDate: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -56,7 +56,12 @@ export function ConfirmCashAdvanceRelease({
       onClose={() => { if (!busy) setOpen(false); }}
     >
       <form action={confirm} className="form-grid">
-        <label>Actual release date<input type="date" name="release_date" required /></label>
+        <label>Actual release date
+          <input type="date" name="release_date" min={advanceDate.slice(0, 10)} required aria-describedby="advance-release-date-help" />
+        </label>
+        <p className="cash-release-date-help" id="advance-release-date-help">
+          Record the date funds were actually handed over, not the approval date. It cannot precede the advance date.
+        </p>
         <label>Funds issued from
           <select name="release_method" value={method} onChange={(event) => setMethod(event.target.value)} required>
             <option value="Cash Drawer">Resort cash drawer</option>
