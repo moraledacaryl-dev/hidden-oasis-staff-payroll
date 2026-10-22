@@ -136,13 +136,14 @@ class HistoricalStatutoryCutoffTransitionTests(unittest.TestCase):
         })
         self.assertEqual(row["zero_in_cross_positive_in_follow_employee_counts"]["philhealth"], 2)
 
-    def test_duplicate_employee_items_not_double_counted(self) -> None:
+    def test_duplicate_employee_items_excluded_from_matching_but_kept_in_source_totals(self) -> None:
         with sqlite3.connect(self.path) as conn:
             self.item(conn, 14, 1, ph=200, pi=100, sss=180)
         row = self.report()["transition_review_sample"][0]
         self.assertEqual(row["duplicate_employee_item_ids_excluded_count"], 1)
         self.assertEqual(row["matched_employee_count"], 2)
         self.assertEqual(row["following_payroll_items"], 4)
+        self.assertEqual(row["following_saved_by_program_php"]["philhealth"], 1300)
 
     def test_bounded_run_and_employee_samples(self) -> None:
         out = self.report(limit=0)
