@@ -305,6 +305,40 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
         self.assertIn("cross_month_historical_statutory_values_unallocated", report["human_review_checks"])
         self.assertEqual(report["statutory_recorded_evidence"]["recognized_obligations_php_by_program"]["sss"], 0)
 
+    def test_ambiguous_preceding_statutory_cutoff_is_human_review(self) -> None:
+        # Group 11 protects the comparison itself; Group 13 ensures that an
+        # ambiguous nearest preceding Paid run reaches the operator queue.
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute("UPDATE payroll_runs SET period_start='2026-08-31', period_end='2026-09-14' WHERE id=1")
+            for run_id, start, end in [
+                (2, '2026-08-15', '2026-08-30'),
+                (3, '2026-08-16', '2026-08-30'),
+                (4, '2026-09-15', '2026-09-29'),
+            ]:
+                conn.execute(
+                    """INSERT INTO payroll_runs(id,period_start,period_end,status,paid_at)
+                       VALUES(?,?,?,'Paid',?)""",
+                    (run_id, start, end, end),
+                )
+                conn.execute(
+                    """INSERT INTO payroll_items(
+                         id,payroll_run_id,gross_pay,total_deductions,net_pay,
+                         philhealth_ee,pagibig_ee
+                       ) VALUES(?,?,1000,150,850,100,50)""",
+                    (run_id, run_id),
+                )
+        before = self.path.read_bytes()
+        report = self.run_audit()
+        self.assertEqual(self.path.read_bytes(), before)
+        transition = report["historical_statutory_cutoff_transition_review"]
+        self.assertEqual(transition["ambiguous_preceding_reference_count"], 1)
+        self.assertIn(
+            "historical_cross_month_preceding_reference_ambiguity",
+            report["human_review_checks"],
+        )
+        self.assertNotIn("payroll_net_pay_mismatch", report["blocking_checks"])
+
     def test_calendar_review_groups_multiple_paid_runs_same_month(self) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.execute("DELETE FROM payroll_statutory_months")
