@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from api.payroll_service import (
     PayrollDraftRequest,
@@ -18,6 +18,7 @@ from api.payroll_service import (
 )
 from core.corrections import mark_eligible_corrections_applied
 from core.db import DB_PATH, fetchall, fetchone, get_conn
+from api.security import db_conn
 from core.payroll_cutoff_calendar import cutoff_for_month
 from core.money import money
 from core.payroll_fractional_leave import apply_fractional_paid_leave_adjustment
@@ -99,6 +100,77 @@ def _apply_period_cash_advance_deduction(conn: Any, result: Any, period_start: s
     result.total_deductions = money(statutory_and_manual + result.cash_advance_deduction)
     result.net_pay = money(gross - result.total_deductions)
     return result
+
+
+@router.get("/payroll/runs/history")
+def payroll_run_history(
+    status: str | None = Query(default=None, min_length=1, max_length=60),
+    start: date | None = None,
+    end: date | None = None,
+    view: Literal["all", "current", "superseded"] = "all",
+    page: int = Query(default=1, ge=1, le=100000),
+    page_size: int = Query(default=25, ge=1, le=100),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    """Complete, paginated, read-only payroll history.
+
+    Legacy /payroll/runs keeps its original response shape for existing
+    cutoff and payroll workflows. Filters must run before pagination, so
+    past periods and superseded audit records are always discoverable.
+    """
+    must_be_payroll_user(authorization, x_api_key)
+    clauses: list[str] = []
+    params: list[Any] = []
+    if status is not None:
+        clauses.append("status=?")
+        params.append(status)
+    if start is not None:
+        clauses.append("period_start=?")
+        params.append(start.isoformat())
+    if end is not None:
+        clauses.append("period_end=?")
+        params.append(end.isoformat())
+    if view == "current":
+        clauses.append("COALESCE(superseded_by_run_id,0)=0")
+    elif view == "superseded":
+        clauses.append("COALESCE(superseded_by_run_id,0)<>0")
+    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+    with db_conn(read_only=True) as conn:
+        total = int(conn.execute(
+            "SELECT COUNT(*) FROM payroll_runs" + where, params
+        ).fetchone()[0])
+        offset = (page - 1) * page_size
+        rows = fetchall(
+            conn,
+            "SELECT * FROM payroll_runs" + where
+            + " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+            [*params, page_size, offset],
+        )
+        for row in rows:
+            row["totals"] = totals(conn, int(row["id"]))
+        summary_row = conn.execute("""
+            SELECT
+                SUM(CASE WHEN COALESCE(superseded_by_run_id,0)<>0 THEN 1 ELSE 0 END) AS superseded,
+                SUM(CASE WHEN COALESCE(superseded_by_run_id,0)=0 AND status='Draft' THEN 1 ELSE 0 END) AS draft,
+                SUM(CASE WHEN COALESCE(superseded_by_run_id,0)=0 AND status IN ('For Owner Review','Reviewed') THEN 1 ELSE 0 END) AS review,
+                SUM(CASE WHEN COALESCE(superseded_by_run_id,0)=0 AND status='Approved' THEN 1 ELSE 0 END) AS approved,
+                SUM(CASE WHEN COALESCE(superseded_by_run_id,0)=0 AND (
+                    status IN ('Paid','Released','Locked') OR paid_at IS NOT NULL
+                ) THEN 1 ELSE 0 END) AS paid
+            FROM payroll_runs
+        """).fetchone()
+    return {
+        "items": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": (total + page_size - 1) // page_size,
+        "summary": {
+            key: int(summary_row[key] or 0)
+            for key in ("draft", "review", "approved", "paid", "superseded")
+        },
+    }
 
 
 @router.get("/payroll/runs")
