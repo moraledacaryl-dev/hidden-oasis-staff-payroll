@@ -13,13 +13,16 @@ class Group2PayrollVisibilityTests(unittest.TestCase):
     def test_superseded_and_active_versions_are_distinct(self) -> None:
         source = self.read("apps/web/app/payroll/runs/page.tsx")
         self.assertIn('filters.view === "superseded"', source)
-        self.assertIn('!run.superseded_by_run_id', source)
+        self.assertIn('getPayrollRunHistory({', source)
+        backend = self.read('api/payroll_drafts.py')
+        self.assertIn('COALESCE(superseded_by_run_id,0)=0', backend)
         self.assertIn('run.superseded_by_run_id ? <small', source)
         self.assertIn('Audit only · superseded by', source)
         self.assertIn('name="view"', source)
         self.assertIn('<option>Locked</option>', source)
         self.assertIn('<option>Released</option>', source)
-        self.assertIn('up to 50', source)
+        self.assertIn('history.total', source)
+        self.assertIn('history.summary', source)
 
     def test_dashboard_work_in_progress_excludes_superseded(self) -> None:
         source = self.read("apps/web/app/controls/page.tsx")

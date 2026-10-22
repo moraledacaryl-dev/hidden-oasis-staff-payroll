@@ -7,7 +7,7 @@ import { PayrollDraftButton } from "@/components/PayrollDraftButton";
 import { PayrollLifecycleButtons } from "@/components/PayrollLifecycleButtons";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { getAttendanceExceptions, getPayrollPreview, getPayrollRuns, numberText, peso } from "@/lib/api";
+import { getAttendanceExceptions, getPayrollPreview, getPayrollRunHistory, numberText, peso } from "@/lib/api";
 import { apiBaseUrl, backendHeaders } from "@/lib/backend";
 import {
   addIsoDays,
@@ -17,7 +17,7 @@ import {
   payrollCutoffForMonth,
 } from "@/lib/period";
 import { currentSession } from "@/lib/session";
-import type { AttendanceException, PayrollRun } from "@/lib/api";
+import type { AttendanceException, PayrollRunHistory } from "@/lib/api";
 import type { ScheduleActual, ScheduleShift } from "@/lib/schedule-types";
 import type { PayrollPreview } from "@/lib/types";
 
@@ -150,20 +150,20 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
   const canReviewAttendance = session.role_key === "owner" || session.role_key === "supervisor";
   let preview: PayrollPreview | null = null;
   let exceptions: AttendanceException[] = [];
-  let runs: PayrollRun[] = [];
+  let history: PayrollRunHistory | null = null;
   let schedules: ScheduleShift[] = [];
   let actuals: ScheduleActual[] = [];
 
   if (canSeePayroll && canReviewAttendance) {
-    [preview, runs, exceptions, schedules, actuals] = await Promise.all([
+    [preview, history, exceptions, schedules, actuals] = await Promise.all([
       getPayrollPreview(periodStart, periodEnd),
-      getPayrollRuns(),
+      getPayrollRunHistory({ start: periodStart, end: periodEnd, pageSize: 100 }),
       getAttendanceExceptions(periodStart, periodEnd),
       loadScheduleRange(periodStart, periodEnd),
       loadActualRange(periodStart, periodEnd),
     ]);
   } else if (canSeePayroll) {
-    [preview, runs] = await Promise.all([getPayrollPreview(periodStart, periodEnd), getPayrollRuns()]);
+    [preview, history] = await Promise.all([getPayrollPreview(periodStart, periodEnd), getPayrollRunHistory({ start: periodStart, end: periodEnd, pageSize: 100 })]);
   } else if (canReviewAttendance) {
     [exceptions, schedules, actuals] = await Promise.all([
       getAttendanceExceptions(periodStart, periodEnd),
@@ -182,7 +182,8 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
   const warnings = preview?.checks.filter((check) => check.severity !== "Blocker") || [];
   const reviewItems = blockers.length + reviewExceptions.length;
   const ready = reviewItems === 0;
-  const matchingRuns = runs.filter((run) => run.period_start === periodStart && run.period_end === periodEnd);
+  const matchingRuns = history?.items || [];
+  const matchingTotal = history?.total || 0;
   const grossPay = preview?.totals.gross_pay || 0;
   const netPay = preview?.totals.net_pay || 0;
   const statusText = ready ? "Ready for owner review" : `${blockers.length} blocker${blockers.length === 1 ? "" : "s"} · ${reviewExceptions.length} review item${reviewExceptions.length === 1 ? "" : "s"}`;
@@ -212,7 +213,7 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
           {preview ? <div className={metricTone("default")}><span>Net payroll</span><strong>{peso(netPay)}</strong><small>Calculated</small></div> : <div className={metricTone("default")}><span>Payroll</span><strong>Restricted</strong><small>Operations view</small></div>}
           <div className={metricTone(blockers.length ? "danger" : "ok")}><span>Blockers</span><strong>{blockers.length}</strong><small>{blockers.length ? "Must clear" : "Clear"}</small></div>
           <div className={metricTone(reviewExceptions.length ? "warning" : "ok")}><span>Review queue</span><strong>{reviewExceptions.length}</strong><small>{reviewExceptions.length ? "For review" : "None"}</small></div>
-          <div className={metricTone(matchingRuns.length ? "ok" : "default")}><span>Saved runs</span><strong>{matchingRuns.length}</strong><small>This cutoff</small></div>
+          <div className={metricTone(matchingTotal ? "ok" : "default")}><span>Saved runs</span><strong>{matchingTotal}</strong><small>This cutoff</small></div>
         </section>
 
         {canSeePayroll && preview ? (
@@ -236,7 +237,7 @@ export default async function CutoffPage({ searchParams }: CutoffPageProps) {
 
         {canSeePayroll ? (
           <section className="card">
-            <div className="panel-title"><div><h2>Saved payroll runs</h2><p className="muted">Coverage and payment dates stay attached to the run through review, approval, and payment.</p></div></div>
+            <div className="panel-title"><div><h2>Saved payroll runs</h2><p className="muted">Coverage and payment dates stay attached through approval, payment, and audit history. {matchingTotal > matchingRuns.length ? `Showing ${matchingRuns.length} of ${matchingTotal} versions.` : ""}</p></div><Link className="button small ghost" href={`/payroll/runs?start=${periodStart}&end=${periodEnd}`}>Full history</Link></div>
             {matchingRuns.length ? <div className="table-wrap"><table><thead><tr><th>ID</th><th>Coverage</th><th>Payment date</th><th>Label</th><th>Status</th><th>Prepared by</th><th>Employees</th><th>Net</th><th>Created</th><th>Action</th></tr></thead><tbody>{matchingRuns.map((run) => (<tr key={run.id}><td>{run.id}</td><td>{run.period_start} to {run.period_end}</td><td>{run.payout_date || "—"}</td><td>{run.run_label}</td><td>{run.status}</td><td>{run.prepared_by || "—"}</td><td>{run.totals?.employees ?? 0}</td><td>{peso(run.totals?.net_pay || 0)}</td><td>{run.created_at}</td><td><PayrollLifecycleButtons runId={run.id} status={run.status} role={session.role_key} supersededByRunId={run.superseded_by_run_id} /></td></tr>))}</tbody></table></div> : <div className="empty-state"><strong>No payroll draft yet</strong><p>Create a draft after reviewing blockers and review queue items.</p></div>}
           </section>
         ) : null}
