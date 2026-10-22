@@ -266,7 +266,7 @@ export default async function CashAdvancesPage({
         </article>;
       })}
       {!visibleAdvances.length ? <section className="card cash-empty-state">
-        <h2>{reviewOnly ? "No Staff handoff exceptions" : "No cash advances"}</h2>
+        <h2>{reviewOnly ? "No Staff handoff exceptions" : selectedView === "all" ? "No cash advances" : "No matching advances"}</h2>
         <p className="muted">{reviewOnly
           ? "No active manual repayments need a Staff Accounting delivery review. Delivered items still require separate Accounting posting verification."
           : selectedView === "all" ? "No employee advance records have been created." : "No advances match this filter. Select All records to see the full history."}</p>
