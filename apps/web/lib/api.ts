@@ -34,6 +34,9 @@ export type AppUsersResponse = { ok: boolean; items: AppUser[] };
 export type ProductionHealth = {
   ok: boolean;
   checked_by?: string;
+  deployed_sha?: string | null;
+  active_release_sha?: string | null;
+  release_verified?: boolean;
   database_path?: string;
   database_exists: boolean;
   backup_dir?: string;
