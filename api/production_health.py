@@ -53,6 +53,60 @@ def database_checks(conn) -> dict[str, Any]:
     return {"integrity": integrity, "writable": write_ok, "migration_version": int((migration or {}).get("version") or 0)}
 
 
+
+def filesystem_capacity(paths: list[Path]) -> list[dict[str, Any]]:
+    """Read-only free-space and inode checks using the deployment thresholds.
+
+    Paths on the same device are reported once. Missing paths use their
+    nearest existing ancestor, so an unavailable runtime directory cannot
+    make the whole diagnostic endpoint fail.
+    """
+    def limit(name: str, default: int) -> int:
+        try:
+            return max(0, int(os.getenv(name, str(default))))
+        except ValueError:
+            return default
+
+    min_bytes = limit("STAFF_PAYROLL_MIN_FREE_DISK_BYTES", 2 * 1024**3)
+    min_percent = limit("STAFF_PAYROLL_MIN_FREE_DISK_PERCENT", 10)
+    min_inodes = limit("STAFF_PAYROLL_MIN_FREE_INODE_PERCENT", 10)
+    result: list[dict[str, Any]] = []
+    checked: set[int] = set()
+    for path in paths:
+        original = str(path)
+        try:
+            anchor = path.expanduser()
+            while not anchor.exists() and anchor != anchor.parent:
+                anchor = anchor.parent
+            anchor = anchor.resolve()
+            device = anchor.stat().st_dev
+            if device in checked:
+                continue
+            checked.add(device)
+            stat = os.statvfs(anchor)
+            total_bytes = stat.f_blocks * stat.f_frsize
+            available_bytes = stat.f_bavail * stat.f_frsize
+            free_percent = int(100 * available_bytes / total_bytes) if total_bytes else 0
+            inode_percent = int(100 * stat.f_favail / stat.f_files) if stat.f_files else 100
+            result.append({
+                "path": str(anchor),
+                "free_gib": round(available_bytes / 1024**3, 2),
+                "free_percent": free_percent,
+                "free_inode_percent": inode_percent,
+                "minimum_free_gib": round(min_bytes / 1024**3, 2),
+                "minimum_free_percent": min_percent,
+                "minimum_inode_percent": min_inodes,
+                "deployment_space_ok": (
+                    available_bytes >= min_bytes
+                    and free_percent >= min_percent
+                    and inode_percent >= min_inodes
+                ),
+            })
+        except OSError:
+            result.append({"path": original, "deployment_space_ok": False, "error": "Filesystem unavailable"})
+    return result
+
+
 def backup_age_hours(created_at: str) -> float:
     created = parse_timestamp_utc(created_at)
     return round(max(0.0, (utc_now() - created).total_seconds()) / 3600, 1)
@@ -126,6 +180,7 @@ def production_health(
             "request_id": request_id,
             "checked_by": user.get("display_name"),
             **release_state(),
+            "disk_capacity": filesystem_capacity([db_path.parent, backup_dir, Path(os.getenv("STAFF_PAYROLL_RUNTIME_BASE", "/opt/hiddenoasis/staff-payroll"))]),
             "database_path": str(db_path),
             "database_exists": db_path.exists(),
             "backup_dir": str(backup_dir),
