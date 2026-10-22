@@ -1,0 +1,164 @@
+name: Deploy Staff Production
+
+# No automatic deployment on ordinary application merges. A deliberate
+# one-time request file is the only push trigger; manual dispatch is also
+# available. Both paths require successful exact-SHA main CI.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/deploy-requests/staff-production-*.json'
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact 40-character verified main SHA to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: staff-production-release
+  cancel-in-progress: false
+
+jobs:
+  certify-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.validate.outputs.release_sha }}
+    steps:
+      - name: Checkout request and complete Git history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify explicit release request and exact main CI
+        id: validate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_INPUT: ${{ inputs.release_sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            RELEASE_SHA="$RELEASE_INPUT"
+          else
+            mapfile -t changes < <(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$RUN_SHA" -- '.github/deploy-requests/staff-production-*.json')
+            [[ ${#changes[@]} -eq 1 ]] || { echo "Expected exactly one new deployment request"; exit 1; }
+            request="${changes[0]}"
+            [[ -f "$request" ]] || exit 1
+            RELEASE_SHA="$(jq -er '.release_sha | select(type=="string")' "$request")"
+            [[ "$(jq -er '.target_environment' "$request")" == production ]] || exit 1
+          fi
+
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid release SHA"; exit 1; }
+          git cat-file -e "$RELEASE_SHA^{commit}"
+          git merge-base --is-ancestor "$RELEASE_SHA" "$RUN_SHA" || {
+            echo "Requested release is not part of this main history"; exit 1;
+          }
+
+          mapfile -t matches < <(
+            gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?head_sha=$RELEASE_SHA&event=push&per_page=100" \
+              --jq '.workflow_runs[] | select(.head_sha == "'$RELEASE_SHA'" and .status == "completed" and .conclusion == "success") | .id'
+          )
+          [[ ${#matches[@]} -ge 1 ]] || {
+            echo "No successful push CI found for the exact release SHA"; exit 1;
+          }
+          echo "Certified $RELEASE_SHA by main CI run ${matches[0]}"
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: certify-release
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 65
+    steps:
+      - name: Require existing server SSH credentials
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "$SERVER_HOST" && -n "$SERVER_USER" && -n "$SERVER_SSH_KEY" ]] || {
+            echo "Staff production SSH secrets are not configured; no deployment performed." >&2
+            exit 1
+          }
+
+      - name: Deploy exactly the certified source commit with canonical backup and rollback procedure
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        env:
+          RELEASE_SHA: ${{ needs.certify-release.outputs.release_sha }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          command_timeout: 55m
+          envs: RELEASE_SHA
+          script: |
+            set -euo pipefail
+            # Run the entire server deployment as root, including Git access
+            # to /root/repos. Support root or passwordless-sudo SSH identities.
+            HELPER="$(mktemp /tmp/staff-production-release.XXXXXX)"
+            trap 'rm -f "$HELPER"' EXIT
+            cat > "$HELPER" <<'STAFF_ROOT_DEPLOY'
+            #!/usr/bin/env bash
+            set -euo pipefail
+            export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            RELEASE_SHA="$1"
+            [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            APP_ROOT=/root/repos/hidden-oasis-staff-payroll
+            test -d "$APP_ROOT/.git"
+            test -r /etc/hiddenoasis/staff-payroll.env
+            cd "$APP_ROOT"
+            test -z "$(git status --porcelain)" || {
+              echo "Dirty server checkout: deployment refused" >&2; exit 1;
+            }
+            git fetch --no-tags origin main
+            git cat-file -e "$RELEASE_SHA^{commit}"
+            git merge-base --is-ancestor "$RELEASE_SHA" origin/main || {
+              echo "Server origin/main does not contain release SHA" >&2; exit 1;
+            }
+            git switch --detach "$RELEASE_SHA"
+            # Validate production identity and encryption before first backup.
+            # Never print secrets; the canonical script repeats its own gates.
+            set -a
+            source /etc/hiddenoasis/staff-payroll.env
+            set +a
+            test "${STAFF_PAYROLL_ENV:-}" = production || {
+              echo "Production environment flag is missing" >&2; exit 1;
+            }
+            test -n "${STAFF_PAYROLL_BACKUP_KEY:-}" || {
+              echo "Backup encryption key is missing" >&2; exit 1;
+            }
+            bash "$APP_ROOT/scripts/deploy_production_retained.sh"
+            test "$(cat /var/lib/hiddenoasis/staff-payroll/deployed-sha)" = "$RELEASE_SHA"
+            test "$(readlink -f /opt/hiddenoasis/staff-payroll/current)" = "/opt/hiddenoasis/staff-payroll/releases/$RELEASE_SHA"
+            systemctl is-active --quiet staff-payroll-api.service
+            systemctl is-active --quiet staff-payroll-web.service
+            systemctl is-active --quiet hiddenoasis-staff-integration-worker.service
+            curl -fsS http://127.0.0.1:8001/health >/dev/null
+            curl -fsS http://127.0.0.1:3001/login >/dev/null
+            echo "STAFF_PRODUCTION_DEPLOYMENT_PASS sha=$RELEASE_SHA"
+            STAFF_ROOT_DEPLOY
+            chmod 0600 "$HELPER"
+            if [[ "$(id -u)" -eq 0 ]]; then
+              bash "$HELPER" "$RELEASE_SHA"
+            else
+              sudo -n bash "$HELPER" "$RELEASE_SHA"
+            fi
+
+      - name: Verify live unauthenticated login endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --max-time 25 https://staff.hiddenoasis.app/login -o /dev/null
+          echo "STAFF_PUBLIC_LOGIN_OK"
