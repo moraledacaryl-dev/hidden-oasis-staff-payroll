@@ -21,6 +21,12 @@ class ProductionReleaseIdentityTests(unittest.TestCase):
         self.sha = "a" * 40
         self.active = self.releases / self.sha
         self.active.mkdir()
+        self.module_path = self.active / "api" / "production_health.py"
+        self.module_path.parent.mkdir()
+        self.module_path.write_text("", encoding="utf-8")
+        module_patch = patch("api.production_health.__file__", str(self.module_path))
+        module_patch.start()
+        self.addCleanup(module_patch.stop)
         (self.runtime / "current").symlink_to(self.active, target_is_directory=True)
         env = patch.dict(os.environ, {
             "STAFF_PAYROLL_RUNTIME_BASE": str(self.runtime),
@@ -35,12 +41,25 @@ class ProductionReleaseIdentityTests(unittest.TestCase):
         self.assertTrue(state["release_verified"])
         self.assertEqual(state["active_release_sha"], self.sha)
         self.assertEqual(state["deployed_sha"], self.sha)
+        self.assertEqual(state["running_api_sha"], self.sha)
 
     def test_missing_or_invalid_marker_cannot_verify_release(self) -> None:
         self.assertFalse(release_state()["release_verified"])
         self.marker.write_text("not-a-sha", encoding="utf-8")
         self.assertIsNone(release_state()["deployed_sha"])
         self.assertFalse(release_state()["release_verified"])
+
+    def test_running_api_from_previous_release_is_not_verified(self) -> None:
+        self.marker.write_text(self.sha, encoding="utf-8")
+        old_release = self.releases / ("c" * 40)
+        old_api = old_release / "api" / "production_health.py"
+        old_api.parent.mkdir(parents=True)
+        old_api.write_text("", encoding="utf-8")
+        with patch("api.production_health.__file__", str(old_api)):
+            state = release_state()
+        self.assertEqual(state["active_release_sha"], self.sha)
+        self.assertEqual(state["running_api_sha"], "c" * 40)
+        self.assertFalse(state["release_verified"])
 
     def test_mismatched_marker_is_not_verified(self) -> None:
         self.marker.write_text("b" * 40, encoding="utf-8")
