@@ -264,6 +264,103 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
         self.assertEqual(statutory["current_payroll_run_status_counts"], {"Draft": 1})
         self.assertIn("no_paid_or_locked_runs_for_statutory_recognition", report["human_review_checks"])
 
+    def test_calendar_review_preserves_cross_month_ambiguity_and_money_parity(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute(
+                "UPDATE payroll_runs SET period_start='2026-08-31',period_end='2026-09-14' WHERE id=1"
+            )
+            conn.execute(
+                "UPDATE payroll_items SET sss_ee=300,sss_er=600,sss_ec=10 WHERE id=1"
+            )
+            conn.execute(
+                """INSERT INTO payroll_runs(id,period_start,period_end,status,paid_at)
+                VALUES(2,'2026-09-15','2026-09-29','Paid','2026-09-30')"""
+            )
+            conn.execute(
+                """INSERT INTO payroll_items(
+                    id,payroll_run_id,gross_pay,total_deductions,net_pay,sss_ee,
+                    philhealth_ee,philhealth_er,pagibig_ee,pagibig_er
+                ) VALUES(2,2,2000,300,1700,100,200,200,150,150)"""
+            )
+        before = self.path.read_bytes()
+        report = self.run_audit()
+        self.assertEqual(self.path.read_bytes(), before)
+        r = report["historical_paid_statutory_calendar_review"]
+        self.assertTrue(r["read_only"])
+        self.assertTrue(r["official_contribution_months_not_inferred"])
+        self.assertEqual(r["affected_run_count"], 2)
+        self.assertEqual(r["affected_payroll_items"], 2)
+        self.assertEqual(r["cross_month_run_count"], 1)
+        self.assertEqual(r["single_calendar_month_buckets"][0]["calendar_coverage_month"], "2026-09")
+        self.assertEqual(r["single_calendar_month_buckets"][0]["run_ids_sample"], [2])
+        self.assertEqual(r["unallocated_periods_sample"][0]["payroll_run_id"], 1)
+        self.assertEqual(r["unallocated_periods_sample"][0]["reason"], "spans_multiple_calendar_months")
+        self.assertEqual(r["cross_month_or_invalid_unallocated_saved_fields_php"]["sss_ee"], 300)
+        self.assertEqual(r["single_month_covered_saved_fields_php"]["sss_ee"], 100)
+        self.assertEqual(r["all_in_scope_saved_fields_php"]["sss_ee"], 400)
+        self.assertEqual(r["all_in_scope_saved_combined_by_program_php"]["sss"], 1010)
+        self.assertTrue(r["reconciles_to_all_source_items_centavo_exact"])
+        self.assertIn("cross_month_historical_statutory_values_unallocated", report["human_review_checks"])
+        self.assertEqual(report["statutory_recorded_evidence"]["recognized_obligations_php_by_program"]["sss"], 0)
+
+    def test_calendar_review_groups_multiple_paid_runs_same_month(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute("UPDATE payroll_items SET sss_ee=100 WHERE id=1")
+            conn.execute(
+                """INSERT INTO payroll_runs(id,period_start,period_end,status,paid_at)
+                VALUES(2,'2026-10-15','2026-10-29','Paid','2026-10-30')"""
+            )
+            conn.execute(
+                """INSERT INTO payroll_items(id,payroll_run_id,gross_pay,total_deductions,net_pay,sss_ee)
+                VALUES(2,2,1000,100,900,125)"""
+            )
+        r = self.run_audit()["historical_paid_statutory_calendar_review"]
+        self.assertEqual(r["cross_month_run_count"], 0)
+        self.assertEqual(len(r["single_calendar_month_buckets"]), 1)
+        month = r["single_calendar_month_buckets"][0]
+        self.assertEqual(month["payroll_runs"], 2)
+        self.assertEqual(month["payroll_items"], 2)
+        self.assertEqual(month["run_ids_sample"], [1, 2])
+        self.assertEqual(month["saved_statutory_fields_php"]["sss_ee"], 225)
+
+    def test_calendar_review_invalid_source_dates_are_unallocated_not_guessed(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute("UPDATE payroll_runs SET period_start='INVALID' WHERE id=1")
+            conn.execute("UPDATE payroll_items SET sss_er=75 WHERE id=1")
+        report = self.run_audit()
+        r = report["historical_paid_statutory_calendar_review"]
+        self.assertEqual(r["invalid_period_run_count"], 1)
+        self.assertEqual(r["invalid_period_run_ids_sample"], [1])
+        self.assertEqual(r["all_in_scope_saved_fields_php"]["sss_er"], 75)
+        self.assertEqual(r["cross_month_or_invalid_unallocated_saved_fields_php"]["sss_er"], 75)
+        self.assertEqual(r["single_calendar_month_buckets"], [])
+        self.assertIn("historical_payroll_period_dates_require_review", report["human_review_checks"])
+
+    def test_calendar_review_excludes_superseded_and_fully_snapshotted(self) -> None:
+        report = self.run_audit()
+        self.assertEqual(report["historical_paid_statutory_calendar_review"]["affected_run_count"], 0)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute("UPDATE payroll_runs SET superseded_by_run_id=99 WHERE id=1")
+        report = self.run_audit()
+        self.assertEqual(report["historical_paid_statutory_calendar_review"]["affected_run_count"], 0)
+
+    def test_calendar_review_limits_identifiers_not_aggregate_money(self) -> None:
+        from scripts.audit_historical_statutory_calendar import (
+            audit_historical_paid_statutory_calendar_buckets,
+        )
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months")
+            conn.execute("UPDATE payroll_items SET sss_ee=125 WHERE id=1")
+            conn.row_factory = sqlite3.Row
+            out = audit_historical_paid_statutory_calendar_buckets(conn, limit=0)
+        self.assertEqual(out["all_in_scope_saved_fields_php"]["sss_ee"], 125)
+        self.assertEqual(out["single_calendar_month_buckets"][0]["run_ids_sample"], [])
+        self.assertTrue(out["single_calendar_month_buckets"][0]["run_ids_sample_truncated"])
+
     def test_saved_paid_contributions_remain_historical_unallocated_evidence(self) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.execute("DELETE FROM payroll_statutory_months WHERE payroll_run_id=1")
