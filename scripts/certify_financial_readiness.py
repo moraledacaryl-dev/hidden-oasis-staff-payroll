@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.audit_historical_statutory_calendar import audit_historical_paid_statutory_calendar_buckets
 from scripts.audit_manual_repayment_outbox import audit_manual_repayment_outbox
 from scripts.audit_paid_adjustment_reversals import audit_paid_adjustment_reversals
 from core.offsite_backups import S3_ENV_NAMES
@@ -444,6 +445,8 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
             ("statutory_recorded_evidence", lambda: check_statutory(conn, sample_limit)),
             ("historical_paid_item_statutory_evidence",
              lambda: check_saved_paid_statutory_items(conn, sample_limit)),
+            ("historical_paid_statutory_calendar_review",
+             lambda: audit_historical_paid_statutory_calendar_buckets(conn, sample_limit)),
             ("paid_adjustment_reversal_audit", lambda: audit_paid_adjustment_reversals(conn)),
             ("manual_repayment_outbox_audit", lambda: audit_manual_repayment_outbox(conn, sample_limit=sample_limit)),
         )
@@ -471,6 +474,11 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
             reviews.append("historical_paid_item_statutory_values_need_month_allocation_review")
         if saved_items.get("negative_saved_contribution_fields_count"):
             reviews.append("negative_saved_statutory_contribution_fields_need_review")
+        calendar_review = result.get("historical_paid_statutory_calendar_review", {})
+        if calendar_review.get("cross_month_run_count"):
+            reviews.append("cross_month_historical_statutory_values_unallocated")
+        if calendar_review.get("invalid_period_run_count"):
+            reviews.append("historical_payroll_period_dates_require_review")
         if statutory.get("current_nonsettled_runs_with_paid_at"):
             reviews.append("paid_payroll_status_and_timestamp_require_review")
         if statutory.get("zero_recognized_contributions_needs_source_status_review"):
