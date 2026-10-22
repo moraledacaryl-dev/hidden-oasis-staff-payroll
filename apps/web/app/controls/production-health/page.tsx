@@ -40,11 +40,12 @@ export default async function ProductionHealthPage() {
         </section>
 
         <section className="system-panel">
-          <header><div><h2>Production release identity</h2><p>Read-only comparison of the active release symlink and deployment state marker. A GitHub merge alone does not verify a deployment.</p></div></header>
+          <header><div><h2>Production release identity</h2><p>Read-only comparison of the active release, deployment marker, and running API source. The web service and worker still require separate runtime checks.</p></div></header>
           <div className="system-panel-body">
             <div className="table-wrap"><table><tbody>
               <tr><th>Active release SHA</th><td><code>{health.active_release_sha || "Unavailable"}</code></td></tr>
               <tr><th>Deployment marker SHA</th><td><code>{health.deployed_sha || "Unavailable"}</code></td></tr>
+              <tr><th>Running API source SHA</th><td><code>{health.running_api_sha || "Unavailable"}</code></td></tr>
               <tr><th>Agreement</th><td><YesNo value={health.release_verified} /></td></tr>
             </tbody></table></div>
           </div>
