@@ -208,6 +208,59 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
         self.assertEqual(result["backup_metadata"]["offsite_configuration_status"], "s3_configuration_incomplete")
         self.assertIn("offsite_backup_configuration_requires_review", result["human_review_checks"])
 
+    def test_paid_payroll_without_snapshots_is_reviewed_not_assumed_zero_liability(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM payroll_statutory_months WHERE payroll_run_id=1")
+        report = self.run_audit()
+        statutory = report["statutory_recorded_evidence"]
+        self.assertEqual(statutory["current_paid_or_locked_runs"], 1)
+        self.assertEqual(statutory["current_paid_or_locked_runs_with_payroll_items"], 1)
+        self.assertEqual(statutory["current_paid_or_locked_runs_with_snapshots"], 0)
+        self.assertEqual(statutory["current_paid_or_locked_runs_missing_snapshots"], 1)
+        self.assertEqual(statutory["current_paid_or_locked_missing_snapshot_ids_sample"], [1])
+        self.assertEqual(statutory["recognized_obligations_php_by_program"]["sss"], 0)
+        self.assertIn("settled_payroll_missing_statutory_snapshots", report["human_review_checks"])
+        self.assertEqual(report["blocking_checks"], [])
+
+    def test_no_settled_run_is_explicit_evidence_gap_not_zero_obligation_proof(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE payroll_runs SET status='Draft', paid_at=NULL WHERE id=1")
+        report = self.run_audit()
+        statutory = report["statutory_recorded_evidence"]
+        self.assertEqual(statutory["current_paid_or_locked_runs"], 0)
+        self.assertEqual(statutory["payroll_run_status_counts_all"]["Draft"], 1)
+        self.assertEqual(statutory["current_payroll_run_status_counts"]["Draft"], 1)
+        self.assertTrue(statutory["zero_recognized_contributions_needs_source_status_review"])
+        self.assertIn("no_paid_or_locked_runs_for_statutory_recognition", report["human_review_checks"])
+        self.assertNotIn("settled_payroll_missing_statutory_snapshots", report["human_review_checks"])
+
+    def test_paid_timestamp_on_unsettled_status_requires_independent_review(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("UPDATE payroll_runs SET status='Approved' WHERE id=1")
+        report = self.run_audit()
+        statutory = report["statutory_recorded_evidence"]
+        self.assertEqual(statutory["current_nonsettled_runs_with_paid_at"], 1)
+        self.assertEqual(statutory["current_nonsettled_paid_at_ids_sample"], [1])
+        self.assertIn("paid_payroll_status_and_timestamp_require_review", report["human_review_checks"])
+
+    def test_superseded_paid_run_is_excluded_from_active_snapshot_coverage(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """INSERT INTO payroll_runs(
+                    id,period_start,period_end,status,paid_at,revision_of_run_id
+                ) VALUES(2,'2026-10-01','2026-10-14','Draft',NULL,1)"""
+            )
+            conn.execute("UPDATE payroll_runs SET superseded_by_run_id=2 WHERE id=1")
+            conn.execute("INSERT INTO payroll_items VALUES(2,2,2000,400,1600)")
+        report = self.run_audit()
+        statutory = report["statutory_recorded_evidence"]
+        self.assertEqual(statutory["current_payroll_runs"], 1)
+        self.assertEqual(statutory["current_paid_or_locked_runs"], 0)
+        self.assertEqual(statutory["all_statutory_snapshot_rows"], 1)
+        self.assertEqual(statutory["payroll_run_status_counts_all"], {"Draft": 1, "Paid": 1})
+        self.assertEqual(statutory["current_payroll_run_status_counts"], {"Draft": 1})
+        self.assertIn("no_paid_or_locked_runs_for_statutory_recognition", report["human_review_checks"])
+
     def test_backup_metadata_never_claims_restore_proven(self) -> None:
         result = backup_metadata(self.backup_dir, max_age_hours=26)
         self.assertTrue(result["backup_present"])

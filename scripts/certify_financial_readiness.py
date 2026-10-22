@@ -171,6 +171,56 @@ def check_statutory(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
         SELECT COUNT(*) FROM payroll_statutory_months sm
         LEFT JOIN payroll_runs pr ON pr.id=sm.payroll_run_id WHERE pr.id IS NULL
     """).fetchone()[0])
+    # Statutory totals are only recognized from active Paid/Locked snapshots.
+    # A zero sum is incomplete evidence if there are historical payroll runs
+    # with missing snapshots or no finalized statuses.
+    status_counts_all = {
+        str(row["status"] or "(blank)"): int(row["count"])
+        for row in conn.execute(
+            "SELECT status, COUNT(*) AS count FROM payroll_runs GROUP BY status"
+        )
+    }
+    status_counts_current: Counter[str] = Counter()
+    current_runs = 0
+    settled_runs = 0
+    settled_runs_with_items = 0
+    settled_runs_with_snapshots = 0
+    missing_snapshot_count = 0
+    missing_snapshot_sample: list[int] = []
+    inconsistent_paid_metadata_count = 0
+    inconsistent_paid_metadata_sample: list[int] = []
+    for row in conn.execute("""
+        SELECT pr.id, pr.status, pr.paid_at,
+               (SELECT COUNT(*) FROM payroll_items pi WHERE pi.payroll_run_id=pr.id) AS item_count,
+               (SELECT COUNT(*) FROM payroll_statutory_months sm WHERE sm.payroll_run_id=pr.id) AS snapshot_count
+        FROM payroll_runs pr
+        WHERE COALESCE(pr.superseded_by_run_id,0)=0
+        ORDER BY pr.id
+    """):
+        current_runs += 1
+        run_id = int(row["id"])
+        state = str(row["status"] or "(blank)")
+        status_counts_current[state] += 1
+        is_settled = state in {"Paid", "Locked"}
+        item_count = int(row["item_count"] or 0)
+        snapshot_count = int(row["snapshot_count"] or 0)
+        if is_settled:
+            settled_runs += 1
+            settled_runs_with_items += bool(item_count)
+            settled_runs_with_snapshots += bool(snapshot_count)
+            if item_count and not snapshot_count:
+                missing_snapshot_count += 1
+                if len(missing_snapshot_sample) < limit:
+                    missing_snapshot_sample.append(run_id)
+        elif row["paid_at"]:
+            # Historical states may be valid, but require an operator to check
+            # before concluding that "no recognized liability" is factual.
+            inconsistent_paid_metadata_count += 1
+            if len(inconsistent_paid_metadata_sample) < limit:
+                inconsistent_paid_metadata_sample.append(run_id)
+    total_snapshot_rows = int(conn.execute(
+        "SELECT COUNT(*) FROM payroll_statutory_months"
+    ).fetchone()[0])
     obligations = conn.execute("""
         SELECT COUNT(DISTINCT sm.payroll_run_id) AS recognized_payroll_runs,
                COALESCE(SUM(COALESCE(sm.sss_ee,0)+COALESCE(sm.sss_er,0)+COALESCE(sm.sss_ec,0)),0) AS sss,
@@ -191,6 +241,20 @@ def check_statutory(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
     ]
     return {
         "recorded_remittance_rows": count,
+        "payroll_run_status_counts_all": status_counts_all,
+        "current_payroll_run_status_counts": dict(status_counts_current),
+        "current_payroll_runs": current_runs,
+        "current_paid_or_locked_runs": settled_runs,
+        "current_paid_or_locked_runs_with_payroll_items": settled_runs_with_items,
+        "current_paid_or_locked_runs_with_snapshots": settled_runs_with_snapshots,
+        "current_paid_or_locked_runs_missing_snapshots": missing_snapshot_count,
+        "current_paid_or_locked_missing_snapshot_ids_sample": missing_snapshot_sample,
+        "current_paid_or_locked_missing_snapshot_sample_truncated": missing_snapshot_count > limit,
+        "current_nonsettled_runs_with_paid_at": inconsistent_paid_metadata_count,
+        "current_nonsettled_paid_at_ids_sample": inconsistent_paid_metadata_sample,
+        "current_nonsettled_paid_at_sample_truncated": inconsistent_paid_metadata_count > limit,
+        "all_statutory_snapshot_rows": total_snapshot_rows,
+        "zero_recognized_contributions_needs_source_status_review": settled_runs == 0 and current_runs > 0,
         "recognized_payroll_runs_with_statutory_snapshots": int(obligations["recognized_payroll_runs"] or 0),
         "recognized_obligations_php_by_program": {
             program: obligation_cents[program] / 100
@@ -308,6 +372,12 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
             reviews.append("statutory_remittance_ledger_review")
         if statutory.get("insufficient_staff_remittance_evidence_for_programs"):
             reviews.append("statutory_obligations_need_external_remittance_reconciliation")
+        if statutory.get("current_paid_or_locked_runs_missing_snapshots"):
+            reviews.append("settled_payroll_missing_statutory_snapshots")
+        if statutory.get("current_nonsettled_runs_with_paid_at"):
+            reviews.append("paid_payroll_status_and_timestamp_require_review")
+        if statutory.get("zero_recognized_contributions_needs_source_status_review"):
+            reviews.append("no_paid_or_locked_runs_for_statutory_recognition")
         if result.get("paid_adjustment_reversal_audit", {}).get("finding_count", 0):
             reviews.append("potentially_reversed_paid_adjustment_repayments")
         manual = result.get("manual_repayment_outbox_audit", {})
