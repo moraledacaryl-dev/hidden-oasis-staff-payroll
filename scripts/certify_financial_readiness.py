@@ -26,7 +26,7 @@ from scripts.audit_historical_statutory_calendar import audit_historical_paid_st
 from scripts.audit_historical_statutory_cutoff_transitions import audit_historical_statutory_cutoff_transitions
 from scripts.audit_manual_repayment_outbox import audit_manual_repayment_outbox
 from scripts.audit_paid_adjustment_reversals import audit_paid_adjustment_reversals
-from core.offsite_backups import S3_ENV_NAMES
+from core.offsite_backups import offsite_configuration_status
 
 BACKUP_SUFFIXES = (".sqlite", ".sqlite.fernet", ".zip", ".zip.fernet")
 REQUIRED = {
@@ -365,18 +365,6 @@ def check_statutory(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
         "orphan_statutory_month_ids_sample": orphan,
         "recorded_does_not_prove_agency_received_funds": True,
     }
-
-
-def offsite_configuration_status() -> str:
-    """Return sanitized destination type, never exposing credentials or URLs."""
-    if os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR", "").strip():
-        return "directory_configured"
-    s3_fields = [bool(os.getenv(name, "").strip()) for name in S3_ENV_NAMES]
-    if all(s3_fields):
-        return "s3_configured_not_verified"
-    if any(s3_fields):
-        return "s3_configuration_incomplete"
-    return "not_configured"
 
 
 def backup_metadata(directory: Path, max_age_hours: int) -> dict[str, Any]:
