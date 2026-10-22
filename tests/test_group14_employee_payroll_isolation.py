@@ -88,6 +88,27 @@ class Group14EmployeePayrollIsolationTests(unittest.TestCase):
                 self.payroll(user_id, forged_employee_id=self.employee_ids[0])
             self.assertEqual(denied.exception.status_code, 403)
 
+    def test_separated_employees_cannot_read_payroll_or_staff_self_service(self) -> None:
+        from api.staff_self_service import employee_for_user
+        for separation in ("Inactive", "Terminated", "Resigned", "Separated", "  resigned  "):
+            with self.subTest(status=separation):
+                with get_conn(self.path) as conn:
+                    conn.execute("UPDATE employees SET status=? WHERE id=?", (separation, self.employee_ids[0]))
+                    conn.commit()
+                with self.assertRaises(HTTPException) as payroll_denied:
+                    self.payroll(self.user_ids[0])
+                self.assertEqual(payroll_denied.exception.status_code, 403)
+                with get_conn(self.path) as conn:
+                    with self.assertRaises(HTTPException) as self_service_denied:
+                        employee_for_user(conn, {"id": self.user_ids[0], "role_key": "staff"})
+                self.assertEqual(self_service_denied.exception.status_code, 403)
+
+        with get_conn(self.path) as conn:
+            conn.execute("UPDATE employees SET status='On Leave' WHERE id=?", (self.employee_ids[0],))
+            conn.commit()
+        result = self.payroll(self.user_ids[0])
+        self.assertEqual(len(result["items"]), 1)
+
     def test_no_staff_mutation_during_employee_payroll_read(self) -> None:
         before = self.path.read_bytes()
         self.payroll(self.user_ids[0])
