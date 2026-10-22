@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.audit_manual_repayment_outbox import audit_manual_repayment_outbox
 from scripts.audit_paid_adjustment_reversals import audit_paid_adjustment_reversals
+from core.offsite_backups import S3_ENV_NAMES
 
 BACKUP_SUFFIXES = (".sqlite", ".sqlite.fernet", ".zip", ".zip.fernet")
 REQUIRED = {
@@ -40,7 +41,10 @@ REQUIRED = {
     "statutory_agency_remittances": {
         "id", "program", "contribution_month", "payment_date", "amount", "reference"
     },
-    "payroll_statutory_months": {"id", "payroll_run_id", "month_start"},
+    "payroll_statutory_months": {
+        "id", "payroll_run_id", "month_start", "sss_ee", "sss_er", "sss_ec",
+        "philhealth_ee", "philhealth_er", "pagibig_ee", "pagibig_er",
+    },
 }
 
 
@@ -132,6 +136,7 @@ def check_versions(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
 
 def check_statutory(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
     invalid = []
+    invalid_count = 0
     receipt_keys: dict[tuple[str, str, str], list[int]] = {}
     recorded_centavos = Counter()
     count = 0
@@ -147,6 +152,7 @@ def check_statutory(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
         except ValueError:
             amount = 0
         if amount <= 0 or program not in ("sss", "philhealth", "pagibig") or len(month) != 7:
+            invalid_count += 1
             if len(invalid) < limit:
                 invalid.append(int(row["id"]))
         recorded_centavos[program] += amount
@@ -165,8 +171,34 @@ def check_statutory(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
         SELECT COUNT(*) FROM payroll_statutory_months sm
         LEFT JOIN payroll_runs pr ON pr.id=sm.payroll_run_id WHERE pr.id IS NULL
     """).fetchone()[0])
+    obligations = conn.execute("""
+        SELECT COUNT(DISTINCT sm.payroll_run_id) AS recognized_payroll_runs,
+               COALESCE(SUM(COALESCE(sm.sss_ee,0)+COALESCE(sm.sss_er,0)+COALESCE(sm.sss_ec,0)),0) AS sss,
+               COALESCE(SUM(COALESCE(sm.philhealth_ee,0)+COALESCE(sm.philhealth_er,0)),0) AS philhealth,
+               COALESCE(SUM(COALESCE(sm.pagibig_ee,0)+COALESCE(sm.pagibig_er,0)),0) AS pagibig
+        FROM payroll_statutory_months sm
+        JOIN payroll_runs pr ON pr.id=sm.payroll_run_id
+        WHERE pr.status IN ('Paid','Locked')
+          AND COALESCE(pr.superseded_by_run_id,0)=0
+    """).fetchone()
+    obligation_cents = {
+        program: cents(obligations[program])
+        for program in ("sss", "philhealth", "pagibig")
+    }
+    missing_evidence = [
+        program for program in ("sss", "philhealth", "pagibig")
+        if obligation_cents[program] > recorded_centavos[program]
+    ]
     return {
         "recorded_remittance_rows": count,
+        "recognized_payroll_runs_with_statutory_snapshots": int(obligations["recognized_payroll_runs"] or 0),
+        "recognized_obligations_php_by_program": {
+            program: obligation_cents[program] / 100
+            for program in ("sss", "philhealth", "pagibig")
+        },
+        "insufficient_staff_remittance_evidence_for_programs": missing_evidence,
+        "external_agency_receipts_not_examined": True,
+        "invalid_remittance_count": invalid_count,
         "recorded_remittances_php_by_program": {
             key: recorded_centavos[key] / 100 for key in ("sss", "philhealth", "pagibig")
         },
@@ -179,28 +211,46 @@ def check_statutory(conn: sqlite3.Connection, limit: int) -> dict[str, Any]:
     }
 
 
+def offsite_configuration_status() -> str:
+    """Return sanitized destination type, never exposing credentials or URLs."""
+    if os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR", "").strip():
+        return "directory_configured"
+    s3_fields = [bool(os.getenv(name, "").strip()) for name in S3_ENV_NAMES]
+    if all(s3_fields):
+        return "s3_configured_not_verified"
+    if any(s3_fields):
+        return "s3_configuration_incomplete"
+    return "not_configured"
+
+
 def backup_metadata(directory: Path, max_age_hours: int) -> dict[str, Any]:
+    offsite_status = offsite_configuration_status()
+    base = {
+        "backup_verified": False,
+        "offsite_configuration_status": offsite_status,
+        "offsite_destination_configured": offsite_status in {"directory_configured", "s3_configured_not_verified"},
+        "offsite_copy_verified": False,
+        "restore_drill_verified": False,
+    }
     if not directory.is_dir():
-        return {"backup_present": False, "backup_verified": False, "backup_age_within_limit": False}
+        return {**base, "backup_present": False, "backup_age_within_limit": False}
     items = [
         item for item in directory.iterdir()
         if item.is_file() and item.name.startswith("staff-payroll-")
         and item.name.endswith(BACKUP_SUFFIXES)
     ]
     if not items:
-        return {"backup_present": False, "backup_verified": False, "backup_age_within_limit": False}
+        return {**base, "backup_present": False, "backup_age_within_limit": False}
     latest = max(items, key=lambda item: item.stat().st_mtime)
     age_hours = max(0, (time.time() - latest.stat().st_mtime) / 3600)
     return {
+        **base,
         "backup_present": True,
         "backup_verified": False,  # Metadata inspection is not a restore drill.
         "backup_count": len(items),
         "latest_backup_age_hours": round(age_hours, 1),
         "backup_age_within_limit": age_hours <= max_age_hours,
         "latest_backup_encrypted": latest.name.endswith(".fernet"),
-        "offsite_destination_configured": bool(os.getenv("STAFF_PAYROLL_OFFSITE_BACKUP_DIR")),
-        "offsite_copy_verified": False,
-        "restore_drill_verified": False,
     }
 
 
@@ -254,8 +304,10 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
         if versions.get("reference_review_count", 0):
             reviews.append("payroll_revision_links_require_review")
         statutory = result.get("statutory_recorded_evidence", {})
-        if statutory.get("invalid_remittance_sample_ids") or statutory.get("normalized_duplicate_receipt_groups") or statutory.get("orphan_statutory_month_count"):
+        if statutory.get("invalid_remittance_count") or statutory.get("normalized_duplicate_receipt_groups") or statutory.get("orphan_statutory_month_count"):
             reviews.append("statutory_remittance_ledger_review")
+        if statutory.get("insufficient_staff_remittance_evidence_for_programs"):
+            reviews.append("statutory_obligations_need_external_remittance_reconciliation")
         if result.get("paid_adjustment_reversal_audit", {}).get("finding_count", 0):
             reviews.append("potentially_reversed_paid_adjustment_repayments")
         manual = result.get("manual_repayment_outbox_audit", {})
@@ -268,6 +320,11 @@ def certify(conn: sqlite3.Connection, *, sample_limit: int = 10,
         reviews.append("backup_freshness_or_presence_requires_review")
     if metadata.get("backup_present") and not metadata.get("latest_backup_encrypted"):
         reviews.append("backup_encryption_requires_review")
+    if metadata.get("offsite_configuration_status") in ("not_configured", "s3_configuration_incomplete"):
+        reviews.append("offsite_backup_configuration_requires_review")
+    # This command inspects metadata only; it cannot certify offsite parity
+    # or successful restore. Leave this as a separate, explicit review gate.
+    reviews.append("backup_restore_and_offsite_evidence_not_verified")
 
     return {
         **result,
