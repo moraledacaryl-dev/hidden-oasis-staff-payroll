@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from api.payroll_drafts import create_payroll_draft
 from api.payroll_recalculate import recalculate_draft
-from api.payroll_service import PayrollDraftRequest
+from api.payroll_service import PayrollDraftRequest, create_payroll_draft as create_legacy_draft
 from core.db import get_conn, init_db
 from core.payroll_engine import PayrollResult
 from core.statutory_snapshots import persist_computed_draft_snapshots
@@ -99,6 +99,27 @@ class FuturePayrollStatutoryPersistenceTests(unittest.TestCase):
             self.assertEqual(conn.execute(
                 "SELECT COUNT(*) FROM payroll_items WHERE payroll_run_id=?", (run_id,)
             ).fetchone()[0], 1)
+
+    def test_legacy_draft_api_saves_monthly_snapshot_as_well(self) -> None:
+        result = self.calculation()
+        payload = PayrollDraftRequest(
+            period_start=date(2026, 6, 15),
+            period_end=date(2026, 6, 29),
+            payout_date=date(2026, 6, 30),
+            run_label="Legacy draft",
+        )
+        with (
+            patch("api.payroll_service.DB_PATH", self.db),
+            patch("api.payroll_service.must_be_payroll_user", return_value={
+                "display_name": "Payroll Owner", "role_key": "owner",
+            }),
+            patch("api.payroll_service.build_payroll_preflight_checks", return_value=[]),
+            patch("api.payroll_service.compute_payroll", return_value=[result]),
+        ):
+            response = create_legacy_draft(payload, authorization=None, x_api_key=None)
+        self.assertEqual(self.snapshots(int(response["run"]["id"])), [
+            ("2026-06-01", 2000.0, 100.0)
+        ])
 
     def test_cross_month_cutoff_preserves_dated_month_gross_without_guessing(self) -> None:
         result = self.calculation(by_month={
