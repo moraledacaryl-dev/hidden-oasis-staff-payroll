@@ -16,7 +16,7 @@ class ReadinessReportingContractTests(unittest.TestCase):
         self.assertIn("offsite_backup_configuration_status", source)
         self.assertIn("release_verified", source)
         self.assertIn("deployment_space_ok", source)
-        self.assertIn("independent verification", source.lower())
+        self.assertIn("separate verification", source.lower())
         self.assertNotIn('label={ready ? "ready"', source)
 
     def test_controls_uses_untruncated_totals_and_current_paid_status(self) -> None:
