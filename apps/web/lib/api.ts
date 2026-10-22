@@ -48,8 +48,11 @@ export type ProductionHealth = {
   backup_count: number;
   latest_backup?: { name: string; created_at: string; encrypted: boolean } | null;
   backup_age_hours?: number | null;
+  backup_max_age_hours?: number;
   backup_encryption_configured: boolean;
   offsite_backup_configured: boolean;
+  offsite_backup_configuration_status?: "directory_configured" | "s3_configured_not_verified" | "s3_configuration_incomplete" | "not_configured";
+  offsite_backup_copy_verified?: boolean;
   tables?: Record<string, boolean>;
   counts?: Record<string, number>;
   secrets_configured: Record<string, boolean>;
