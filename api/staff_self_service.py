@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from api.security import current_user_from_token, require_api_key
 from api.schedule_change_log import log_schedule_change
 from api.upload_validation import MAX_UPLOAD_BYTES, validate_upload_bytes
+from core.active_employee_status import is_active_employee_status
 from core.db import DB_PATH, fetchall, fetchone, get_conn, now_iso
 from core.observability import business_today
 
@@ -97,8 +98,8 @@ def employee_for_user(conn, user: dict[str, Any]) -> dict[str, Any]:
     employee_id = int(account.get("employee_id") or 0) if account else 0
     if not employee_id:
         raise HTTPException(status_code=403, detail="Account is not linked to an employee record.")
-    employee = fetchone(conn, "SELECT * FROM employees WHERE id=? AND COALESCE(status, 'Active') != 'Inactive'", (employee_id,))
-    if not employee:
+    employee = fetchone(conn, "SELECT * FROM employees WHERE id=?", (employee_id,))
+    if not employee or not is_active_employee_status(employee.get("status")):
         raise HTTPException(status_code=403, detail="Linked employee record is inactive or missing.")
     return employee
 
