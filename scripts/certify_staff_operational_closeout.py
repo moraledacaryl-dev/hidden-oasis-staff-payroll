@@ -18,7 +18,7 @@ from typing import Any
 from scripts.certify_financial_readiness import certify
 from scripts.verify_manual_repayment_review_queue import verify_review_queue
 
-SHA = re.compile(r"[a-f0-9]{40}\\Z")
+SHA = re.compile(r"[a-f0-9]{40}\Z")
 INDEPENDENT_GATES = (
     "cash_receipts_and_original_employee_payslips_review",
     "accounting_posting_and_bank_custody_review",
