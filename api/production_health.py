@@ -61,8 +61,8 @@ def backup_age_hours(created_at: str) -> float:
 def release_state() -> dict[str, Any]:
     """Read deployment evidence without modifying the active release.
 
-    A state marker alone is not proof of the running release: the immutable
-    active symlink must resolve to the matching SHA-named release directory.
+    A marker or symlink alone cannot prove runtime parity: the API module
+    actually serving requests must also originate from that release.
     """
     runtime_base = Path(os.getenv("STAFF_PAYROLL_RUNTIME_BASE", "/opt/hiddenoasis/staff-payroll"))
     state_file = Path(os.getenv(
@@ -75,11 +75,15 @@ def release_state() -> dict[str, Any]:
     deployed_sha = marker if re.fullmatch(r"[0-9a-f]{40}", marker) else None
 
     active_sha = None
+    running_api_sha = None
     try:
+        releases = (runtime_base / "releases").resolve()
+        module_root = Path(__file__).resolve().parent.parent
+        if module_root.parent == releases and re.fullmatch(r"[0-9a-f]{40}", module_root.name):
+            running_api_sha = module_root.name
         current = runtime_base / "current"
         if current.is_symlink():
             target = current.resolve(strict=True)
-            releases = (runtime_base / "releases").resolve()
             if target.parent == releases and target.is_dir() and re.fullmatch(r"[0-9a-f]{40}", target.name):
                 active_sha = target.name
     except (OSError, RuntimeError):
@@ -87,7 +91,11 @@ def release_state() -> dict[str, Any]:
     return {
         "deployed_sha": deployed_sha,
         "active_release_sha": active_sha,
-        "release_verified": bool(deployed_sha and active_sha and deployed_sha == active_sha),
+        "running_api_sha": running_api_sha,
+        "release_verified": bool(
+            deployed_sha and active_sha and running_api_sha
+            and deployed_sha == active_sha == running_api_sha
+        ),
     }
 
 
