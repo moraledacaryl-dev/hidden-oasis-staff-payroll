@@ -70,6 +70,56 @@ def replace_run_employee_snapshots(
         )
 
 
+STATUTORY_MONEY_COLUMNS = (
+    "sss_ee", "sss_er", "sss_ec",
+    "philhealth_ee", "philhealth_er", "pagibig_ee", "pagibig_er",
+)
+
+
+def persist_computed_draft_snapshots(
+    conn: Any,
+    run_id: int,
+    result: Any,
+    period_start: str,
+    period_end: str,
+) -> None:
+    """Persist exactly the dated snapshots calculated for a new or recalculated Draft.
+
+    Reject incomplete, inconsistent or undated snapshots instead of inventing a
+    calendar-month split. Run state and source-item validation happen before
+    replacing any snapshot rows. The outer payroll transaction owns commit/rollback.
+    """
+    from .statutory_periods import calendar_month_segments
+
+    run = conn.execute("SELECT status FROM payroll_runs WHERE id=?", (run_id,)).fetchone()
+    if run is None or str(run[0]) != "Draft":
+        raise ValueError("Statutory snapshots can only be replaced for a Draft payroll run")
+
+    snapshots = getattr(result, "_statutory_snapshots", None)
+    if not isinstance(snapshots, Mapping):
+        raise ValueError("Draft payroll calculation is missing dated statutory snapshots")
+
+    expected_months = {segment.month_start for segment in calendar_month_segments(period_start, period_end)}
+    if set(snapshots) != expected_months:
+        raise ValueError("Draft statutory snapshots must match the exact cutoff calendar months")
+
+    fields = ("gross_pay", *STATUTORY_MONEY_COLUMNS)
+    try:
+        for field in fields:
+            expected = money(getattr(result, field))
+            actual = money(sum(money(values.get(field, 0)) for values in snapshots.values()))
+            if abs(expected - actual) > 0.01:
+                raise ValueError(
+                    f"Draft statutory {field} does not reconcile to saved payroll item"
+                )
+    except (TypeError, AttributeError, ArithmeticError) as exc:
+        raise ValueError("Draft statutory snapshots contain invalid money values") from exc
+
+    replace_run_employee_snapshots(
+        conn, run_id, int(result.employee_id), snapshots
+    )
+
+
 def previous_month_snapshot_totals(
     conn: Any,
     employee_id: int,
