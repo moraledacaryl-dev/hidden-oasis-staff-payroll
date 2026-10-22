@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
@@ -102,8 +103,16 @@ def record_manual_repayment(cash_advance_id: int, payload: ManualRepaymentPayloa
         advance = fetchone(conn, "SELECT * FROM cash_advances WHERE id=?", (cash_advance_id,))
         if not advance:
             raise HTTPException(status_code=404, detail="Cash advance not found.")
-        if int(advance.get("release_confirmation_required") or 0) and not str(advance.get("released_at") or "").strip():
-            raise HTTPException(status_code=409, detail="Confirm funds were issued before recording a repayment.")
+        if int(advance.get("release_confirmation_required") or 0):
+            released_on = str(advance.get("released_at") or "").strip()[:10]
+            if not released_on:
+                raise HTTPException(status_code=409, detail="Confirm funds were issued before recording a repayment.")
+            try:
+                repayment_on = date.fromisoformat(payload.repayment_date)
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(status_code=422, detail="Use a valid repayment date.") from exc
+            if repayment_on < date.fromisoformat(released_on):
+                raise HTTPException(status_code=422, detail="Repayment cannot predate the confirmed release.")
         current = recalculate_balance(conn, cash_advance_id)
         if current["status"] == "Cancelled":
             raise HTTPException(status_code=409, detail="Cancelled cash advances cannot receive repayments.")
