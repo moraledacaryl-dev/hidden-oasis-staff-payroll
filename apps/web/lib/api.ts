@@ -38,6 +38,7 @@ export type ProductionHealth = {
   active_release_sha?: string | null;
   running_api_sha?: string | null;
   release_verified?: boolean;
+  disk_capacity?: { path: string; free_gib?: number; free_percent?: number; free_inode_percent?: number; minimum_free_gib?: number; minimum_free_percent?: number; minimum_inode_percent?: number; deployment_space_ok: boolean; error?: string }[];
   database_path?: string;
   database_exists: boolean;
   backup_dir?: string;
