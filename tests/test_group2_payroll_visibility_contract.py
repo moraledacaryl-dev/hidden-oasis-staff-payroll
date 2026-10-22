@@ -29,7 +29,7 @@ class Group2PayrollVisibilityTests(unittest.TestCase):
     def test_reports_do_not_call_projected_contributions_paid(self) -> None:
         source = self.read("apps/web/app/reports/page.tsx")
         self.assertIn('Projected contributions and deductions', source)
-        self.assertIn('not saved payroll liabilities or confirmed agency payments', source)
+        self.assertIn('not finalized payroll liabilities or confirmed agency payments', source)
         self.assertIn('do not prove employee deductions were collected', source)
         self.assertIn('Preview only · not paid', source)
 
