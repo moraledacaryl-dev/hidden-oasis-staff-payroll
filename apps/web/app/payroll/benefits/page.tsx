@@ -1,37 +1,80 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Building2, HeartPulse, House, ChevronDown, ReceiptText } from "lucide-react";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { getMonthlyBenefits, peso } from "@/lib/api";
+import { EmptyState, PageHeading, SectionBody, SectionCard, SectionHeader } from "@/components/UiPrimitives";
+import { getMonthlyBenefits, getRemittanceBalances, peso, type MonthlyBenefitItem } from "@/lib/api";
+import { todayInManilaIso } from "@/lib/period";
 import { currentSession } from "@/lib/session";
 import { OutsideBenefitPayment } from "@/components/OutsideBenefitPayment";
 import { AgencyRemittanceForm } from "@/components/AgencyRemittanceForm";
 import { AgencyRemittanceHistory } from "@/components/AgencyRemittanceHistory";
-import { getRemittanceBalances } from "@/lib/api";
+import styles from "./page.module.css";
 
-function currentMonth() {
-  const parts = new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Manila",year:"numeric",month:"2-digit"}).formatToParts(new Date());
-  return `${parts.find(p=>p.type==="year")?.value}-${parts.find(p=>p.type==="month")?.value}`;
+const agencies = [
+  { key: "sss", name: "SSS", icon: Building2, ee: "sss_ee", er: "sss_er" },
+  { key: "philhealth", name: "PhilHealth", icon: HeartPulse, ee: "philhealth_ee", er: "philhealth_er" },
+  { key: "pagibig", name: "Pag-IBIG", icon: House, ee: "pagibig_ee", er: "pagibig_er" },
+] as const;
+
+function EmployeeContributions({ item, month, canRecord }: { item: MonthlyBenefitItem; month: string; canRecord: boolean }) {
+  const outstanding = item.due.sss_ee + item.due.philhealth_ee + item.due.pagibig_ee;
+  return <details className={styles.employee}>
+    <summary>
+      <span className={styles.avatar} aria-hidden="true">{item.full_name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("")}</span>
+      <span className={styles.employeeName}><strong>{item.full_name}</strong><span>{item.employee_code || "Employee"}</span></span>
+      <StatusBadge label={item.status} tone={item.status === "Complete" ? "ok" : "warning"} />
+      <span className={styles.employeeDue}><small>Employee due</small><strong>{peso(outstanding)}</strong></span>
+      <ChevronDown size={17} className={styles.chevron} aria-hidden="true" />
+    </summary>
+    <div className={styles.employeeDetails}>
+      <div className={styles.coverage}><span>{item.status === "Complete" ? `Covered through ${item.covered_through || "month end"}` : `Missing coverage from ${item.missing_from || "next cutoff"}`}</span><span>Gross basis <strong>{peso(item.gross_pay)}</strong></span></div>
+      <div className={styles.contributions}>{agencies.map(agency => <div key={agency.key}>
+        <h3>{agency.name}</h3>
+        <dl><div><dt>Employee contribution</dt><dd>{peso(item[agency.ee])}</dd></div><div><dt>From paid payroll</dt><dd>{peso(item.paid[agency.ee])}</dd></div><div><dt>Employee due</dt><dd><strong>{peso(item.due[agency.ee])}</strong></dd></div><div><dt>Employer contribution</dt><dd>{peso(item[agency.er])}</dd></div>{agency.key === "sss" ? <div><dt>Employees’ compensation</dt><dd>{peso(item.sss_ec)}</dd></div> : null}</dl>
+      </div>)}</div>
+      <div className={styles.settlement}>
+        <div><h3>Separate payments & catch-up</h3><p>Paid separately: PhilHealth {peso(item.settled_separately?.philhealth)} · Pag-IBIG {peso(item.settled_separately?.pagibig)}</p><p>Catch-up recorded: PhilHealth {peso(item.catchup?.philhealth)} · Pag-IBIG {peso(item.catchup?.pagibig)}</p></div>
+        {canRecord ? <OutsideBenefitPayment employeeId={item.employee_id} employeeName={item.full_name} month={month} /> : null}
+      </div>
+      <div className={styles.sourceRuns}><strong>Source payroll runs</strong>{item.runs.length ? item.runs.map(run => <span key={run.run_id}>{canRecord ? <Link href={`/payroll/runs/${run.run_id}`}>Run #{run.run_id}</Link> : <span>Run #{run.run_id}</span>} · {run.period_start}–{run.period_end} · {run.status}</span>) : <span>No source runs</span>}</div>
+    </div>
+  </details>;
 }
 
 export default async function BenefitsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
-  const allowed: ("owner" | "payroll" | "supervisor")[] = ["owner","payroll","supervisor"];
-  if (session.role_key !== "owner" && session.role_key !== "payroll" && session.role_key !== "supervisor") return <Shell allowedRoles={allowed}><div /></Shell>;
+  const allowed = ["owner", "payroll", "supervisor"] as const;
+  if (!allowed.some(role => role === session.role_key)) return <Shell allowedRoles={[...allowed]}><div /></Shell>;
   const query = await searchParams;
-  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(query.month || "") ? query.month! : currentMonth();
-  const ledger = await getMonthlyBenefits(month);
-  const remittanceBalances = session.role_key === "supervisor" ? null : await getRemittanceBalances(month);
-  return <Shell allowedRoles={allowed}><div className="page run-page">
-    <header className="payroll-hero"><div><span className="eyebrow">Statutory benefits</span><h1>Monthly benefits ledger</h1><p className="muted">Payroll contribution obligations and employee deductions. Payroll-paid amounts are not proof of government remittance.</p></div><div className="payroll-actions"><Link className="button secondary" href="/payroll/runs">Payroll runs</Link></div></header>
-    <section className="payroll-toolbar"><form><label>Calendar month<input name="month" type="month" defaultValue={month}/></label><button className="button" type="submit">View month</button></form><p className="muted">General Managers can review this ledger. Payroll corrections remain controlled by the payroll workflow.</p></section>
-    {remittanceBalances ? <section className="run-list"><header><div><h2>Agency balances through {month}</h2><p>Employee and employer obligations from paid payroll less actual government remittances. Negative balances are unverified accounting credits.</p></div></header><div className="table-wrap"><table className="run-table responsive-records"><thead><tr><th>Agency</th><th>Opening balance</th><th>Employee due this month</th><th>Employer due this month</th><th>Remitted this month</th><th>Closing balance</th></tr></thead><tbody>{(["sss","philhealth","pagibig"] as const).map(program=>{const entries=remittanceBalances.programs[program]||[];const last=entries.at(-1);return <tr key={program}><td data-label="Agency">{program==="sss"?"SSS":program==="philhealth"?"PhilHealth":"Pag-IBIG"}</td><td data-label="Opening balance">{peso(last?.opening_balance||0)}</td><td data-label="Employee due this month">{peso(last?.employee_due||0)}</td><td data-label="Employer due this month">{peso(last?.employer_due||0)}</td><td data-label="Remitted this month">{peso(last?.remitted||0)}</td><td data-label="Closing balance"><strong>{peso(last?.closing_balance||0)}</strong>{(last?.closing_balance||0)<0?<span className="muted"> · Unverified credit</span>:null}</td></tr>})}</tbody></table></div></section> : null}
-    {session.role_key !== "supervisor" ? <section className="run-list"><header><div><h2>Government remittances</h2><p>Record actual payments made to SSS, PhilHealth, or Pag-IBIG. These are separate from employee collections.</p></div></header><AgencyRemittanceForm month={month}/><h3>Recorded agency payments</h3><AgencyRemittanceHistory month={month}/></section> : null}
-    <section className="run-list"><header><div><h2>{month} contributions</h2><p>{ledger.items.length} employee records. Payroll status reflects payroll processing only, not confirmed agency remittances.</p></div><StatusBadge label={ledger.items.some(x=>x.status!=="Complete") ? "Pending coverage" : "Complete"} tone={ledger.items.some(x=>x.status!=="Complete") ? "warning" : "ok"} /></header>
-    <div className="table-wrap"><table className="run-table responsive-records"><thead><tr><th>Employee</th><th>Coverage</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Gross basis</th><th>Settlement</th><th>Source runs</th></tr></thead><tbody>
-    {ledger.items.map(item=><tr key={item.employee_id}><td data-label="Employee"><strong>{item.full_name}</strong><br/><span className="muted">{item.employee_code || "—"}</span></td><td data-label="Coverage"><StatusBadge label={item.status} tone={item.status==="Complete"?"ok":"warning"}/><br/><span className="muted">{item.status==="Complete" ? `Through ${item.covered_through}` : `Missing from ${item.missing_from}`}</span></td><td data-label="SSS"><strong>Due {peso(item.due.sss_ee)}</strong><br/><span className="muted">From paid payroll {peso(item.paid.sss_ee)} · Employee {peso(item.sss_ee)} · Employer {peso(item.sss_er)} + EC {peso(item.sss_ec)}</span></td><td data-label="PhilHealth"><strong>Due {peso(item.due.philhealth_ee)}</strong><br/><span className="muted">From paid payroll {peso(item.paid.philhealth_ee)} · Employee {peso(item.philhealth_ee)} · Employer {peso(item.philhealth_er)}</span></td><td data-label="Pag-IBIG"><strong>Due {peso(item.due.pagibig_ee)}</strong><br/><span className="muted">From paid payroll {peso(item.paid.pagibig_ee)} · Employee {peso(item.pagibig_ee)} · Employer {peso(item.pagibig_er)}</span></td><td data-label="Gross basis">{peso(item.gross_pay)}</td><td data-label="Settlement"><span className="muted">Paid separately: PhilHealth {peso(item.settled_separately?.philhealth)} · Pag-IBIG {peso(item.settled_separately?.pagibig)}</span><br/><span className="muted">Catch-up recorded: PhilHealth {peso(item.catchup?.philhealth)} · Pag-IBIG {peso(item.catchup?.pagibig)}</span>{session.role_key!=="supervisor"?<><br/><OutsideBenefitPayment employeeId={item.employee_id} employeeName={item.full_name} month={month}/></>:null}</td><td data-label="Source runs">{item.runs.map(r=><div key={r.run_id}><Link href={session.role_key==="supervisor" ? "/payroll/benefits" : `/payroll/runs/${r.run_id}`}>#{r.run_id}</Link> <span className="muted">{r.period_start}–{r.period_end}</span></div>)}</td></tr>)}
-    {ledger.items.length===0?<tr><td colSpan={8}>{ledger.message || "No settled statutory snapshots for this month yet."}</td></tr>:null}
-    </tbody></table></div></section>
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(query.month || "") ? query.month! : todayInManilaIso().slice(0, 7);
+  const canRecord = session.role_key !== "supervisor";
+  const [ledger, balances] = await Promise.all([getMonthlyBenefits(month), canRecord ? getRemittanceBalances(month) : Promise.resolve(null)]);
+  const monthLabel = new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-PH", { month: "long", year: "numeric", timeZone: "UTC" });
+  const pending = ledger.items.filter(item => item.status !== "Complete").length;
+  return <Shell allowedRoles={[...allowed]}><div className={`page ${styles.page}`}>
+    <PageHeading eyebrow="Payroll" title="Monthly benefits" description="Contributions, employee collections, and agency payments." actions={canRecord ? <Link className="button secondary" href="/payroll/runs">Payroll runs</Link> : undefined} />
+    <div className={styles.monthBar}><form><label>Contribution month<input name="month" type="month" defaultValue={month} required /></label><button className="button" type="submit">View month</button></form><span><ReceiptText size={17} aria-hidden="true" />{monthLabel}</span></div>
+    {balances ? <section aria-label="Agency balances" className={styles.agencies}>{agencies.map(agency => {
+      const balance = balances.programs[agency.key]?.at(-1);
+      const closing = balance?.closing_balance || 0;
+      const Icon = agency.icon;
+      return <article key={agency.key} className={styles.agency}>
+        <header><span className={styles.agencyIcon}><Icon size={21} strokeWidth={1.6} aria-hidden="true" /></span><h2>{agency.name}</h2><StatusBadge label={closing < 0 ? "Unverified credit" : closing > 0 ? "Outstanding" : "Balanced"} tone={closing < 0 || closing > 0 ? "warning" : "ok"} /></header>
+        <span className={styles.balanceLabel}>Closing balance</span><strong className={styles.balance}>{peso(closing)}</strong>
+        <dl><div><dt>Opening balance</dt><dd>{peso(balance?.opening_balance)}</dd></div><div><dt>Employee due this month</dt><dd>{peso(balance?.employee_due)}</dd></div><div><dt>Employer due this month</dt><dd>{peso(balance?.employer_due)}</dd></div><div><dt>Remitted this month</dt><dd>{peso(balance?.remitted)}</dd></div></dl>
+      </article>;
+    })}</section> : null}
+    <p className={styles.note}>Paid payroll does not confirm government remittance.{balances ? " Agency balances include employee and employer obligations from paid payroll; negative balances are unverified credits." : ""}</p>
+    <SectionCard>
+      <SectionHeader title="Employee contributions" description={`${monthLabel} · ${ledger.items.length} employee${ledger.items.length === 1 ? "" : "s"}`} actions={<StatusBadge label={!ledger.items.length ? "No records" : pending ? `${pending} pending coverage` : "Coverage complete"} tone={!ledger.items.length ? "neutral" : pending ? "warning" : "ok"} />} />
+      <SectionBody>{ledger.items.length ? <div className={styles.employeeList}>{ledger.items.map(item => <EmployeeContributions key={item.employee_id} item={item} month={month} canRecord={canRecord} />)}</div> : <EmptyState title="No contributions recorded" description={ledger.message || "Statutory snapshots will appear as payroll is processed for this month."} />}</SectionBody>
+    </SectionCard>
+    {canRecord ? <SectionCard>
+      <SectionHeader title="Government remittances" description="Record payments made to SSS, PhilHealth, or Pag-IBIG." />
+      <SectionBody><AgencyRemittanceForm key={month} month={month} /><div className={styles.history}><h3>Recorded agency payments</h3><AgencyRemittanceHistory month={month} /></div></SectionBody>
+    </SectionCard> : null}
   </div></Shell>;
 }

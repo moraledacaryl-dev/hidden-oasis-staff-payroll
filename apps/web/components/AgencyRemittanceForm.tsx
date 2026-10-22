@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import styles from "./BenefitForms.module.css";
 
 export function AgencyRemittanceForm({month}:{month:string}) {
   const router=useRouter();
@@ -21,12 +22,12 @@ export function AgencyRemittanceForm({month}:{month:string}) {
     } catch {setMessage("Unable to connect to the server.");}
     finally {setBusy(false);}
   }
-  return <form onSubmit={submit} style={{display:"flex",flexWrap:"wrap",gap:12,alignItems:"end"}}>
+  return <form onSubmit={submit} className={styles.remittance}>
     <label>Agency<select value={program} onChange={e=>setProgram(e.target.value)}><option value="sss">SSS</option><option value="philhealth">PhilHealth</option><option value="pagibig">Pag-IBIG</option></select></label>
     <label>Payment date<input type="date" required value={paymentDate} onChange={e=>setPaymentDate(e.target.value)}/></label>
     <label>Amount remitted<input type="number" required min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}/></label>
     <label>Receipt/reference<input value={reference} onChange={e=>setReference(e.target.value)}/></label>
     <button className="button" disabled={busy} type="submit">{busy?"Saving…":"Record remittance"}</button>
-    {message?<p role="status">{message}</p>:null}
+    {message?<p className={styles.message} role="status">{message}</p>:null}
   </form>;
 }

@@ -55,3 +55,19 @@
 @media(max-width:1150px) { .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.twoCol{grid-template-columns:minmax(0,1fr)}.quickGrid{grid-template-columns:repeat(4,minmax(0,1fr))} }
 @media(max-width:700px) { .heroCard{grid-template-columns:minmax(0,1fr);padding:22px;gap:22px}.heroCopy h2{font-size:23px}.readiness{min-height:0;grid-template-columns:auto 1fr;gap:7px 13px;padding:15px}.readiness>svg{grid-row:1/3}.readiness p{grid-column:2}.kpiCard{padding:16px}.kpiValue{font-size:23px}.kpiTop :global(.badge){font-size:10px}.kpiLabel{font-size:12px}.kpiFoot{font-size:11px}.quickGrid,.lowerGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.lowerGrid{grid-template-columns:1fr}.quick{padding:15px}.queueItem{grid-template-columns:30px minmax(0,1fr);gap:10px}.queueItem>:last-child{grid-column:2;justify-self:start}.heroActions :global(.button){font-size:12px}.dashboardPage{gap:18px} }
 @media(prefers-reduced-motion:reduce) { .heroActions :global(.button){transition:none} }
+.rosterSummary { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:17px; font-size:13px; color:var(--muted); }
+.rosterSummary>span:first-child { display:flex; align-items:center; gap:7px; }
+.rosterSummary strong { color:var(--ink); }
+.roster { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; list-style:none; margin:0; padding:0; }
+.roster li { min-width:0; display:grid; grid-template-columns:38px minmax(0,1fr) auto; gap:12px; align-items:center; border:1px solid var(--line); border-radius:12px; padding:15px; }
+.rosterAvatar { display:grid; place-items:center; width:38px; height:38px; border-radius:12px; background:#e6f1e9; color:#356751; font-size:12px; }
+.roster li:nth-child(3n+2) .rosterAvatar { background:#f6e8db; color:#8c6041; }
+.roster li:nth-child(3n) .rosterAvatar { background:#e9edf7; color:#586e96; }
+.rosterPerson { display:grid; gap:4px; }
+.rosterPerson strong { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.rosterPerson>span { color:var(--muted); font-size:11px; }
+.rosterTimes { display:grid; gap:6px; }
+.rosterTimes>span { display:flex; align-items:center; gap:5px; font-size:12px; flex-wrap:wrap; font-variant-numeric:tabular-nums; }
+.rosterTimes small { color:var(--muted); font-size:10px; }
+@media(max-width:1100px) { .roster{grid-template-columns:1fr} }
+@media(max-width:620px) { .roster li{grid-template-columns:34px minmax(0,1fr);padding:13px}.rosterTimes{grid-column:2}.rosterAvatar{width:34px;height:34px} }

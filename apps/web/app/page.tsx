@@ -6,8 +6,9 @@ import { redirect } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyState, PageHeading, SectionBody, SectionCard, SectionHeader } from "@/components/UiPrimitives";
-import { getAttendanceExceptions, getAttendanceReviews, getEmployees, getMeta, getPayrollPreview, peso } from "@/lib/api";
-import { currentCutoff } from "@/lib/period";
+import { getAttendanceExceptions, getAttendanceReviews, getEmployees, getMeta, getPayrollPreview, getScheduleWeek, peso } from "@/lib/api";
+import { currentCutoff, todayInManilaIso, mondayOfWeek, formatIsoDay } from "@/lib/period";
+import { scheduledToday } from "@/lib/dashboard-schedule";
 import { currentSession } from "@/lib/session";
 import type { AttendanceException, AttendanceReview } from "@/lib/api";
 import type { PayrollPreview } from "@/lib/types";
@@ -32,7 +33,10 @@ export default async function DashboardPage() {
 
   const { periodStart, periodEnd } = currentCutoff();
   const canSeePayroll = session.role_key === "owner" || session.role_key === "payroll";
-  const [meta, employees] = await Promise.all([getMeta(), getEmployees()]);
+  const today = todayInManilaIso();
+  const weekStart = mondayOfWeek(today);
+  const [meta, employees, schedule] = await Promise.all([getMeta(), getEmployees(), getScheduleWeek(weekStart).catch(() => null)]);
+  const roster = scheduledToday(schedule?.items || [], today);
   let preview: PayrollPreview | null = null;
   let exceptions: AttendanceException[] = [];
   let reviews: AttendanceReview[] = [];
@@ -59,7 +63,7 @@ export default async function DashboardPage() {
           eyebrow="People & payroll"
           title={`Welcome, ${session.display_name.split(" ")[0]}.`}
           description={`${periodStart} — ${periodEnd}`}
-         actions={<><Link className="button secondary" href={reviewHref}>Current cutoff</Link><Link className="button" href={canSeePayroll ? "/cutoff" : reviewHref}>{canSeePayroll ? "Latest completed cutoff" : "Review attendance"}</Link></>}
+          actions={<><Link className="button secondary" href={reviewHref}>Current cutoff</Link><Link className="button" href={canSeePayroll ? "/cutoff" : reviewHref}>{canSeePayroll ? "Latest completed cutoff" : "Review attendance"}</Link></>}
         />
 
         <section className={styles.heroCard}>
@@ -73,6 +77,20 @@ export default async function DashboardPage() {
           {preview ? <Kpi code="NT" label="Projected net" value={peso(preview.totals.net_pay)} foot="After current deductions" trend="Preview" warning /> : <Kpi code="ML" label="Missing logs" value={missing} foot="Incomplete time records" trend={missing ? "Review" : "Clear"} warning={missing > 0} />}
           {preview ? <Kpi code="RV" label="Items to review" value={openCount} foot={`${blockers} blocker${blockers === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}`} trend={openCount ? "Needs action" : "Clear"} warning={openCount > 0} /> : <Kpi code="OT" label="Pending overtime" value={otPending} foot={`${absent} absent`} trend={otPending ? "Review" : "Clear"} warning={otPending > 0} />}
         </section></MobileSection>
+
+        <SectionCard>
+          <SectionHeader title="Scheduled today" description={`${formatIsoDay(today)} · Shifts starting today · Manila time`} actions={<Link href={`/schedule?week_start=${weekStart}`}>View schedule →</Link>} />
+          <SectionBody>
+            {!schedule ? <p role="status">Today’s schedule is unavailable. <Link href="/schedule">Try the schedule page →</Link></p> : <>
+              <div className={styles.rosterSummary}><span><Users size={17} aria-hidden="true" /><strong>{roster.people.length}</strong> employee{roster.people.length === 1 ? "" : "s"} scheduled</span>{roster.unassigned > 0 ? <StatusBadge label={`${roster.unassigned} unassigned shift${roster.unassigned === 1 ? "" : "s"}`} tone="warning" /> : null}</div>
+              {roster.people.length ? <ul className={styles.roster}>{roster.people.map((person) => <li key={person.employeeId}>
+                <span className={styles.rosterAvatar} aria-hidden="true">{person.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("")}</span>
+                <div className={styles.rosterPerson}><strong>{person.name}</strong><span>{person.department || person.shifts[0].position}</span></div>
+                <div className={styles.rosterTimes}>{person.shifts.map((shift) => <span key={shift.id}><Clock3 size={13} aria-hidden="true" />{shift.start_time.slice(0, 5)}–{shift.end_time.slice(0, 5)}{shift.is_overnight ? <small>+1 day</small> : null}</span>)}</div>
+              </li>)}</ul> : <EmptyState title="No employees scheduled today" description="Assigned shifts will appear here." />}
+            </>}
+          </SectionBody>
+        </SectionCard>
 
         <section className={styles.twoCol}>
           <SectionCard>
@@ -101,7 +119,7 @@ export default async function DashboardPage() {
           </SectionCard>
 
           <SectionCard>
-            <SectionHeader title="Quick actions"  />
+            <SectionHeader title="Quick actions" />
             <SectionBody><div className={styles.quickGrid}><Quick href="/schedule" code="+" label="Add shift" detail="Schedule staff" /><Quick href="/schedule/import" code="UP" label="Upload logs" detail="Import attendance" /><Quick href="/staff/manage?add=1" code="ST" label="Add employee" detail="Create record" /><Quick href="/cash-advances" code="CA" label="Cash advance" detail="Review request" /></div></SectionBody>
           </SectionCard>
         </section>
@@ -113,7 +131,7 @@ export default async function DashboardPage() {
           </SectionCard>
 
           <SectionCard>
-            <SectionHeader title={canSeePayroll ? "Current cutoff position" : "Attendance position"}  />
+            <SectionHeader title={canSeePayroll ? "Current cutoff position" : "Attendance position"} />
             <SectionBody><div className={styles.readinessSummary}><div><span>Review status</span><strong>{reviewStatus}</strong></div><div><span>{canSeePayroll ? "Blocking checks" : "Missing logs"}</span><strong>{canSeePayroll ? blockers : missing}</strong></div><div><span>{canSeePayroll ? "Warnings" : "Pending overtime"}</span><strong>{canSeePayroll ? warnings : otPending}</strong></div><div><span>{canSeePayroll ? "Open checks" : "Absences"}</span><strong>{canSeePayroll ? openCount : absent}</strong></div></div></SectionBody>
           </SectionCard>
         </section></MobileSection>
