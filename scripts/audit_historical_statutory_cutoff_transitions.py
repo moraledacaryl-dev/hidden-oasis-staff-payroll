@@ -28,10 +28,11 @@ def _is_current_missing_snapshot(run: Any, snapshot_runs: set[int]) -> bool:
 
 def _items(
     conn: sqlite3.Connection, run_id: int
-) -> tuple[dict[int, dict[str, int]], set[int], int]:
+) -> tuple[dict[int, dict[str, int]], set[int], int, Counter[str]]:
     employee: dict[int, dict[str, int]] = {}
     duplicated: set[int] = set()
     count = 0
+    saved_source_totals: Counter[str] = Counter()
     for row in conn.execute(
         """SELECT employee_id, sss_ee,sss_er,sss_ec,
                   philhealth_ee,philhealth_er,pagibig_ee,pagibig_er
@@ -40,13 +41,15 @@ def _items(
     ):
         count += 1
         employee_id = int(row["employee_id"])
+        saved_values = {field: _centavos(row[field]) for field in FIELDS}
+        saved_source_totals.update(saved_values)
         if employee_id in employee:
             duplicated.add(employee_id)
             continue
-        employee[employee_id] = {field: _centavos(row[field]) for field in FIELDS}
+        employee[employee_id] = saved_values
     for employee_id in duplicated:
         employee.pop(employee_id, None)
-    return employee, duplicated, count
+    return employee, duplicated, count, saved_source_totals
 
 
 def audit_historical_statutory_cutoff_transitions(
@@ -140,23 +143,20 @@ def audit_historical_statutory_cutoff_transitions(
             if prior_candidates else None
         )
 
-        cross_items, cross_duplicates, cross_count = _items(conn, int(run["id"]))
-        following_items, following_duplicates, following_count = _items(
+        cross_items, cross_duplicates, cross_count, cross_totals = _items(
+            conn, int(run["id"])
+        )
+        following_items, following_duplicates, following_count, follow_totals = _items(
             conn, int(following["id"])
         )
         if prior is not None:
-            prior_items, prior_duplicates, _ = _items(conn, int(prior[0]["id"]))
+            prior_items, prior_duplicates, _, _ = _items(conn, int(prior[0]["id"]))
         else:
             prior_items, prior_duplicates = {}, set()
         joint_ids = sorted(set(cross_items) & set(following_items))
         comparison_ids = sorted(set(joint_ids) & set(prior_items))
-        cross_totals: Counter[str] = Counter()
-        follow_totals: Counter[str] = Counter()
-        for item in cross_items.values():
-            cross_totals.update(item)
-        for item in following_items.values():
-            follow_totals.update(item)
-
+        # Report every saved source item; exclude ambiguous duplicate
+        # employee mappings from pattern matching, not from financial totals.
         zero_then_positive = Counter()
         twice_prior = Counter()
         zero_then_twice_prior = Counter()
