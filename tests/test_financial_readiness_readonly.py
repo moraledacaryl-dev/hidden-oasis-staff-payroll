@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.certify_financial_readiness import backup_metadata, certify
+from scripts.certify_financial_readiness import backup_metadata, certify, offsite_configuration_status
 
 
 class FinancialReadinessReadOnlyTests(unittest.TestCase):
@@ -49,7 +49,10 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
                     payment_date TEXT, amount REAL, reference TEXT
                 );
                 CREATE TABLE payroll_statutory_months (
-                    id INTEGER PRIMARY KEY, payroll_run_id INTEGER, month_start TEXT
+                    id INTEGER PRIMARY KEY, payroll_run_id INTEGER, month_start TEXT,
+                    sss_ee REAL DEFAULT 0, sss_er REAL DEFAULT 0, sss_ec REAL DEFAULT 0,
+                    philhealth_ee REAL DEFAULT 0, philhealth_er REAL DEFAULT 0,
+                    pagibig_ee REAL DEFAULT 0, pagibig_er REAL DEFAULT 0
                 );
                 INSERT INTO payroll_runs(id,period_start,period_end,status,paid_at)
                 VALUES(1,'2026-10-01','2026-10-14','Paid','2026-10-15');
@@ -71,8 +74,8 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
     def test_healthy_ledger_returns_pass_without_claiming_downstream_posting(self) -> None:
         report = self.run_audit()
         self.assertEqual(report["blocking_checks"], [])
-        self.assertEqual(report["human_review_checks"], [])
-        self.assertEqual(report["status"], "local_checks_passed")
+        self.assertIn("backup_restore_and_offsite_evidence_not_verified", report["human_review_checks"])
+        self.assertEqual(report["status"], "review_required")
         self.assertEqual(report["money_arithmetic"]["items_checked"], 1)
         self.assertTrue(report["read_only"])
         self.assertTrue(report["no_sqlite_writes"])
@@ -131,6 +134,79 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
         self.assertIn("statutory_remittance_ledger_review", report["human_review_checks"])
         self.assertEqual(report["statutory_recorded_evidence"]["normalized_duplicate_receipt_groups"], 1)
         self.assertEqual(report["statutory_recorded_evidence"]["recorded_remittances_php_by_program"]["sss"], 200)
+
+    def test_recognized_contributions_without_staff_receipts_trigger_external_review(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                """UPDATE payroll_statutory_months
+                   SET sss_ee=160, sss_er=40, sss_ec=10,
+                       philhealth_ee=30, philhealth_er=30,
+                       pagibig_ee=50, pagibig_er=50
+                   WHERE id=1"""
+            )
+        report = self.run_audit()
+        obligations = report["statutory_recorded_evidence"]
+        self.assertEqual(obligations["recognized_payroll_runs_with_statutory_snapshots"], 1)
+        self.assertEqual(obligations["recognized_obligations_php_by_program"], {
+            "sss": 210.0, "philhealth": 60.0, "pagibig": 100.0
+        })
+        self.assertEqual(
+            obligations["insufficient_staff_remittance_evidence_for_programs"],
+            ["sss", "philhealth", "pagibig"],
+        )
+        self.assertIn(
+            "statutory_obligations_need_external_remittance_reconciliation",
+            report["human_review_checks"],
+        )
+        self.assertNotIn(
+            "statutory_obligations_need_external_remittance_reconciliation",
+            report["blocking_checks"],
+        )
+
+    def test_draft_and_superseded_payroll_do_not_create_recognized_obligations(self) -> None:
+        with sqlite3.connect(self.path) as conn:
+            conn.execute(
+                "UPDATE payroll_runs SET status='Draft' WHERE id=1"
+            )
+            conn.execute("UPDATE payroll_statutory_months SET sss_ee=1000 WHERE id=1")
+        report = self.run_audit()
+        statutory = report["statutory_recorded_evidence"]
+        self.assertEqual(statutory["recognized_obligations_php_by_program"]["sss"], 0)
+        self.assertEqual(statutory["recognized_payroll_runs_with_statutory_snapshots"], 0)
+        self.assertNotIn(
+            "statutory_obligations_need_external_remittance_reconciliation",
+            report["human_review_checks"],
+        )
+
+    def test_s3_offsite_configuration_is_recognized_without_leaking_credentials(self) -> None:
+        values = {
+            "STAFF_PAYROLL_OFFSITE_BACKUP_DIR": "",
+            "STAFF_PAYROLL_OFFSITE_S3_ENDPOINT": "https://backup.example.test",
+            "STAFF_PAYROLL_OFFSITE_S3_BUCKET": "private-bucket",
+            "STAFF_PAYROLL_OFFSITE_S3_ACCESS_KEY_ID": "PRIVATE_ACCESS_ID",
+            "STAFF_PAYROLL_OFFSITE_S3_SECRET_ACCESS_KEY": "PRIVATE_SECRET",
+        }
+        with patch.dict(os.environ, values):
+            result = backup_metadata(self.backup_dir, 26)
+        self.assertEqual(result["offsite_configuration_status"], "s3_configured_not_verified")
+        self.assertTrue(result["offsite_destination_configured"])
+        self.assertFalse(result["offsite_copy_verified"])
+        self.assertNotIn("PRIVATE_SECRET", str(result))
+        self.assertNotIn("PRIVATE_ACCESS_ID", str(result))
+        self.assertNotIn("private-bucket", str(result))
+
+    def test_partial_s3_configuration_is_review_not_proof_of_offsite(self) -> None:
+        values = {
+            "STAFF_PAYROLL_OFFSITE_BACKUP_DIR": "",
+            "STAFF_PAYROLL_OFFSITE_S3_ENDPOINT": "https://backup.example.test",
+            "STAFF_PAYROLL_OFFSITE_S3_BUCKET": "",
+            "STAFF_PAYROLL_OFFSITE_S3_ACCESS_KEY_ID": "",
+            "STAFF_PAYROLL_OFFSITE_S3_SECRET_ACCESS_KEY": "",
+        }
+        with patch.dict(os.environ, values):
+            result = self.run_audit()
+        self.assertEqual(result["backup_metadata"]["offsite_configuration_status"], "s3_configuration_incomplete")
+        self.assertIn("offsite_backup_configuration_requires_review", result["human_review_checks"])
 
     def test_backup_metadata_never_claims_restore_proven(self) -> None:
         result = backup_metadata(self.backup_dir, max_age_hours=26)
