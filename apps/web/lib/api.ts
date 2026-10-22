@@ -36,6 +36,7 @@ export type ProductionHealth = {
   checked_by?: string;
   deployed_sha?: string | null;
   active_release_sha?: string | null;
+  running_api_sha?: string | null;
   release_verified?: boolean;
   database_path?: string;
   database_exists: boolean;
