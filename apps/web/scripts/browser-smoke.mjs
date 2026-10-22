@@ -55,9 +55,12 @@ const visibleFailurePatterns = [
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-async function waitForChrome() {
+async function waitForChrome(chrome) {
   const endpoint = `http://127.0.0.1:${port}/json/version`;
   for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (chrome.exitCode !== null || chrome.signalCode !== null) {
+      throw new Error(`Chrome exited before DevTools became ready (exit=${chrome.exitCode}, signal=${chrome.signalCode}).`);
+    }
     try {
       const response = await fetch(endpoint);
       if (response.ok) return;
@@ -512,12 +515,45 @@ if (!tokens.owner || !tokens.supervisor || !tokens.staff) throw new Error("BROWS
 if (!browserPath) throw new Error("Chrome or Chromium was not found. Set BROWSER_BIN to the browser executable.");
 
 await mkdir(outputDir, { recursive: true });
-const profileDir = await mkdtemp(path.join(os.tmpdir(), "staff-payroll-chrome-"));
-const browser = spawn(browserPath, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, "--no-first-run", "--disable-background-networking", "--disable-component-update", "--disable-default-apps", "--disable-dev-shm-usage", "--no-sandbox", "about:blank"], { stdio: "ignore" });
-const browserExit = new Promise((resolve) => browser.once("exit", resolve));
 const results = [];
+let profileDir = null;
+let browser = null;
+let browserExit = Promise.resolve();
 try {
-  await waitForChrome();
+  const startFailures = [];
+  // Chrome occasionally fails to initialize on overloaded hosted runners.
+  // Always run the *full* browser matrix once Chrome is ready; retries only
+  // cover process startup, never a failed page or visual assertion.
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    profileDir = await mkdtemp(path.join(os.tmpdir(), "staff-payroll-chrome-"));
+    let browserStderr = "";
+    let spawnError = "";
+    browser = spawn(browserPath, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, "--no-first-run", "--disable-background-networking", "--disable-component-update", "--disable-default-apps", "--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+    browser.stderr.on("data", (chunk) => {
+      // Bound diagnostics to avoid flooding CI logs or artifacts.
+      browserStderr = (browserStderr + String(chunk)).slice(-3000);
+    });
+    browser.on("error", (error) => { spawnError = String(error); });
+    browserExit = new Promise((resolve) => {
+      browser.once("exit", resolve);
+      browser.once("error", resolve);
+    });
+    try {
+      await waitForChrome(browser);
+      break;
+    } catch (error) {
+      startFailures.push(`attempt ${attempt}/3: ${error.message}; spawn=${spawnError || "none"}; stderr=${browserStderr || "(empty)"}`);
+      browser.kill("SIGTERM");
+      await Promise.race([browserExit, delay(2000)]);
+      if (browser.exitCode === null && browser.signalCode === null) browser.kill("SIGKILL");
+      await rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      profileDir = null;
+      if (attempt === 3) {
+        throw new Error(`Chrome startup failed; full browser smoke was not run.\n${startFailures.join("\n")}`);
+      }
+      await delay(1000 * attempt);
+    }
+  }
   for (const viewport of viewports) {
     for (const [role, routes] of Object.entries(pages)) {
       for (const route of routes) {
@@ -528,13 +564,15 @@ try {
     }
   }
 } finally {
-  browser.kill("SIGTERM");
-  await Promise.race([browserExit, delay(5000)]);
-  if (browser.exitCode === null && browser.signalCode === null) {
-    browser.kill("SIGKILL");
-    await Promise.race([browserExit, delay(2000)]);
+  if (browser) {
+    browser.kill("SIGTERM");
+    await Promise.race([browserExit, delay(5000)]);
+    if (browser.exitCode === null && browser.signalCode === null) {
+      browser.kill("SIGKILL");
+      await Promise.race([browserExit, delay(2000)]);
+    }
   }
-  await rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  if (profileDir) await rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 console.log(JSON.stringify(results, null, 2));

@@ -30,6 +30,7 @@ class FinancialReadinessReadOnlyTests(unittest.TestCase):
                 );
                 CREATE TABLE payroll_items (
                     id INTEGER PRIMARY KEY, payroll_run_id INTEGER,
+                    employee_id INTEGER NOT NULL DEFAULT 1,
                     gross_pay REAL, total_deductions REAL, net_pay REAL,
                     sss_ee REAL DEFAULT 0, sss_er REAL DEFAULT 0, sss_ec REAL DEFAULT 0,
                     philhealth_ee REAL DEFAULT 0, philhealth_er REAL DEFAULT 0,
