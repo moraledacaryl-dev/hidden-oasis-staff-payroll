@@ -136,10 +136,11 @@ class Group15WorkerReliabilityTests(unittest.TestCase):
         self.assertEqual(set(self.statuses().values()), {"Processing"})
 
     def test_aborted_transaction_rolls_back_source_and_outbox(self) -> None:
+        self.conn.execute("CREATE TABLE group15_source (id INTEGER PRIMARY KEY, value TEXT)")
+        self.conn.commit()
         with self.assertRaisesRegex(RuntimeError, "simulate interrupted payroll"):
             self.conn.execute("BEGIN IMMEDIATE")
             try:
-                self.conn.execute("CREATE TABLE IF NOT EXISTS group15_source (id INTEGER PRIMARY KEY, value TEXT)")
                 self.conn.execute("INSERT INTO group15_source(id, value) VALUES(1, 'draft')")
                 outbox.enqueue_event(
                     self.conn, destination="accounting",
