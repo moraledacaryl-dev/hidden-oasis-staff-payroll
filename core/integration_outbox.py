@@ -46,9 +46,12 @@ DEFAULT_ENDPOINTS = {
 def ensure_integration_schema(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(integration_outbox)").fetchall()}
     if not columns:
+        # Two requests may observe a missing table before either finishes
+        # creating it. IF NOT EXISTS closes that metadata-check/create race
+        # without rewriting a concurrent writer's new outbox.
         conn.execute(
             """
-            CREATE TABLE integration_outbox (
+            CREATE TABLE IF NOT EXISTS integration_outbox (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 destination TEXT NOT NULL,
                 event_type TEXT NOT NULL,

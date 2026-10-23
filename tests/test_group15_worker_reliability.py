@@ -47,6 +47,35 @@ class Group15WorkerReliabilityTests(unittest.TestCase):
             )
         }
 
+    def test_schema_creation_is_safe_after_interleaved_metadata_check(self) -> None:
+        """Simulate another writer creating the outbox after an empty PRAGMA."""
+        existing_id = self.enqueue("inventory", "do-not-lose")
+
+        class StaleMetadataConnection:
+            def __init__(self, conn: sqlite3.Connection):
+                self._conn = conn
+                self.metadata_returned = False
+
+            def execute(self, sql, parameters=()):
+                if not self.metadata_returned and str(sql).strip() == "PRAGMA table_info(integration_outbox)":
+                    self.metadata_returned = True
+                    return self._conn.execute("SELECT 1 WHERE 0")
+                return self._conn.execute(sql, parameters)
+
+            def commit(self):
+                self._conn.commit()
+
+        interleaved = StaleMetadataConnection(self.conn)
+        outbox.ensure_integration_schema(interleaved)
+        self.assertTrue(interleaved.metadata_returned)
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT external_id FROM integration_outbox WHERE id=?",
+                (existing_id,),
+            ).fetchone()[0],
+            "do-not-lose",
+        )
+
     def test_core_worker_crash_does_not_strand_unattempted_batch(self) -> None:
         for index in range(4):
             self.enqueue("inventory", f"core-{index}")
