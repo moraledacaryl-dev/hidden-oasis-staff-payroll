@@ -194,15 +194,22 @@ def process_due_events(
     limit: int = 25,
     worker_id: str | None = None,
 ) -> dict[str, Any]:
-    rows = outbox.claim_events(conn, limit=limit, worker_id=worker_id)
-    results = [
-        _process_operations_event(conn, row)
-        if str(row.get("destination")) == "operations"
-        else outbox.process_claimed_event(conn, row)
-        for row in rows
-    ]
+    # At most one event is claimed before HTTP delivery. A restart or crash
+    # must not strand the entire batch as Processing. Do not automatically
+    # redeliver ambiguous in-flight events; those require operator review.
+    results: list[dict[str, Any]] = []
+    for _ in range(max(1, int(limit))):
+        claimed = outbox.claim_events(conn, limit=1, worker_id=worker_id)
+        if not claimed:
+            break
+        row = claimed[0]
+        results.append(
+            _process_operations_event(conn, row)
+            if str(row.get("destination")) == "operations"
+            else outbox.process_claimed_event(conn, row)
+        )
     return {
-        "claimed": len(rows),
+        "claimed": len(results),
         "completed": sum(result["status"] == outbox.STATUS_COMPLETED for result in results),
         "failed": sum(result["status"] == outbox.STATUS_RETRY for result in results),
         "dead_letter": sum(result["status"] == outbox.STATUS_DEAD_LETTER for result in results),

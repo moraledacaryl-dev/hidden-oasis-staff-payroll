@@ -587,10 +587,19 @@ def process_claimed_event(conn: sqlite3.Connection, row: dict[str, Any], *, time
 
 
 def process_due_events(conn: sqlite3.Connection, *, limit: int = 25, worker_id: str | None = None) -> dict[str, Any]:
-    rows = claim_events(conn, limit=limit, worker_id=worker_id)
-    results = [process_claimed_event(conn, row) for row in rows]
+    # Claim only the next event just before delivery. Claiming an entire batch
+    # up front leaves every unattempted row in Processing if the process dies
+    # during a slow HTTP request or deployment restart. We deliberately do
+    # not auto-replay a claimed event after an unknown delivery outcome:
+    # downstream financial effects require explicit evidence and review.
+    results: list[dict[str, Any]] = []
+    for _ in range(max(1, int(limit))):
+        rows = claim_events(conn, limit=1, worker_id=worker_id)
+        if not rows:
+            break
+        results.append(process_claimed_event(conn, rows[0]))
     return {
-        "claimed": len(rows),
+        "claimed": len(results),
         "completed": sum(result["status"] == STATUS_COMPLETED for result in results),
         "failed": sum(result["status"] == STATUS_RETRY for result in results),
         "dead_letter": sum(result["status"] == STATUS_DEAD_LETTER for result in results),
