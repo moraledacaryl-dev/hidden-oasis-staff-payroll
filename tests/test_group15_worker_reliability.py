@@ -163,5 +163,106 @@ class Group15WorkerReliabilityTests(unittest.TestCase):
         )
 
 
+class Group15ConcurrentRepaymentTests(unittest.TestCase):
+    """Real SQLite concurrent payment posts; no HTTP calls or production DB."""
+
+    def setUp(self) -> None:
+        from api.cash_advance_service import ensure_schema
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "concurrent_repayments.sqlite"
+        conn = get_conn(self.path)
+        try:
+            conn.execute("CREATE TABLE payroll_runs (id INTEGER PRIMARY KEY, status TEXT)")
+            conn.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT)")
+            conn.execute(
+                "CREATE TABLE employees (id INTEGER PRIMARY KEY, employee_code TEXT, "
+                "full_name TEXT, department TEXT, position TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO employees(id,employee_code,full_name,department,position) "
+                "VALUES(1,'G15','Concurrent Employee','Ops','Staff')"
+            )
+            ensure_schema(conn)
+            self.advance_id = int(conn.execute(
+                """INSERT INTO cash_advances(
+                    employee_id,advance_date,request_date,amount,repayment_method,
+                    deduction_per_payroll,repayment_per_cutoff,remaining_balance,
+                    outstanding_balance,ledger_opening_balance,status
+                ) VALUES(1,'2026-10-23','2026-10-23',100,'Manual repayment',0,0,100,100,100,'Active')"""
+            ).lastrowid)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _concurrent_payments(self, *, same_key: bool, amount: float):
+        from uuid import uuid4
+        from api.cash_repayments import ManualRepaymentPayload, record_manual_repayment
+        from fastapi import HTTPException
+
+        shared = str(uuid4())
+        keys = [shared, shared if same_key else str(uuid4())]
+        barrier = threading.Barrier(2, timeout=10)
+
+        def request(key: str):
+            payload = ManualRepaymentPayload(
+                amount=amount, repayment_date="2026-10-23",
+                payment_method="GCash", reference="concurrent-receipt",
+                notes="concurrency test", idempotency_key=key,
+            )
+            barrier.wait()
+            try:
+                return record_manual_repayment(
+                    self.advance_id, payload, authorization="Bearer test", x_api_key=None,
+                )
+            except HTTPException as exc:
+                return {"error_status": exc.status_code}
+
+        with (
+            patch(
+                "api.cash_repayments.require_cash_advance_editor",
+                return_value={"display_name": "Owner", "role_key": "owner"},
+            ),
+            patch(
+                "api.cash_repayments.get_conn",
+                side_effect=lambda _: get_conn(self.path),
+            ),
+        ):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(request, key) for key in keys]
+                return [future.result(timeout=35) for future in futures]
+
+    def _counts(self) -> tuple[int, int, float]:
+        conn = get_conn(self.path)
+        try:
+            repayments = conn.execute(
+                "SELECT COUNT(*) FROM cash_advance_repayments"
+            ).fetchone()[0]
+            outbox = conn.execute(
+                "SELECT COUNT(*) FROM integration_outbox "
+                "WHERE event_type='cash_advance.repaid'"
+            ).fetchone()[0]
+            balance = conn.execute(
+                "SELECT remaining_balance FROM cash_advances WHERE id=?",
+                (self.advance_id,),
+            ).fetchone()[0]
+            return int(repayments), int(outbox), float(balance)
+        finally:
+            conn.close()
+
+    def test_same_key_concurrent_requests_apply_once(self) -> None:
+        results = self._concurrent_payments(same_key=True, amount=30)
+        self.assertEqual(len([r for r in results if r.get("already_recorded") is False]), 1)
+        self.assertEqual(len([r for r in results if r.get("already_recorded") is True]), 1)
+        self.assertEqual(len({r["repayment_id"] for r in results}), 1)
+        self.assertEqual(self._counts(), (1, 1, 70.0))
+
+    def test_distinct_concurrent_requests_cannot_overpay(self) -> None:
+        results = self._concurrent_payments(same_key=False, amount=60)
+        self.assertEqual(len([r for r in results if r.get("already_recorded") is False]), 1)
+        self.assertEqual(len([r for r in results if r.get("error_status") == 422]), 1)
+        self.assertEqual(self._counts(), (1, 1, 40.0))
+
+
 if __name__ == "__main__":
     unittest.main()
