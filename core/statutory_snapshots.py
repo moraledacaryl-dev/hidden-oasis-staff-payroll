@@ -4,6 +4,7 @@ from datetime import date
 from typing import Any, Mapping
 
 from .money import money
+from .statutory_legacy_history import legacy_paid_first_half_evidence
 
 
 def ensure_statutory_snapshot_schema(conn: Any) -> None:
@@ -121,18 +122,26 @@ def assert_prior_month_statutory_coverage(
                     AND sm.month_start=?
               )
             ORDER BY pr.period_start, pr.id
-            LIMIT 1
             """,
             (
                 employee_id, run_id, segment.start.isoformat(),
                 segment.month_end.isoformat(), segment.month_start.isoformat(),
                 segment.month_start.isoformat(),
             ),
-        ).fetchone()
-        if earlier is not None:
+        ).fetchall()
+        # A historically Paid operational first-half (previous month's final
+        # day through this month's 14th) predates the snapshot migration.
+        # Its intact payroll item is reliable *withholding* evidence without
+        # modifying it; all other missing histories still block the Draft.
+        legacy = legacy_paid_first_half_evidence(
+            conn, employee_id, segment.month_start, segment.start
+        )
+        for earlier_run in earlier:
+            if legacy is not None and int(earlier_run[0]) == int(legacy["run_id"]):
+                continue
             raise ValueError(
                 "Earlier payroll run #"
-                + str(earlier[0])
+                + str(earlier_run[0])
                 + " lacks a statutory snapshot for "
                 + segment.month_start.isoformat()[:7]
                 + "; reconcile original payroll evidence before creating a later Draft"
@@ -229,13 +238,21 @@ def previous_month_snapshot_totals(
     def total(column: str) -> float:
         return sum(float(row[column] or 0) for row in rows)
 
+    # Historical Paid cross-month first halves had no monthly snapshot table.
+    # Deduct exactly what was recorded as withheld on the already-Paid item,
+    # instead of charging the employee the full monthly contribution again.
+    # The compatibility source is deliberately narrower than general history.
+    legacy = legacy_paid_first_half_evidence(
+        conn, employee_id, month_start, before_date
+    )
+    legacy = legacy or {}
     return {
-        "gross": total("gross_pay"),
-        "sss": total("sss_ee"),
-        "philhealth": total("philhealth_ee"),
-        "pagibig": total("pagibig_ee"),
-        "sss_er": total("sss_er"),
-        "sss_ec": total("sss_ec"),
-        "philhealth_er": total("philhealth_er"),
-        "pagibig_er": total("pagibig_er"),
+        "gross": money(total("gross_pay") + float(legacy.get("gross", 0))),
+        "sss": money(total("sss_ee") + float(legacy.get("sss", 0))),
+        "philhealth": money(total("philhealth_ee") + float(legacy.get("philhealth", 0))),
+        "pagibig": money(total("pagibig_ee") + float(legacy.get("pagibig", 0))),
+        "sss_er": money(total("sss_er") + float(legacy.get("sss_er", 0))),
+        "sss_ec": money(total("sss_ec") + float(legacy.get("sss_ec", 0))),
+        "philhealth_er": money(total("philhealth_er") + float(legacy.get("philhealth_er", 0))),
+        "pagibig_er": money(total("pagibig_er") + float(legacy.get("pagibig_er", 0))),
     }
