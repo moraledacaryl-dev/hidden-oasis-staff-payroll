@@ -79,8 +79,11 @@ def apply_calendar_month_statutory(
         if cutoff_gross <= 0.005:
             continue
         prev = previous_month_snapshot_totals(conn, employee_id, segment.month_start, segment.start)
-        legacy = legacy_paid_first_half_evidence(
-            conn, employee_id, segment.month_start, segment.start
+        legacy = (
+            legacy_paid_first_half_evidence(
+                conn, employee_id, segment.month_start, segment.start
+            )
+            if conn is not None else None
         )
         if legacy is not None:
             # This is an audit-visible compatibility source, not a new or
