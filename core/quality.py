@@ -6,7 +6,7 @@ from typing import Any
 import sqlite3
 
 from .db import fetchall, fetchone
-from .schedule_source import trusted_scheduled_workdays
+from .schedule_source import table_exists, trusted_scheduled_workdays
 
 
 CLEARED_ATTENDANCE_STATUSES = {"approved", "reviewed", "on-time", "on time"}
@@ -38,6 +38,24 @@ def canonical_attendance_review_items(
         period_start,
         period_end,
     )
+
+    # Explicit rest days take precedence over imported empty time-log placeholders.
+    # Only the attendance display/preflight is filtered here; nothing is deleted.
+    rest_day_keys: set[tuple[int, str]] = set()
+    if table_exists(conn, "schedule_day_markers"):
+        rest_day_keys = {
+            (int(row["employee_id"]), str(row["work_date"])[:10])
+            for row in fetchall(
+                conn,
+                """
+                SELECT employee_id, work_date
+                FROM schedule_day_markers
+                WHERE marker_type='Rest Day' AND active=1
+                  AND date(work_date) BETWEEN date(?) AND date(?)
+                """,
+                (period_start, period_end),
+            )
+        }
 
     scheduled_shift_ids = {
         int(row.get("scheduled_shift_id") or 0)
@@ -152,16 +170,48 @@ def canonical_attendance_review_items(
             else (employee_id, work_date) in scheduled_day_keys
         )
 
-        has_actual_evidence = bool(
-            canonical.get("actual_in")
-            or canonical.get("actual_out")
-            or int(canonical.get("is_absent") or 0) == 1
-            or str(canonical.get("absence_type") or "").strip()
-            or str(canonical.get("notes") or "").strip()
+        # Evaluate the whole canonical group so an older punch or OT request
+        # cannot be hidden by a newer empty placeholder.
+        has_punch = any(
+            str(row.get("actual_in") or "").strip()
+            or str(row.get("actual_out") or "").strip()
+            for row in rows_for_key
+        )
+        has_ot = any(
+            str(row.get("ot_status") or "").strip().lower() == "pending"
+            or float(row.get("approved_ot_hours") or 0) > 0
+            or float(row.get("detected_ot_hours") or 0) > 0
+            for row in rows_for_key
+        )
+        has_recorded_absence = any(
+            int(row.get("is_absent") or 0) == 1
+            or str(row.get("absence_type") or "").strip()
+            for row in rows_for_key
+        )
+        rest_day = (employee_id, work_date) in rest_day_keys
+        absence_is_rest_day = (
+            str(canonical.get("absence_type") or "").strip().lower() == "rest day"
         )
 
-        # Only discard a truly empty orphan placeholder. Imported punches,
-        # absences, notes, or scheduled rows must remain visible.
+        # A marked rest day (or an explicit legacy Rest Day classification)
+        # with no work/OT is normal, even if an import incorrectly tagged the
+        # empty row as absent or attached a "Needs Review" note.
+        if (
+            not has_schedule
+            and not has_punch
+            and not has_ot
+            and (rest_day or absence_is_rest_day)
+        ):
+            continue
+
+        # An unscheduled, unpunched generic placeholder is not an exception.
+        # Keep explicit absences and correction/dispute records, even if empty.
+        has_actual_evidence = bool(
+            has_punch
+            or has_ot
+            or has_recorded_absence
+            or (status in {"needs correction", "rejected"} and str(canonical.get("notes") or "").strip())
+        )
         if not has_schedule and not has_actual_evidence:
             continue
 
