@@ -1,0 +1,58 @@
+name: Staff Storage Recovery (Guarded)
+on:
+  push:
+    branches:
+      - ops/staff-storage-diagnostic-20261031
+    paths:
+      - .github/workflows/staff-storage-recovery-20261031.yml
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Reclaim only guarded inactive Staff release and build caches
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          command_timeout: 12m
+          script: |
+            set -euo pipefail
+            ROOT_SCRIPT="$(mktemp /tmp/staff-storage-recovery.XXXXXX)"
+            trap 'rm -f "$ROOT_SCRIPT"' EXIT
+            cat > "$ROOT_SCRIPT" <<'STAFF_RECOVERY'
+            #!/usr/bin/env bash
+            set -euo pipefail
+            RELEASE_SCRIPT=/root/repos/hidden-oasis-staff-payroll/scripts/prune_runtime_releases.sh
+            [[ -f "$RELEASE_SCRIPT" ]]
+            [[ -d /opt/hiddenoasis/staff-payroll/releases ]]
+            [[ -f /var/lib/hiddenoasis/staff-payroll/deployed-sha ]]
+            active="$(readlink -f /opt/hiddenoasis/staff-payroll/current)"
+            [[ -d "$active" && "$active" == /opt/hiddenoasis/staff-payroll/releases/* ]]
+            [[ "$(basename "$active")" == "$(cat /var/lib/hiddenoasis/staff-payroll/deployed-sha)" ]]
+            echo "CURRENT_RELEASE_VERIFIED $(basename "$active")"
+            echo 'BEFORE SAFE CLEANUP'
+            df -h /
+            # Use the repo's tested release pruning script, not ad-hoc rm.
+            # It preserves the active release and at least one rollback.
+            STAFF_PAYROLL_RELEASE_KEEP_COUNT=2 bash "$RELEASE_SCRIPT"
+            echo 'CLEARING REGENERABLE ROOT BUILD CACHES'
+            python3 -m pip cache purge || true
+            npm cache clean --force
+            echo 'AFTER SAFE CLEANUP'
+            df -h /
+            [[ -d "$active" ]]
+            [[ "$(readlink -f /opt/hiddenoasis/staff-payroll/current)" == "$active" ]]
+            [[ "$(cat /var/lib/hiddenoasis/staff-payroll/deployed-sha)" == "$(basename "$active")" ]]
+            echo 'STAFF_STORAGE_RECOVERY_PASS'
+            STAFF_RECOVERY
+            chmod 0600 "$ROOT_SCRIPT"
+            if [[ "$(id -u)" == 0 ]]; then
+              bash "$ROOT_SCRIPT"
+            else
+              sudo -n bash "$ROOT_SCRIPT"
+            fi
