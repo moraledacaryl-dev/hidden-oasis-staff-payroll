@@ -63,6 +63,24 @@ jobs:
                 n = (conn.execute("SELECT count(*) FROM payroll_statutory_months WHERE payroll_run_id=? AND month_start='2026-10-01'",(r["id"],)).fetchone()[0] if has_months else -1)
                 withhold = conn.execute("""SELECT sum(CASE WHEN pagibig_ee>0 THEN 1 ELSE 0 END),sum(CASE WHEN philhealth_ee>0 THEN 1 ELSE 0 END),sum(CASE WHEN sss_ee>0 THEN 1 ELSE 0 END) FROM payroll_items WHERE payroll_run_id=?""",(r["id"],)).fetchone()
                 print("RUN period={}..{} state={} superseded={} staff_count={} oct_snap_count={} positive_ee_counts={}/{}/{}".format(r["period_start"], r["period_end"],r["status"],int(r["superseded_by_run_id"] is not None),r["employee_count"],n,*(int(v or 0) for v in withhold)))
+            for r in first:
+                allsnaps=conn.execute("SELECT count(*) FROM payroll_statutory_months WHERE payroll_run_id=?",(r["id"],)).fetchone()[0] if has_months else -1
+                pi_rate=float(conn.execute("SELECT value FROM app_settings WHERE key='pagibig_rate'").fetchone()[0] or .02)
+                pi_ceiling=float(conn.execute("SELECT value FROM app_settings WHERE key='pagibig_ceiling'").fetchone()[0] or 10000)
+                ph_rate=float(conn.execute("SELECT value FROM app_settings WHERE key='philhealth_rate'").fetchone()[0] or .05)
+                ph_floor=float(conn.execute("SELECT value FROM app_settings WHERE key='philhealth_floor'").fetchone()[0] or 10000)
+                ph_ceiling=float(conn.execute("SELECT value FROM app_settings WHERE key='philhealth_ceiling'").fetchone()[0] or 100000)
+                emps=conn.execute("SELECT pi.pagibig_ee,pi.philhealth_ee,e.declared_monthly_base FROM payroll_items pi JOIN employees e ON pi.employee_id=e.id WHERE pi.payroll_run_id=?",(r["id"],)).fetchall()
+                pi_half=pi_full=ph_half=ph_full=0
+                for e in emps:
+                    declared=float(e["declared_monthly_base"] or 0)
+                    pi_target=min(declared,pi_ceiling)*pi_rate
+                    ph_target=min(max(declared or ph_floor,ph_floor),ph_ceiling)*ph_rate/2
+                    pi_half+=int(pi_target>0 and abs(float(e["pagibig_ee"] or 0)-pi_target/2)<.02)
+                    pi_full+=int(pi_target>0 and abs(float(e["pagibig_ee"] or 0)-pi_target)<.02)
+                    ph_half+=int(abs(float(e["philhealth_ee"] or 0)-ph_target/2)<.02)
+                    ph_full+=int(abs(float(e["philhealth_ee"] or 0)-ph_target)<.02)
+                print("FIRST_RUN_LEGACY_CHECK all_month_snapshots={} pi_half={} pi_full={} ph_half={} ph_full={}".format(allsnaps,pi_half,pi_full,ph_half,ph_full))
             print("ACTIVE_FIRST_RUNS={} ACTIVE_SECOND_RUNS={}".format(len(first),len(second)))
             for r in second:
                 sitems = conn.execute("SELECT employee_id,pagibig_ee,philhealth_ee,sss_ee FROM payroll_items WHERE payroll_run_id=?",(r["id"],)).fetchall()
