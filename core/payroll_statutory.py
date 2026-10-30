@@ -7,6 +7,7 @@ from .db import get_setting
 from .money import money
 from .statutory_periods import calendar_month_segments
 from .statutory_snapshots import previous_month_snapshot_totals
+from .statutory_legacy_history import legacy_paid_first_half_evidence
 
 
 def _segment_target_fraction(segment: Any) -> float:
@@ -78,6 +79,24 @@ def apply_calendar_month_statutory(
         if cutoff_gross <= 0.005:
             continue
         prev = previous_month_snapshot_totals(conn, employee_id, segment.month_start, segment.start)
+        legacy = (
+            legacy_paid_first_half_evidence(
+                conn, employee_id, segment.month_start, segment.start
+            )
+            if conn is not None else None
+        )
+        if legacy is not None:
+            # This is an audit-visible compatibility source, not a new or
+            # edited payroll deduction. Keep the original Paid run untouched.
+            note = (
+                f"{segment.month_start:%Y-%m} statutory carry-forward uses "
+                "recorded deductions from the earlier Paid first-half payroll "
+                "without monthly snapshots; verify historic withholding."
+            )
+            if result.warnings is None:
+                result.warnings = []
+            if note not in result.warnings:
+                result.warnings.append(note)
 
         if int(emp.get("benefits_sss") or 0):
             target_ee, target_er, target_ec = get_sss_share(conn, prev["gross"] + cutoff_gross)
