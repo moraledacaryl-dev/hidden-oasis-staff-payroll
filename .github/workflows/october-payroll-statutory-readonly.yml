@@ -1,0 +1,90 @@
+name: October Payroll Statutory Diagnostic (Read Only)
+on:
+  push:
+    branches: [ops/october-statutory-readonly-20261031]
+    paths: [.github/workflows/october-payroll-statutory-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Inspect cutoff payroll states and statutory snapshot coverage, no PII
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            if [[ "$(id -u)" != 0 ]]; then
+              exec sudo -n bash -c 'set -euo pipefail; source /etc/hiddenoasis/staff-payroll.env; python3 - <<'"'"'PY'"'"'
+            import os, sqlite3
+            from pathlib import Path
+            from urllib.parse import quote
+            path = Path(os.environ["STAFF_PAYROLL_DB_PATH"]).resolve()
+            uri = "file:" + quote(str(path)) + "?mode=ro"
+            conn = sqlite3.connect(uri, uri=True, timeout=15)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only=ON")
+            inspect(conn)
+            PY'
+            fi
+            set -a
+            source /etc/hiddenoasis/staff-payroll.env
+            set +a
+            python3 - <<'PY'
+            import os, sqlite3
+            from pathlib import Path
+            from urllib.parse import quote
+            from datetime import date
+            path = Path(os.environ["STAFF_PAYROLL_DB_PATH"]).resolve()
+            conn = sqlite3.connect("file:" + quote(str(path)) + "?mode=ro", uri=True, timeout=15)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only=ON")
+            def table_exists(name):
+                return bool(conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+            has_months = table_exists("payroll_statutory_months")
+            run_rows = conn.execute("""
+              SELECT pr.id, pr.period_start, pr.period_end, pr.status, pr.superseded_by_run_id,
+                (SELECT count(*) FROM payroll_items pi WHERE pi.payroll_run_id=pr.id) AS employee_count
+              FROM payroll_runs pr
+              WHERE pr.period_start <= '2026-10-30' AND pr.period_end >= '2026-09-30'
+              ORDER BY pr.period_start, pr.id
+            """).fetchall()
+            print("OCTOBER_CUTOFF_RUNS count=" + str(len(run_rows)))
+            recognized = ("For Owner Review","Reviewed","Approved","Paid","Locked")
+            first = [r for r in run_rows if r["period_end"] <= "2026-10-14" and r["period_end"] >= "2026-10-01" and r["superseded_by_run_id"] is None]
+            second = [r for r in run_rows if r["period_start"] >= "2026-10-15" and r["period_start"] <= "2026-10-30" and r["superseded_by_run_id"] is None]
+            for r in run_rows:
+                n = (conn.execute("SELECT count(*) FROM payroll_statutory_months WHERE payroll_run_id=? AND month_start='2026-10-01'",(r["id"],)).fetchone()[0] if has_months else -1)
+                withhold = conn.execute("""SELECT sum(CASE WHEN pagibig_ee>0 THEN 1 ELSE 0 END),sum(CASE WHEN philhealth_ee>0 THEN 1 ELSE 0 END),sum(CASE WHEN sss_ee>0 THEN 1 ELSE 0 END) FROM payroll_items WHERE payroll_run_id=?""",(r["id"],)).fetchone()
+                print("RUN period={}..{} state={} superseded={} staff_count={} oct_snap_count={} positive_ee_counts={}/{}/{}".format(r["period_start"], r["period_end"],r["status"],int(r["superseded_by_run_id"] is not None),r["employee_count"],n,*(int(v or 0) for v in withhold)))
+            print("ACTIVE_FIRST_RUNS={} ACTIVE_SECOND_RUNS={}".format(len(first),len(second)))
+            for r in second:
+                sitems = conn.execute("SELECT employee_id,pagibig_ee,philhealth_ee,sss_ee FROM payroll_items WHERE payroll_run_id=?",(r["id"],)).fetchall()
+                prior_count = 0
+                zero_history_with_first_deduction = 0
+                no_prior_snapshot = 0
+                doubled_pi = doubled_ph = 0
+                for s in sitems:
+                    prior = conn.execute("""SELECT sm.pagibig_ee,sm.philhealth_ee,sm.sss_ee FROM payroll_statutory_months sm JOIN payroll_runs pr ON pr.id=sm.payroll_run_id WHERE sm.employee_id=? AND sm.month_start='2026-10-01' AND pr.period_start<'2026-10-15' AND pr.status IN ('For Owner Review','Reviewed','Approved','Paid','Locked') AND pr.superseded_by_run_id IS NULL""",(s["employee_id"],)).fetchall() if has_months else []
+                    prior_count += int(bool(prior))
+                    allfirst = conn.execute("""SELECT pi.pagibig_ee,pi.philhealth_ee,pi.sss_ee FROM payroll_items pi JOIN payroll_runs pr ON pr.id=pi.payroll_run_id WHERE pi.employee_id=? AND pr.period_end<='2026-10-14' AND pr.period_end>='2026-10-01' AND pr.superseded_by_run_id IS NULL""",(s["employee_id"],)).fetchall()
+                    prevpi=sum(float(x["pagibig_ee"] or 0) for x in allfirst)
+                    prevph=sum(float(x["philhealth_ee"] or 0) for x in allfirst)
+                    if not prior and allfirst and (prevpi>0 or prevph>0):
+                        zero_history_with_first_deduction+=1
+                    if not prior:
+                        no_prior_snapshot+=1
+                    if prevpi>0 and abs(float(s["pagibig_ee"] or 0)-2*prevpi)<0.01:
+                        doubled_pi+=1
+                    if prevph>0 and abs(float(s["philhealth_ee"] or 0)-2*prevph)<0.01:
+                        doubled_ph+=1
+                print("SECOND_RUN_COMPARE staff={} recognized_prior_snapshots={} missing_recognized_prior={} missing_despite_first_positive={} second_equal_twice_first_pi={} second_equal_twice_first_ph={}".format(len(sitems),prior_count,no_prior_snapshot,zero_history_with_first_deduction,doubled_pi,doubled_ph))
+            conn.close()
+            print("OCTOBER_STATUTORY_DIAGNOSTIC_READONLY_PASS")
+            PY
