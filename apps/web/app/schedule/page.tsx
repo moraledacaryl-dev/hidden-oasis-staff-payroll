@@ -38,13 +38,13 @@ function Kpi({ icon, label, value, foot, badge, warning = false }: { icon: React
   return <section className={styles.kpi}><div className={styles.kpiTop}><span className={styles.kpiIcon}>{icon}</span>{badge ? <span className={`${styles.kpiBadge} ${warning ? styles.kpiBadgeWarning : ""}`}>{badge}</span> : null}</div><span className={styles.kpiLabel}>{label}</span><strong className={styles.kpiValue}>{value}</strong><span className={styles.kpiFoot}>{foot}</span></section>;
 }
 
-export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ week_start?: string; department?: string; position?: string; employee_id?: string }> }) {
+export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ week_start?: string; day?: string; department?: string; position?: string; employee_id?: string }> }) {
   const session = await currentSession();
   if (!session) redirect("/login");
   if (!["owner", "payroll", "supervisor"].includes(session.role_key)) return <Shell allowedRoles={["owner", "payroll", "supervisor"]}><div /></Shell>;
 
   const params = await searchParams;
-  const weekStart = params.week_start || mondayOfWeek();
+  const weekStart = params.week_start || (params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? mondayOfWeek(params.day) : mondayOfWeek());
   const selectedDepartment = params.department || "all";
   const selectedPosition = params.position || "all";
   const selectedEmployeeId = params.employee_id || "all";
@@ -77,6 +77,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
   }, {});
 
   const days = Array.from({ length: 7 }, (_, i) => addIsoDays(week.week_start, i));
+  const selectedDay = params.day && days.includes(params.day) ? params.day : undefined;
   const previousWeekStart = addWeek(week.week_start, -1);
   const enrichedItems: ScheduleShift[] = dedupedWeekItems.map((item) => {
     const employeeDateKey = actualKey(item.employee_id, item.shift_date);
@@ -168,7 +169,7 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
           </details>
         </section>
 
-        <section className={styles.scheduleMatrix} id="schedule-grid"><div className={styles.boardScroll}><ScheduleBoardClient days={days} shifts={filteredItems} employees={boardEmployees} canEdit /></div></section>
+        <section className={styles.scheduleMatrix} id="schedule-grid"><div className={styles.boardScroll}><ScheduleBoardClient days={days} shifts={filteredItems} employees={boardEmployees} canEdit initialDay={selectedDay} /></div></section>
 
         {selectedEmployee ? <section className="card"><div className="panel-title"><h2>{selectedEmployee.full_name}</h2><Link className="primary-link" href={filterHref(selectedDepartment, selectedPosition, "all")}>Clear employee</Link></div><div className="table-wrap"><table className={styles.employeeScheduleTable}><thead><tr><th>Day</th><th>Scheduled</th><th>Actual</th><th>Hours</th><th>Notes</th></tr></thead><tbody>{selectedEmployeeRows.map(({ day, shifts }) => <tr key={day}><td><strong>{formatIsoDay(day)}</strong><br /><span className="muted">{day}</span></td><td>{shifts.length ? shifts.map((shift) => <div className={styles.quickShift} key={shift.id}><strong>{shift.start_time}–{shift.end_time}{shift.is_overnight ? " +1" : ""}</strong><span>{shift.position}</span></div>) : <span className="muted">Rest Day / No Shift</span>}</td><td>{shifts.length ? shifts.map((shift) => <div className={styles.quickShift} key={shift.id}><strong>{actualText(shift)}</strong><span>{shift.actual_status || (shift.actual_source === "legacy_schedule" ? "Approved · legacy" : "No actual yet")}</span></div>) : <span className="muted">—</span>}</td><td>{shifts.length ? `${numberText(shifts.reduce((sum, shift) => sum + Number(shift.planned_paid_hours || 0), 0))} hrs scheduled` : "—"}</td><td>{uniqueText(shifts.map((shift) => shift.actual_notes || shift.notes)) || "—"}</td></tr>)}</tbody></table></div></section> : null}
 
