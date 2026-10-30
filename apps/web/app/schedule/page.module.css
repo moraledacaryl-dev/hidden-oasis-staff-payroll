@@ -14,3 +14,13 @@
   .publishInline :global(.action-row){display:grid;grid-template-columns:minmax(0,1fr)}
   .publishInline :global(.button){width:auto;min-width:0;max-width:100%;box-sizing:border-box}
 }
+
+/* On phones the desktop matrix is hidden. Allow the daily cards to participate
+   in normal document scrolling instead of trapping gestures in a nested scroller. */
+@media screen and (max-width:720px) {
+  .boardScroll { overflow: visible; overscroll-behavior: auto; touch-action: pan-y; }
+  .phoneDateControls { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; min-width: 0; }
+  .phoneDateControls label { grid-column: 1 / -1; display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 13px; font-weight: 700; }
+  .phoneDateControls input { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); }
+  .phoneDateControls button { min-width: 0; width: 100%; min-height: 44px; white-space: normal; }
+}
