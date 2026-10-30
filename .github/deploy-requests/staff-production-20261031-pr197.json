@@ -1,0 +1,7 @@
+{
+  "release_sha": "f81d5bd0127fbe3454d51d5b8f818612a149e1aa",
+  "target_environment": "production",
+  "source_pull_request": 197,
+  "purpose": "User-authorized fix for rest-day Needs Review noise and mobile schedule date navigation",
+  "financial_data_changes_authorized": false
+}
