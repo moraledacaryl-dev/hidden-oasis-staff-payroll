@@ -7,7 +7,7 @@ import { copyScheduledShift, moveScheduledShift } from "@/app/schedule/actions";
 import { ConfirmActionModal } from "@/components/ConfirmActionModal";
 import { AppModal } from "@/components/AppSurface";
 import { ScheduleDayEditorModal, type ScheduleDayBundle } from "@/components/ScheduleDayEditorModal";
-import { formatIsoDay, todayInManilaIso } from "@/lib/period";
+import { addIsoDays, formatIsoDay, mondayOfWeek, todayInManilaIso } from "@/lib/period";
 import type { ScheduleEmployee, ScheduleLeaveStatus, ScheduleRestDay, ScheduleShift } from "@/lib/schedule-types";
 import styles from "@/app/schedule/page.module.css";
 import restStyles from "./ScheduleRestDay.module.css";
@@ -17,7 +17,7 @@ type EditorState = { day: string; shift: ScheduleShift | null; employeeId?: numb
 type ValidationIssue = { tone: "error" | "warning"; message: string };
 type DropPrompt = { source: ScheduleShift; targetDay: string; targetEmployeeId: number | null; targetEmployeeName: string; issues: ValidationIssue[] };
 type ClearPrompt = { employeeId: number; workDate: string };
-type Props = { days: string[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; canEdit: boolean };
+type Props = { days: string[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; canEdit: boolean; initialDay?: string };
 type FloatingHeader = { visible: boolean; left: number; width: number; scrollLeft: number };
 
 function numberText(value: number | null | undefined, digits = 2): string { return Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: digits, maximumFractionDigits: digits }); }
@@ -31,10 +31,10 @@ function dateTime(day: string, time: string) { return new Date(`${day}T${time.le
 function intervalFor(shift: Pick<ScheduleShift, "shift_date" | "start_time" | "end_time">, overrideDay?: string) { const day = overrideDay || shift.shift_date; const start = dateTime(day, shift.start_time); const end = dateTime(day, shift.end_time); if (end <= start) end.setDate(end.getDate() + 1); return { start, end }; }
 function overlaps(a: { start: Date; end: Date }, b: { start: Date; end: Date }) { return a.start < b.end && b.start < a.end; }
 
-export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props) {
+export function ScheduleBoardClient({ days, shifts, employees, canEdit, initialDay }: Props) {
   const router = useRouter();
   const matrixRef = useRef<HTMLDivElement | null>(null);
-  const [phoneDay, setPhoneDay] = useState(days.includes(todayInManilaIso()) ? todayInManilaIso() : days[0]);
+  const [phoneDay, setPhoneDay] = useState(initialDay && days.includes(initialDay) ? initialDay : days.includes(todayInManilaIso()) ? todayInManilaIso() : days[0]);
   const selectedPhoneDay = days.includes(phoneDay) ? phoneDay : days[0];
   const [localShifts, setLocalShifts] = useState(shifts);
   const [dragId, setDragId] = useState<number | null>(null);
@@ -50,6 +50,22 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => setLocalShifts(shifts), [shifts]);
+  useEffect(() => {
+    setPhoneDay(initialDay && days.includes(initialDay) ? initialDay : days.includes(todayInManilaIso()) ? todayInManilaIso() : days[0]);
+  }, [days, initialDay]);
+
+  function choosePhoneDay(nextDay: string) {
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(nextDay)) return;
+    if (days.includes(nextDay)) {
+      setPhoneDay(nextDay);
+      return;
+    }
+    // Preserve employee/department/position filters while crossing week boundaries.
+    const params = new URLSearchParams(window.location.search);
+    params.set("week_start", mondayOfWeek(nextDay));
+    params.set("day", nextDay);
+    router.push(`/schedule?${params.toString()}#schedule-grid`);
+  }
   const loadDayStates = useCallback(() => { if (!days[0]) return Promise.resolve(); return Promise.all([fetch(`/api/schedule/rest-days?week_start=${encodeURIComponent(days[0])}`, { cache: "no-store" }).then((response) => response.json()), fetch(`/api/schedule/leave-statuses?week_start=${encodeURIComponent(days[0])}`, { cache: "no-store" }).then((response) => response.json())]).then(([restData, leaveData]) => { setRestDays(restData.ok ? restData.items || [] : []); setLeaveStatuses(leaveData.ok ? leaveData.items || [] : []); }).catch(() => { setRestDays([]); setLeaveStatuses([]); }); }, [days]);
   useEffect(() => { void loadDayStates(); }, [loadDayStates]);
   useEffect(() => { if (!dropPrompt) return; function closeOnEscape(event: KeyboardEvent) { if (event.key === "Escape") setDropPrompt(null); } document.addEventListener("keydown", closeOnEscape); return () => document.removeEventListener("keydown", closeOnEscape); }, [dropPrompt]);
@@ -126,7 +142,13 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit }: Props)
     {(isPending || message) ? <div className={styles.boardHint}>{isPending ? "Saving…" : message}</div> : null}
     {selectedShiftId ? <div className={dnd.selectionBar}><span>Select a destination cell for the chosen shift.</span><div><button className="button small" type="button" onClick={() => setSelectedShiftId(null)}>Cancel selection</button></div></div> : null}
     <section className="schedule-phone-view" aria-label="Daily schedule">
-      <label>Schedule day<select value={selectedPhoneDay} onChange={(event) => setPhoneDay(event.target.value)}>{days.map((day) => <option key={day} value={day}>{formatIsoDay(day)}</option>)}</select></label>
+      <div className={styles.phoneDateControls}>
+        <label htmlFor="schedule-phone-date">Choose any date
+          <input id="schedule-phone-date" aria-label="Choose schedule date" type="date" value={selectedPhoneDay} onChange={(event) => choosePhoneDay(event.target.value)} />
+        </label>
+        <button className="button secondary" type="button" onClick={() => choosePhoneDay(addIsoDays(selectedPhoneDay, -1))}>‹ Previous day</button>
+        <button className="button secondary" type="button" onClick={() => choosePhoneDay(addIsoDays(selectedPhoneDay, 1))}>Next day ›</button>
+      </div>
       {rows.map((row) => {
         const cellShifts = shiftsByCell[cellKey(row.id, selectedPhoneDay)] || [];
         const leave = row.id !== null ? leaveByCell[`${row.id}:${selectedPhoneDay}`] : undefined;
