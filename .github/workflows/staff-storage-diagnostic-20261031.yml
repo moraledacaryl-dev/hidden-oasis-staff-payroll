@@ -1,0 +1,43 @@
+name: Staff Disk Diagnostic (Read Only)
+on:
+  push:
+    branches:
+      - ops/staff-storage-diagnostic-20261031
+    paths:
+      - .github/workflows/staff-storage-diagnostic-20261031.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Inspect filesystem capacity without deleting any files
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          command_timeout: 8m
+          script: |
+            set -eu
+            echo '=== FILESYSTEM ==='
+            df -h / /var/lib/hiddenoasis/staff-payroll /opt/hiddenoasis/staff-payroll
+            echo '=== INODES ==='
+            df -i /
+            echo '=== SELECTED CACHE AND RELEASE SIZES ==='
+            for p in /root/.cache/pip /root/.npm /root/repos/hidden-oasis-staff-payroll/apps/web/.next /root/repos/hidden-oasis-staff-payroll/apps/web/node_modules /var/cache/apt/archives /var/log/journal /var/lib/docker/buildkit /opt/hiddenoasis/staff-payroll/releases; do
+              if [ -e "$p" ]; then
+                if [ "$(id -u)" = 0 ]; then du -sh "$p"; else sudo -n du -sh "$p"; fi
+              fi
+            done
+            echo '=== MANAGED RELEASES ==='
+            if [ "$(id -u)" = 0 ]; then
+              du -sh /opt/hiddenoasis/staff-payroll/releases/* 2>/dev/null || true
+            else
+              sudo -n du -sh /opt/hiddenoasis/staff-payroll/releases/* 2>/dev/null || true
+            fi
+            echo '=== SYSTEM TOP-LEVEL ==='
+            if [ "$(id -u)" = 0 ]; then du -xhd1 / 2>/dev/null | sort -h | tail -n 15; else sudo -n du -xhd1 / 2>/dev/null | sort -h | tail -n 15; fi
+            echo 'STORAGE_DIAGNOSTIC_READONLY_PASS'
