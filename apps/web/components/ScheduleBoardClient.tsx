@@ -55,7 +55,7 @@ export function ScheduleBoardClient({ days, shifts, employees, canEdit, initialD
   }, [days, initialDay]);
 
   function choosePhoneDay(nextDay: string) {
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(nextDay)) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDay)) return;
     if (days.includes(nextDay)) {
       setPhoneDay(nextDay);
       return;
