@@ -299,7 +299,7 @@ def build_payroll_preflight_checks(conn: sqlite3.Connection, period_start: str, 
     if missing_logs:
         add("Warning", "Attendance", "Scheduled workdays have no time log and no approved leave.", missing_logs, "These become unpaid absences in payroll; verify if correct.")
 
-    missing_out = fetchone(conn, "SELECT COUNT(*) AS c FROM time_logs WHERE work_date BETWEEN ? AND ? AND is_absent=0 AND (actual_out IS NULL OR actual_out='')", (period_start, period_end))["c"]
+    missing_out = fetchone(conn, "SELECT COUNT(*) AS c FROM time_logs WHERE work_date BETWEEN ? AND ? AND is_absent=0 AND NULLIF(TRIM(COALESCE(actual_in,'')), '') IS NOT NULL AND NULLIF(TRIM(COALESCE(actual_out,'')), '') IS NULL", (period_start, period_end))["c"]
     if missing_out:
         add("Warning", "Attendance", "Logs with missing time-out exist.", missing_out, "Correct or mark as rejected/verified before final approval.")
 
