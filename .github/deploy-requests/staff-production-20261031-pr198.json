@@ -1,0 +1,7 @@
+{
+  "release_sha": "ee183560f2e27a508a0a28851cf7323a4482bed9",
+  "target_environment": "production",
+  "source_pull_request": 198,
+  "purpose": "Correct doubled October 15-30 SSS PhilHealth and Pag-IBIG by recognizing existing Paid 2026-09-30 to 2026-10-14 withholding without modifying historical payroll",
+  "financial_data_changes_authorized": false
+}
