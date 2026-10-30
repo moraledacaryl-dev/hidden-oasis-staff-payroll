@@ -7,7 +7,7 @@ from pathlib import Path
 from api.schedule_rest_days import ensure_schema as ensure_rest_days_schema
 from api.schedules import ensure_schema as ensure_schedule_schema
 from core.db import get_conn, init_db, now_iso
-from core.quality import canonical_attendance_review_items
+from core.quality import build_payroll_preflight_checks, canonical_attendance_review_items
 
 
 DAY = "2026-10-27"
@@ -119,6 +119,20 @@ class AttendanceRestDayReviewQueueTests(unittest.TestCase):
         self.mark_rest_day()
         self.log(ot_status="Pending")
         self.assertEqual(len(self.review_items()), 1)
+
+    def test_unpunched_rest_day_does_not_raise_missing_out_warning(self) -> None:
+        self.mark_rest_day()
+        self.log()
+        issues = build_payroll_preflight_checks(self.conn, DAY, DAY)
+        self.assertFalse(any(issue["issue"] == "Logs with missing time-out exist." for issue in issues))
+
+    def test_punched_scheduled_shift_with_missing_out_warns(self) -> None:
+        self.schedule_shift()
+        self.log(actual_in="08:15")
+        issues = build_payroll_preflight_checks(self.conn, DAY, DAY)
+        missing_out = [issue for issue in issues if issue["issue"] == "Logs with missing time-out exist."]
+        self.assertEqual(len(missing_out), 1)
+        self.assertEqual(missing_out[0]["count"], 1)
 
     def test_explicit_correction_with_note_remains_reviewable(self) -> None:
         self.log(status="Needs Correction", notes="Manager requested investigation")
