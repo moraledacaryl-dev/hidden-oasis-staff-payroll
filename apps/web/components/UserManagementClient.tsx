@@ -18,6 +18,8 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
   const [creating, setCreating] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState("Staff");
+  const [editingUser, setEditingUser] = useState<number | null>(null);
+  const [loginName, setLoginName] = useState("");
   const [employeeId, setEmployeeId] = useState("");
 
   async function createUser() {
@@ -36,6 +38,19 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
     setEmployeeId("");
     setRole("Staff");
     router.refresh();
+  }
+
+  async function saveLoginName(userId: number) {
+    if (loginName.trim().length < 2) { setMessage("Enter a login name with at least two characters."); return; }
+    setBusy(userId); setMessage("");
+    const response = await clientRequest(`/api/settings/users/${userId}/login-name`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: loginName.trim() }),
+    });
+    const data = await response.json().catch(() => ({}));
+    setBusy(null);
+    if (!response.ok || !data.ok) { setMessage(typeof data.detail === "string" ? data.detail : "Could not change login name."); return; }
+    setEditingUser(null); setMessage("Login name changed. The password stays the same."); router.refresh();
   }
 
   async function resetPassword(userId: number) {
@@ -150,7 +165,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
           <tbody>
             {users.map((user) => (
               <tr key={user.id}>
-                <td data-label="User"><strong>{user.display_name}</strong></td>
+                <td data-label="User">{editingUser === user.id ? <div><label>Login name<input aria-label={`New login name for ${user.display_name}`} value={loginName} maxLength={120} onChange={(event) => setLoginName(event.target.value)} /></label><button type="button" disabled={busy === user.id} onClick={() => saveLoginName(user.id)}>Save</button><button type="button" disabled={busy === user.id} onClick={() => setEditingUser(null)}>Cancel</button></div> : <strong>{user.display_name}</strong>}</td>
                 <td data-label="Role">
                   <select aria-label={`Role for ${user.display_name}`} defaultValue={user.role_key} disabled={busy === user.id} onChange={(event) => setRoleForUser(user.id, event.target.value)}>
                     <option value="staff">Staff</option>
@@ -171,6 +186,7 @@ export function UserManagementClient({ users, employees }: { users: AppUser[]; e
                 <td data-label="Last login">{formatBusinessDateTime(user.last_login_at)}</td>
                 <td data-label="Actions">
                   <div className="action-row">
+                    <button className="button small ghost" type="button" disabled={busy === user.id || editingUser !== null} onClick={() => { setLoginName(user.display_name); setEditingUser(user.id); }}>Change login name</button>
                     <button className="button small ghost" type="button" disabled={busy === user.id} onClick={() => resetPassword(user.id)}>Reset password</button>
                     <button className="button small ghost" type="button" disabled={busy === user.id} onClick={() => setActive(user.id, !user.active)}>{user.active ? "Deactivate" : "Activate"}</button>
                     {user.active && (user.role_key === "supervisor" || (user.role_key === "staff" && user.employee_id)) ? (
