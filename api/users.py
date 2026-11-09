@@ -48,6 +48,10 @@ class CreateUserRequest(BaseModel):
     employee_id: int | None = None
 
 
+class ChangeLoginNameRequest(BaseModel):
+    display_name: str = Field(..., min_length=2, max_length=120)
+
+
 class ChangeUserRoleRequest(BaseModel):
     role: str
 
@@ -351,6 +355,36 @@ def set_user_employee(
             (user_id,),
         ) or {}
         return {"ok": True, "user": public_app_user(updated)}
+    finally:
+        conn.close()
+
+
+@router.post("/users/{user_id}/login-name")
+def set_user_login_name(
+    user_id: int,
+    payload: ChangeLoginNameRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict[str, Any]:
+    owner = require_owner(authorization, x_api_key)
+    login_name = " ".join(payload.display_name.strip().split())
+    if len(login_name) < 2:
+        raise HTTPException(status_code=422, detail="Enter a login name with at least two characters.")
+    conn = get_conn(DB_PATH)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = fetchone(conn, "SELECT * FROM app_users WHERE id=?", (user_id,))
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found.")
+        if fetchone(conn, "SELECT id FROM app_users WHERE lower(display_name)=lower(?) AND id<>?", (login_name, user_id)):
+            raise HTTPException(status_code=409, detail="That login name is already in use.")
+        conn.execute("UPDATE app_users SET display_name=?, session_version=COALESCE(session_version,1)+1 WHERE id=?", (login_name, user_id))
+        log_audit(conn, actor=owner.get("display_name"), action="Login name changed", table_name="app_users", record_id=user_id, details={"old_login_name": row.get("display_name"), "new_login_name": login_name})
+        conn.commit()
+        return {"ok": True}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
