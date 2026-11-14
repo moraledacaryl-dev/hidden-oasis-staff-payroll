@@ -122,9 +122,10 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
                 amount=180,
             )
 
-            self.assertEqual(snapshot["cash_advance_reserved_elsewhere"], 50)
-            self.assertEqual(snapshot["cash_advance_total_available"], 250)
-            self.assertEqual(snapshot["cash_advance_suggested"], 150)
+            # The future September draft cannot reserve the August advance.
+            self.assertEqual(snapshot["cash_advance_reserved_elsewhere"], 0)
+            self.assertEqual(snapshot["cash_advance_total_available"], 300)
+            self.assertEqual(snapshot["cash_advance_suggested"], 200)
             self.assertEqual(
                 snapshot["cash_advance_allocations"],
                 [
@@ -132,17 +133,201 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
                         "cash_advance_id": first,
                         "advance_date": "2026-08-01",
                         "reason": None,
-                        "available_balance": 50.0,
-                        "amount": 50.0,
+                        "available_balance": 100.0,
+                        "amount": 100.0,
                     },
                     {
                         "cash_advance_id": second,
                         "advance_date": "2026-08-10",
                         "reason": None,
                         "available_balance": 200.0,
-                        "amount": 130.0,
+                        "amount": 80.0,
                     },
                 ],
+            )
+        finally:
+            conn.close()
+
+    def test_earlier_draft_reservation_applies_to_later_payday(self) -> None:
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            early_run = _seed_run(conn, employee_id, deduction=1000)
+            later_run = _seed_run(conn, employee_id, deduction=0, period_end="2026-09-15")
+            advance_id = _seed_advance(
+                conn, employee_id, advance_date="2026-08-10",
+                amount=3000, deduction_per_payroll=3000,
+            )
+            item_id = conn.execute(
+                "SELECT id FROM payroll_items WHERE payroll_run_id=?",
+                (early_run,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO payroll_item_adjustments("
+                "payroll_run_id,payroll_item_id,employee_id,cash_advance_amount,"
+                "version,created_at,updated_at) VALUES(?,?,?,1000,1,?,?)",
+                (early_run, item_id, employee_id, now_iso(), now_iso()),
+            )
+            conn.commit()
+
+            earlier = _cash_snapshot(
+                conn, run_id=early_run, employee_id=employee_id,
+                period_end="2026-08-31", amount=1000,
+            )
+            later = _cash_snapshot(
+                conn, run_id=later_run, employee_id=employee_id,
+                period_end="2026-09-15", amount=1000,
+            )
+            self.assertEqual(earlier["cash_advance_total_available"], 3000)
+            self.assertEqual(earlier["cash_advance_reserved_elsewhere"], 0)
+            self.assertEqual(later["cash_advance_total_available"], 2000)
+            self.assertEqual(later["cash_advance_reserved_elsewhere"], 1000)
+            self.assertEqual(later["cash_advances"][0]["id"], advance_id)
+        finally:
+            conn.close()
+
+    def test_payday_advance_is_visible_and_posts_once(self) -> None:
+        from api.cash_advance_service import calculate_balance
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=1000)
+            advance_id = _seed_advance(
+                conn, employee_id, advance_date="2026-09-01",
+                amount=3000, deduction_per_payroll=1000,
+            )
+            conn.execute(
+                "UPDATE cash_advances SET release_confirmation_required=1,"
+                "released_at='2026-09-01' WHERE id=?",
+                (advance_id,),
+            )
+            conn.commit()
+            snapshot = _cash_snapshot(
+                conn, run_id=run_id, employee_id=employee_id,
+                period_end="2026-08-31", amount=1000,
+            )
+            self.assertEqual(snapshot["cash_advance_deduction_date"], "2026-09-01")
+            self.assertEqual(snapshot["cash_advance_total_available"], 3000)
+            apply_payroll_cash_advance_repayments(conn, run_id, actor="Owner")
+            apply_payroll_cash_advance_repayments(conn, run_id, actor="Owner")
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM cash_advance_repayments "
+                    "WHERE payroll_run_id=? AND active=1",
+                    (run_id,),
+                ).fetchone()[0],
+                1,
+            )
+            self.assertEqual(calculate_balance(conn, advance_id)["balance"], 3000)
+            # Draft repayment rows cannot reduce the live balance until paid.
+            conn.execute("UPDATE payroll_runs SET status='Paid' WHERE id=?", (run_id,))
+            self.assertEqual(calculate_balance(conn, advance_id)["balance"], 2000)
+        finally:
+            conn.close()
+
+    def test_zero_availability_explains_unconfirmed_issuance(self) -> None:
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=0)
+            advance_id = _seed_advance(
+                conn, employee_id, advance_date="2026-08-10",
+                amount=3000, deduction_per_payroll=1000,
+            )
+            conn.execute(
+                "UPDATE cash_advances SET release_confirmation_required=1,"
+                "released_at=NULL WHERE id=?",
+                (advance_id,),
+            )
+            conn.commit()
+            snapshot = _cash_snapshot(
+                conn, run_id=run_id, employee_id=employee_id,
+                period_end="2026-08-31", amount=0,
+            )
+            self.assertEqual(snapshot["cash_advance_total_available"], 0)
+            self.assertTrue(any(
+                "not been confirmed issued" in note
+                for note in snapshot["cash_advance_availability_notes"]
+            ))
+        finally:
+            conn.close()
+
+    def test_zero_ledger_basis_flags_review_without_fabricating_debt(self) -> None:
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=0)
+            advance_id = _seed_advance(
+                conn, employee_id, advance_date="2026-08-10",
+                amount=3000, deduction_per_payroll=1000,
+            )
+            conn.execute(
+                "UPDATE cash_advances SET ledger_opening_balance=0,"
+                "status='Fully Paid' WHERE id=?",
+                (advance_id,),
+            )
+            conn.commit()
+            snapshot = _cash_snapshot(
+                conn, run_id=run_id, employee_id=employee_id,
+                period_end="2026-08-31", amount=0,
+            )
+            self.assertEqual(snapshot["cash_advance_total_available"], 0)
+            self.assertTrue(any(
+                "recorded opening balance is zero" in note
+                for note in snapshot["cash_advance_availability_notes"]
+            ))
+            self.assertEqual(
+                conn.execute(
+                    "SELECT ledger_opening_balance FROM cash_advances WHERE id=?",
+                    (advance_id,),
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            conn.close()
+
+    def test_migration_prefers_real_remaining_over_default_zero(self) -> None:
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            employee_id = _seed_employee(conn)
+            advance_id = _seed_advance(
+                conn, employee_id, advance_date="2026-08-10",
+                amount=3000, deduction_per_payroll=1000,
+            )
+            conn.execute(
+                "UPDATE cash_advances SET outstanding_balance=0,"
+                "remaining_balance=3000,ledger_opening_balance=NULL WHERE id=?",
+                (advance_id,),
+            )
+            ensure_cash_schema(conn)
+            self.assertEqual(
+                conn.execute(
+                    "SELECT ledger_opening_balance FROM cash_advances WHERE id=?",
+                    (advance_id,),
+                ).fetchone()[0],
+                3000,
+            )
+            conn.execute(
+                "UPDATE cash_advances SET ledger_opening_balance=0,"
+                "remaining_balance=0,outstanding_balance=0 WHERE id=?",
+                (advance_id,),
+            )
+            ensure_cash_schema(conn)
+            self.assertEqual(
+                conn.execute(
+                    "SELECT ledger_opening_balance FROM cash_advances WHERE id=?",
+                    (advance_id,),
+                ).fetchone()[0],
+                0,
             )
         finally:
             conn.close()
