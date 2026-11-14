@@ -1,0 +1,7 @@
+{
+  "release_sha": "d679d2fa5002ac6889d96918e16cb729d1752177",
+  "target_environment": "production",
+  "source_pull_request": 200,
+  "purpose": "User-authorized cash advance partial-deduction payroll correction; deployment of tested code only",
+  "financial_data_changes_authorized": false
+}
