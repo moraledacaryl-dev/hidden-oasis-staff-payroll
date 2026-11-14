@@ -36,7 +36,7 @@ def _eligible_advances(
         SELECT *
         FROM cash_advances
         WHERE employee_id=?
-          AND COALESCE(status,'') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
+          AND COALESCE(status,'') NOT IN ('Cancelled','Rejected','Void','Voided')
           AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
           AND date(COALESCE(advance_date, request_date)) <= date(?)
         ORDER BY date(COALESCE(advance_date, request_date)), id
@@ -44,6 +44,9 @@ def _eligible_advances(
         (employee_id, period_end),
     )
     result: list[dict[str, Any]] = []
+    # A stored Fully Paid status can be stale after older draft-payroll code
+    # created a repayment prematurely. Let the authoritative repayment ledger,
+    # not the cached status, determine whether a real balance remains.
     for row in rows:
         calculator = recalculate_balance if persist_balances else calculate_balance
         balance = money(calculator(conn, int(row["id"])).get("balance") or 0)
@@ -70,6 +73,7 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
           AND pia.payroll_run_id<>?
           AND COALESCE(pia.cash_advance_amount,0)>0
           AND COALESCE(pr.status,'')='Draft'
+          AND COALESCE(pr.superseded_by_run_id,0)=0
         """,
         (employee_id, run_id),
     ) or {}
