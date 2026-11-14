@@ -197,7 +197,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
                     {cashAvailabilityNotes.map((note, index) => <p className={styles.helper} key={index}>{note}</p>)}
                     <p className={styles.helper}><Link href="/cash-advances">Review cash advances, issue confirmation, and repayment history</Link></p>
                   </div>
-                ) : null>
+                ) : null}
                 <div className={styles.balanceRow}><span>Configured total this cutoff</span><strong>{peso(cashSuggested)}</strong></div>
                 {reservedElsewhere > 0 ? <div className={styles.balanceRow}><span>Reserved by other draft payrolls</span><strong>{peso(reservedElsewhere)}</strong></div> : null}
                 <label className={styles.field}>
