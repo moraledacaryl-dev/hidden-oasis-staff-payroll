@@ -315,10 +315,10 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO cash_advance_repayments(
-                    cash_advance_id,employee_id,repayment_date,payment_date,amount,source,active
-                ) VALUES(?,?,?,?,3000,'Manual',1)
+                    cash_advance_id,employee_id,repayment_date,payment_date,amount,source,active,created_at
+                ) VALUES(?,?,?,?,3000,'Manual',1,?)
                 """,
-                (advance_id, employee_id, "2026-08-20", "2026-08-20"),
+                (advance_id, employee_id, "2026-08-20", "2026-08-20", now_iso()),
             )
             conn.execute(
                 "UPDATE cash_advances SET status='Fully Paid' WHERE id=?",
