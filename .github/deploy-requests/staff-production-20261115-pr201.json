@@ -1,0 +1,7 @@
+{
+  "release_sha": "784e33bf8f4e82fe0d4a6fd1384163e8755c6cc5",
+  "target_environment": "production",
+  "source_pull_request": 201,
+  "purpose": "User-requested correction for cash advance availability in payroll drafts, with eligibility diagnostics",
+  "financial_data_changes_authorized": false
+}
