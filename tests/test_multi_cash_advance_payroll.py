@@ -300,6 +300,7 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
         conn = get_conn(":memory:")
         try:
             init_db(conn)
+            ensure_cash_schema(conn)
             employee_id = _seed_employee(conn)
             advance_id = _seed_advance(
                 conn, employee_id, advance_date="2026-08-10",
@@ -630,7 +631,7 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
             )
 
             conn.execute(
-                "UPDATE cash_advances SET released_at='2026-09-01' WHERE id=?",
+                "UPDATE cash_advances SET released_at='2026-09-02' WHERE id=?",
                 (advance_id,),
             )
             self.assertEqual(snapshot()["cash_advance_total_available"], 0)
