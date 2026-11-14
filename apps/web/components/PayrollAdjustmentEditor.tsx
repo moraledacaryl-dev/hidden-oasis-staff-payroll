@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AppDrawer } from "@/components/AppSurface";
 import styles from "./PayrollAdjustmentEditor.module.css";
 
@@ -76,6 +77,8 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
   const [cashTotalAvailable, setCashTotalAvailable] = useState(0);
   const [cashSuggested, setCashSuggested] = useState(0);
   const [reservedElsewhere, setReservedElsewhere] = useState(0);
+  const [cashAvailabilityNotes, setCashAvailabilityNotes] = useState<string[]>([]);
+  const [cashDeductionDate, setCashDeductionDate] = useState("");
   const [additionalEarning, setAdditionalEarning] = useState(0);
   const [additionalEarningNote, setAdditionalEarningNote] = useState("");
   const [otherDeduction, setOtherDeduction] = useState(0);
@@ -108,6 +111,8 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
     setCashTotalAvailable(Number(data.cash_advance_total_available ?? 0));
     setCashSuggested(Number(data.cash_advance_suggested ?? 0));
     setReservedElsewhere(Number(data.cash_advance_reserved_elsewhere ?? 0));
+    setCashAvailabilityNotes(Array.isArray(data.cash_advance_availability_notes) ? data.cash_advance_availability_notes : []);
+    setCashDeductionDate(String(data.cash_advance_deduction_date || ""));
     setAdditionalEarning(Number(current.additional_earning ?? 0));
     setAdditionalEarningNote(String(current.additional_earning_note || ""));
     setOtherDeduction(Number(current.other_deduction ?? 0));
@@ -186,6 +191,13 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
                   <span>Enter one deduction for this employee. It is automatically applied to eligible advances oldest first, so one payroll deduction can pay across several advances.</span>
                 </div>
                 <div className={styles.balanceRow}><span>Total available balance</span><strong>{peso(cashTotalAvailable)}</strong></div>
+                {cashTotalAvailable <= 0 ? (
+                  <div className={styles.section} role="status">
+                    <p className={styles.helper}><strong>Why is this ₱0?</strong> Payroll can deduct advances issued by {cashDeductionDate || "payday"}, minus any earlier draft reservations. A draft is not a repayment.</p>
+                    {cashAvailabilityNotes.map((note, index) => <p className={styles.helper} key={index}>{note}</p>)}
+                    <p className={styles.helper}><Link href="/cash-advances">Review cash advances, issue confirmation, and repayment history</Link></p>
+                  </div>
+                ) : null}
                 <div className={styles.balanceRow}><span>Configured total this cutoff</span><strong>{peso(cashSuggested)}</strong></div>
                 {reservedElsewhere > 0 ? <div className={styles.balanceRow}><span>Reserved by other draft payrolls</span><strong>{peso(reservedElsewhere)}</strong></div> : null}
                 <label className={styles.field}>

@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
-from api.cash_advance_service import calculate_balance, recalculate_balance
+from api.cash_advance_service import calculate_balance, confirmed_new_repayments, recalculate_balance
 from api.payroll_adjustment_events import append_adjustment_event
 from api.payroll_adjustments import (
     AdjustmentPayload,
@@ -65,7 +65,15 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
     draft rows still contribute to this aggregate reservation so mixed-version
     drafts cannot over-reserve the employee's total outstanding balance.
     """
-    # Older payroll databases may not yet have revision/supersession columns.
+    # A later unpaid payroll draft is not a repayment and must not take away
+    # funds from an earlier cutoff. Reserve only older/same-day draft plans.
+    # On the same payment date, the lower run id wins deterministically.
+    current_run = fetchone(
+        conn, "SELECT payout_date, period_end FROM payroll_runs WHERE id=?", (run_id,)
+    ) or {}
+    payment_date = str(
+        current_run.get("payout_date") or current_run.get("period_end") or ""
+    )[:10]
     run_columns = {
         str(column[1]) for column in conn.execute("PRAGMA table_info(payroll_runs)")
     }
@@ -84,9 +92,16 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
           AND pia.payroll_run_id<>?
           AND COALESCE(pia.cash_advance_amount,0)>0
           AND COALESCE(pr.status,'')='Draft'
+          AND (
+            date(COALESCE(NULLIF(pr.payout_date,''),pr.period_end)) < date(?)
+            OR (
+              date(COALESCE(NULLIF(pr.payout_date,''),pr.period_end)) = date(?)
+              AND pr.id < ?
+            )
+          )
           {supersession_filter}
         """,
-        (employee_id, run_id),
+        (employee_id, run_id, payment_date, payment_date, run_id),
     ) or {}
     return money(max(0.0, float(row.get("total") or 0)))
 
@@ -152,6 +167,82 @@ def _allocation_preview(
     return allocations
 
 
+def _payroll_deduction_date(conn: Any, run_id: int, period_end: str) -> str:
+    """Advances actually issued by payday can be deducted from that paycheck."""
+    row = fetchone(
+        conn, "SELECT payout_date FROM payroll_runs WHERE id=?", (run_id,)
+    ) or {}
+    payout = str(row.get("payout_date") or "")[:10]
+    # Invalid/earlier payout dates must never truncate the original cutoff.
+    from datetime import date
+    try:
+        end = date.fromisoformat(str(period_end)[:10])
+        payday = date.fromisoformat(payout)
+        return max(end, payday).isoformat()
+    except (ValueError, TypeError):
+        return str(period_end)[:10]
+
+
+def _cash_availability_notes(
+    conn: Any,
+    *,
+    employee_id: int,
+    deduction_date: str,
+    available_advances: list[dict[str, Any]],
+    reserved_total: float,
+) -> list[str]:
+    """Explain a zero available balance without asserting any debt was repaid."""
+    all_rows = fetchall(
+        conn, "SELECT * FROM cash_advances WHERE employee_id=? ORDER BY id",
+        (employee_id,),
+    )
+    balances_by_id = {
+        int(row["id"]): money(row.get("available_balance") or 0)
+        for row in available_advances
+    }
+    notes: list[str] = []
+    for row in all_rows:
+        prefix = f"Advance #{int(row['id'])}: "
+        status = str(row.get("status") or "")
+        if status in {"Cancelled", "Rejected", "Void", "Voided"}:
+            notes.append(prefix + f"status is {status}; not eligible for deduction.")
+            continue
+        method = str(row.get("repayment_method") or "Payroll deduction").lower()
+        if "payroll" not in method:
+            notes.append(prefix + "repayment method is not Payroll deduction. Review the advance settings.")
+            continue
+        advance_date = str(row.get("advance_date") or row.get("request_date") or "")[:10]
+        if advance_date > deduction_date:
+            notes.append(prefix + f"dated {advance_date}, after payday eligibility {deduction_date}.")
+            continue
+        if int(row.get("release_confirmation_required") or 0) == 1:
+            released_at = str(row.get("released_at") or "")[:10]
+            if not released_at:
+                notes.append(prefix + "funds have not been confirmed issued. Approval is not a disbursement.")
+                continue
+            if released_at > deduction_date:
+                notes.append(prefix + f"funds issued on {released_at}, after payday eligibility {deduction_date}.")
+                continue
+        summary = calculate_balance(conn, int(row["id"]))
+        if money(summary.get("balance") or 0) <= 0:
+            opening = row.get("ledger_opening_balance")
+            if (
+                opening is not None
+                and money(opening) <= 0
+                and money(row.get("amount") or 0) > 0
+                and confirmed_new_repayments(conn, int(row["id"])) <= 0
+            ):
+                notes.append(prefix + "recorded opening balance is zero despite an advance amount. Check historical repayment records and owner correction before reopening any debt.")
+            else:
+                notes.append(prefix + "ledger shows no outstanding balance. Check recorded repayments before correcting it.")
+            continue
+        if balances_by_id.get(int(row["id"]), 0) <= 0 and reserved_total > 0:
+            notes.append(prefix + "outstanding balance is reserved by an earlier or same-day active payroll draft.")
+    if not all_rows:
+        notes.append("No cash advance record exists for this employee.")
+    return notes
+
+
 def _cash_snapshot(
     conn: Any,
     *,
@@ -161,10 +252,11 @@ def _cash_snapshot(
     amount: float,
     persist_balances: bool = False,
 ) -> dict[str, Any]:
+    deduction_date = _payroll_deduction_date(conn, run_id, period_end)
     advances = _eligible_advances(
         conn,
         employee_id=employee_id,
-        period_end=period_end,
+        period_end=deduction_date,
         persist_balances=persist_balances,
     )
     reserved_total = _other_draft_reserved_total(conn, employee_id=employee_id, run_id=run_id)
@@ -179,6 +271,14 @@ def _cash_snapshot(
         "cash_advance_suggested": suggested,
         "cash_advance_allocations": _allocation_preview(available_advances, amount),
         "cash_advance_reserved_elsewhere": reserved_total,
+        "cash_advance_deduction_date": deduction_date,
+        "cash_advance_availability_notes": _cash_availability_notes(
+            conn,
+            employee_id=employee_id,
+            deduction_date=deduction_date,
+            available_advances=available_advances,
+            reserved_total=reserved_total,
+        ) if total_available <= 0 else [],
     }
 
 

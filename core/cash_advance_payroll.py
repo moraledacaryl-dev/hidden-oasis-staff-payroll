@@ -40,6 +40,17 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
     if str(run.get("revision_treatment") or "").strip().lower() == "adjust_paid":
         return
 
+    # Match the editor's eligibility window: funds issued by payday may be
+    # deducted, even when payday follows the attendance cutoff.
+    from datetime import date
+    try:
+        eligibility_date = max(
+            date.fromisoformat(str(run.get("period_end") or "")[:10]),
+            date.fromisoformat(str(run.get("payout_date") or "")[:10]),
+        ).isoformat()
+    except (ValueError, TypeError):
+        eligibility_date = str(run.get("period_end") or "")[:10]
+
     items = fetchall(
         conn,
         "SELECT * FROM payroll_items WHERE payroll_run_id=? AND COALESCE(cash_advance_deduction,0) > 0",
@@ -64,7 +75,7 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
                    OR (released_at IS NOT NULL AND date(released_at) <= date(?)))
             ORDER BY date(COALESCE(advance_date, request_date)), id
             """,
-            (item["employee_id"], run.get("period_end"), run.get("period_end")),
+            (item["employee_id"], eligibility_date, eligibility_date),
         )
         for advance in advances:
             if remaining <= 0:

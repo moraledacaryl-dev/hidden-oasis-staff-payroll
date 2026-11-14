@@ -133,7 +133,16 @@ def ensure_schema(conn) -> None:
     conn.execute("UPDATE cash_advances SET request_date=COALESCE(NULLIF(request_date,''), advance_date)")
     conn.execute("UPDATE cash_advances SET deduction_per_payroll=repayment_per_cutoff WHERE COALESCE(deduction_per_payroll,0)=0 AND COALESCE(repayment_per_cutoff,0)>0")
     conn.execute("UPDATE cash_advances SET repayment_per_cutoff=deduction_per_payroll WHERE COALESCE(repayment_per_cutoff,0)=0 AND COALESCE(deduction_per_payroll,0)>0")
-    conn.execute("UPDATE cash_advances SET ledger_opening_balance=COALESCE(ledger_opening_balance,outstanding_balance,remaining_balance,amount,0)")
+    # Legacy schemas can have a newly-added outstanding_balance column with
+    # SQLite's default zero while the original remaining_balance is positive.
+    # Prefer positive recorded balances during the one-time ledger migration.
+    # Preserve explicit zero openings: they may represent historical payments
+    # and must never be silently reopened without audited reconciliation.
+    conn.execute(
+        "UPDATE cash_advances SET ledger_opening_balance="
+        "COALESCE(ledger_opening_balance,NULLIF(remaining_balance,0),"
+        "NULLIF(outstanding_balance,0),outstanding_balance,remaining_balance,amount,0)"
+    )
     conn.execute("""
         UPDATE cash_advances
            SET approved_by_name=COALESCE(NULLIF(approved_by_name,''), NULLIF(approved_by,''), NULLIF(created_by,''), 'Legacy approved'),
