@@ -23,14 +23,16 @@ def _seed_employee(conn) -> int:
 
 
 def _seed_run(conn, employee_id: int, *, deduction: float, period_end: str = "2026-08-31") -> int:
+    from datetime import date, timedelta
     stamp = now_iso()
+    payout = (date.fromisoformat(period_end) + timedelta(days=1)).isoformat()
     cursor = conn.execute(
         """
         INSERT INTO payroll_runs(
             period_start,period_end,payout_date,run_label,status,created_at
-        ) VALUES('2026-08-16',?,'2026-09-01','Test','Draft',?)
+        ) VALUES('2026-08-16',?,?,'Test','Draft',?)
         """,
-        (period_end, stamp),
+        (period_end, payout, stamp),
     )
     run_id = int(cursor.lastrowid)
     conn.execute(
