@@ -464,5 +464,90 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
 
 
 
+    def test_edit_3000_draft_deduction_to_1000_does_not_post_repayment(self) -> None:
+        """The exact owner workflow edits net pay but keeps the receivable open."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from api import payroll_adjustments_aggregate
+        from api.payroll_adjustments import AdjustmentPayload
+        from api.cash_advance_service import calculate_balance
+
+        with tempfile.TemporaryDirectory() as temporary:
+            db_path = Path(temporary) / "payroll.sqlite"
+            conn = get_conn(db_path)
+            try:
+                init_db(conn)
+                ensure_adjustment_schema(conn)
+                employee_id = _seed_employee(conn)
+                run_id = _seed_run(conn, employee_id, deduction=3000)
+                advance_id = _seed_advance(
+                    conn,
+                    employee_id,
+                    advance_date="2026-08-10",
+                    amount=3000,
+                    deduction_per_payroll=3000,
+                )
+                conn.execute(
+                    "UPDATE payroll_items SET gross_pay=5000, total_deductions=3000, "
+                    "net_pay=2000 WHERE payroll_run_id=?",
+                    (run_id,),
+                )
+                conn.execute(
+                    "UPDATE cash_advances SET status='Fully Paid' WHERE id=?",
+                    (advance_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with (
+                patch.object(payroll_adjustments_aggregate, "DB_PATH", db_path),
+                patch.object(
+                    payroll_adjustments_aggregate,
+                    "must_be_payroll_user",
+                    return_value={"role_key": "owner", "display_name": "Owner"},
+                ),
+            ):
+                response = payroll_adjustments_aggregate.save_adjustments(
+                    run_id,
+                    employee_id,
+                    AdjustmentPayload(
+                        cash_advance_amount=1000,
+                        cash_advance_note="Deduct only 1000 this cutoff",
+                        expected_version=0,
+                    ),
+                    authorization="token",
+                )
+
+            self.assertTrue(response["ok"])
+            conn = get_conn(db_path)
+            try:
+                item = conn.execute(
+                    "SELECT cash_advance_deduction, total_deductions, net_pay "
+                    "FROM payroll_items WHERE payroll_run_id=?",
+                    (run_id,),
+                ).fetchone()
+                self.assertEqual(tuple(item), (1000, 1000, 4000))
+                self.assertEqual(calculate_balance(conn, advance_id)["balance"], 3000)
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM cash_advance_repayments WHERE cash_advance_id=?",
+                        (advance_id,),
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT status FROM payroll_runs WHERE id=?", (run_id,)
+                    ).fetchone()[0],
+                    "Draft",
+                )
+            finally:
+                conn.close()
+
+
+
 if __name__ == "__main__":
     unittest.main()
