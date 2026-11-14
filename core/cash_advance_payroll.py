@@ -54,8 +54,10 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
             """
             SELECT * FROM cash_advances
             WHERE employee_id=?
-              AND COALESCE(remaining_balance, outstanding_balance, amount, 0) > 0
-              AND COALESCE(status,'') NOT IN ('Cancelled','Fully Paid')
+              -- Cached zero balances and Fully Paid labels can be left behind
+              -- by old draft code; recalculate from actual paid repayments
+              -- before choosing an amount.
+              AND COALESCE(status,'') NOT IN ('Cancelled','Rejected','Void','Voided')
               AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
               AND date(COALESCE(advance_date, request_date)) <= date(?)
               AND (COALESCE(release_confirmation_required,0)=0
