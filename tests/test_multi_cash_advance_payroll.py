@@ -198,5 +198,145 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
             conn.close()
 
 
+    def test_stale_fully_paid_status_cannot_hide_an_unrepaid_draft_advance(self) -> None:
+        """A cached status from an old draft must not stand in for a payment."""
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=0)
+            advance_id = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-10",
+                amount=3000,
+                deduction_per_payroll=3000,
+            )
+            conn.execute(
+                "UPDATE cash_advances SET status='Fully Paid' WHERE id=?",
+                (advance_id,),
+            )
+            conn.commit()
+
+            snapshot = _cash_snapshot(
+                conn,
+                run_id=run_id,
+                employee_id=employee_id,
+                period_end="2026-08-31",
+                amount=1000,
+                persist_balances=True,
+            )
+            self.assertEqual(snapshot["cash_advance_total_available"], 3000)
+            self.assertEqual(snapshot["cash_advance_allocations"][0]["amount"], 1000)
+            self.assertEqual(
+                conn.execute(
+                    "SELECT status FROM cash_advances WHERE id=?", (advance_id,)
+                ).fetchone()[0],
+                "Active",
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM cash_advance_repayments WHERE cash_advance_id=?",
+                    (advance_id,),
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            conn.close()
+
+    def test_superseded_draft_deduction_does_not_reserve_the_balance(self) -> None:
+        """An old superseded draft must not consume a current draft's capacity."""
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            old_run_id = _seed_run(conn, employee_id, deduction=3000)
+            current_run_id = _seed_run(conn, employee_id, deduction=0)
+            _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-10",
+                amount=3000,
+                deduction_per_payroll=3000,
+            )
+            conn.execute(
+                "UPDATE payroll_runs SET superseded_by_run_id=? WHERE id=?",
+                (current_run_id, old_run_id),
+            )
+            old_item_id = int(
+                conn.execute(
+                    "SELECT id FROM payroll_items WHERE payroll_run_id=?",
+                    (old_run_id,),
+                ).fetchone()[0]
+            )
+            conn.execute(
+                """
+                INSERT INTO payroll_item_adjustments(
+                    payroll_run_id,payroll_item_id,employee_id,
+                    cash_advance_amount,version,created_at,updated_at
+                ) VALUES(?,?,?,3000,1,?,?)
+                """,
+                (old_run_id, old_item_id, employee_id, now_iso(), now_iso()),
+            )
+            conn.commit()
+
+            snapshot = _cash_snapshot(
+                conn,
+                run_id=current_run_id,
+                employee_id=employee_id,
+                period_end="2026-08-31",
+                amount=1000,
+            )
+            self.assertEqual(snapshot["cash_advance_reserved_elsewhere"], 0)
+            self.assertEqual(snapshot["cash_advance_total_available"], 3000)
+            self.assertEqual(snapshot["cash_advance_allocations"][0]["amount"], 1000)
+        finally:
+            conn.close()
+
+    def test_a_genuinely_fully_repaid_advance_is_still_unavailable(self) -> None:
+        """Do not re-enable deductions against a legitimately zero balance."""
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=0)
+            advance_id = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-10",
+                amount=3000,
+                deduction_per_payroll=3000,
+            )
+            conn.execute(
+                """
+                INSERT INTO cash_advance_repayments(
+                    cash_advance_id,employee_id,repayment_date,amount,source,active
+                ) VALUES(?,?,?,3000,'Manual',1)
+                """,
+                (advance_id, employee_id, "2026-08-20"),
+            )
+            conn.execute(
+                "UPDATE cash_advances SET status='Fully Paid' WHERE id=?",
+                (advance_id,),
+            )
+            conn.commit()
+
+            snapshot = _cash_snapshot(
+                conn,
+                run_id=run_id,
+                employee_id=employee_id,
+                period_end="2026-08-31",
+                amount=1000,
+            )
+            self.assertEqual(snapshot["cash_advance_total_available"], 0)
+            self.assertEqual(snapshot["cash_advances"], [])
+        finally:
+            conn.close()
+
+
+
 if __name__ == "__main__":
     unittest.main()
