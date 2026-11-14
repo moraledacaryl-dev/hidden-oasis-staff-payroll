@@ -63,9 +63,18 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
     draft rows still contribute to this aggregate reservation so mixed-version
     drafts cannot over-reserve the employee's total outstanding balance.
     """
+    # Older payroll databases may not yet have revision/supersession columns.
+    run_columns = {
+        str(column[1]) for column in conn.execute("PRAGMA table_info(payroll_runs)")
+    }
+    supersession_filter = (
+        "AND COALESCE(pr.superseded_by_run_id,0)=0"
+        if "superseded_by_run_id" in run_columns
+        else ""
+    )
     row = fetchone(
         conn,
-        """
+        f"""
         SELECT COALESCE(SUM(pia.cash_advance_amount), 0) AS total
         FROM payroll_item_adjustments pia
         JOIN payroll_runs pr ON pr.id=pia.payroll_run_id
@@ -73,7 +82,7 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
           AND pia.payroll_run_id<>?
           AND COALESCE(pia.cash_advance_amount,0)>0
           AND COALESCE(pr.status,'')='Draft'
-          AND COALESCE(pr.superseded_by_run_id,0)=0
+          {supersession_filter}
         """,
         (employee_id, run_id),
     ) or {}
