@@ -39,9 +39,11 @@ def _eligible_advances(
           AND COALESCE(status,'') NOT IN ('Cancelled','Rejected','Void','Voided')
           AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
           AND date(COALESCE(advance_date, request_date)) <= date(?)
+          AND (COALESCE(release_confirmation_required,0)=0
+               OR (released_at IS NOT NULL AND date(released_at) <= date(?)))
         ORDER BY date(COALESCE(advance_date, request_date)), id
         """,
-        (employee_id, period_end),
+        (employee_id, period_end, period_end),
     )
     result: list[dict[str, Any]] = []
     # A stored Fully Paid status can be stale after older draft-payroll code
