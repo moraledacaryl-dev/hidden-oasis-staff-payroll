@@ -340,5 +340,129 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
 
 
 
+    def test_stale_fully_paid_label_posts_only_when_run_is_paid(self) -> None:
+        """A deduction accepted for a draft is not silently skipped on payout."""
+        from api.cash_advance_service import recalculate_balance
+
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=1000)
+            advance_id = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-10",
+                amount=3000,
+                deduction_per_payroll=3000,
+            )
+            conn.execute(
+                "UPDATE cash_advances SET status='Fully Paid' WHERE id=?",
+                (advance_id,),
+            )
+            conn.execute(
+                "UPDATE payroll_runs SET status='Paid' WHERE id=?",
+                (run_id,),
+            )
+            conn.commit()
+
+            apply_payroll_cash_advance_repayments(conn, run_id, actor="Owner")
+            conn.commit()
+            self.assertEqual(
+                conn.execute(
+                    "SELECT amount FROM cash_advance_repayments "
+                    "WHERE cash_advance_id=? AND payroll_run_id=? AND active=1",
+                    (advance_id, run_id),
+                ).fetchone()[0],
+                1000,
+            )
+            self.assertEqual(recalculate_balance(conn, advance_id)["balance"], 2000)
+            apply_payroll_cash_advance_repayments(conn, run_id, actor="Owner")
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM cash_advance_repayments "
+                    "WHERE cash_advance_id=? AND payroll_run_id=? AND active=1",
+                    (advance_id, run_id),
+                ).fetchone()[0],
+                1,
+            )
+            self.assertEqual(recalculate_balance(conn, advance_id)["balance"], 2000)
+        finally:
+            conn.close()
+
+    def test_unreleased_advance_is_not_offered_for_payroll_deduction(self) -> None:
+        """An approved advance is not necessarily cash actually issued."""
+        from types import SimpleNamespace
+        from api.payroll_drafts import _apply_period_cash_advance_deduction
+
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=0)
+            advance_id = _seed_advance(
+                conn,
+                employee_id,
+                advance_date="2026-08-10",
+                amount=3000,
+                deduction_per_payroll=1000,
+            )
+            conn.execute(
+                "UPDATE cash_advances "
+                "SET release_confirmation_required=1, released_at=NULL, status='Approved' "
+                "WHERE id=?",
+                (advance_id,),
+            )
+            conn.commit()
+
+            def snapshot():
+                return _cash_snapshot(
+                    conn,
+                    run_id=run_id,
+                    employee_id=employee_id,
+                    period_end="2026-08-31",
+                    amount=1000,
+                )
+
+            def computed():
+                return SimpleNamespace(
+                    employee_id=employee_id,
+                    sss_ee=0, philhealth_ee=0, pagibig_ee=0, tax=0,
+                    other_deductions=0, gross_pay=5000,
+                    cash_advance_deduction=0, total_deductions=0, net_pay=5000,
+                )
+
+            self.assertEqual(snapshot()["cash_advance_total_available"], 0)
+            self.assertEqual(
+                _apply_period_cash_advance_deduction(
+                    conn, computed(), "2026-08-16", "2026-08-31"
+                ).cash_advance_deduction,
+                0,
+            )
+
+            conn.execute(
+                "UPDATE cash_advances SET released_at='2026-09-01' WHERE id=?",
+                (advance_id,),
+            )
+            self.assertEqual(snapshot()["cash_advance_total_available"], 0)
+
+            conn.execute(
+                "UPDATE cash_advances SET released_at='2026-08-20' WHERE id=?",
+                (advance_id,),
+            )
+            self.assertEqual(snapshot()["cash_advance_total_available"], 3000)
+            self.assertEqual(
+                _apply_period_cash_advance_deduction(
+                    conn, computed(), "2026-08-16", "2026-08-31"
+                ).cash_advance_deduction,
+                1000,
+            )
+        finally:
+            conn.close()
+
+
+
 if __name__ == "__main__":
     unittest.main()
