@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
-from api.cash_advance_service import calculate_balance, recalculate_balance
+from api.cash_advance_service import calculate_balance, confirmed_new_repayments, recalculate_balance
 from api.payroll_adjustment_events import append_adjustment_event
 from api.payroll_adjustments import (
     AdjustmentPayload,
@@ -225,8 +225,14 @@ def _cash_availability_notes(
                 continue
         summary = calculate_balance(conn, int(row["id"]))
         if money(summary.get("balance") or 0) <= 0:
-            if money(row.get("amount") or 0) > 0 and not money(summary.get("paid") or 0):
-                notes.append(prefix + "recorded opening balance is zero despite an advance amount. Review history and owner correction; no repayment is being assumed.")
+            opening = row.get("ledger_opening_balance")
+            if (
+                opening is not None
+                and money(opening) <= 0
+                and money(row.get("amount") or 0) > 0
+                and confirmed_new_repayments(conn, int(row["id"])) <= 0
+            ):
+                notes.append(prefix + "recorded opening balance is zero despite an advance amount. Check historical repayment records and owner correction before reopening any debt.")
             else:
                 notes.append(prefix + "ledger shows no outstanding balance. Check recorded repayments before correcting it.")
             continue
