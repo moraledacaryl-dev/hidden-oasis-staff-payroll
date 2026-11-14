@@ -253,7 +253,7 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
             ensure_adjustment_schema(conn)
             employee_id = _seed_employee(conn)
             old_run_id = _seed_run(conn, employee_id, deduction=3000)
-            current_run_id = _seed_run(conn, employee_id, deduction=0)
+            current_run_id = _seed_run(conn, employee_id, deduction=0, period_end="2026-09-15")
             _seed_advance(
                 conn,
                 employee_id,
@@ -261,6 +261,8 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
                 amount=3000,
                 deduction_per_payroll=3000,
             )
+            # Old app databases lack this later revision schema addition.
+            conn.execute("ALTER TABLE payroll_runs ADD COLUMN superseded_by_run_id INTEGER")
             conn.execute(
                 "UPDATE payroll_runs SET superseded_by_run_id=? WHERE id=?",
                 (current_run_id, old_run_id),
@@ -286,7 +288,7 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
                 conn,
                 run_id=current_run_id,
                 employee_id=employee_id,
-                period_end="2026-08-31",
+                period_end="2026-09-15",
                 amount=1000,
             )
             self.assertEqual(snapshot["cash_advance_reserved_elsewhere"], 0)
@@ -313,10 +315,10 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO cash_advance_repayments(
-                    cash_advance_id,employee_id,repayment_date,amount,source,active
-                ) VALUES(?,?,?,3000,'Manual',1)
+                    cash_advance_id,employee_id,repayment_date,payment_date,amount,source,active
+                ) VALUES(?,?,?,?,3000,'Manual',1)
                 """,
-                (advance_id, employee_id, "2026-08-20"),
+                (advance_id, employee_id, "2026-08-20", "2026-08-20"),
             )
             conn.execute(
                 "UPDATE cash_advances SET status='Fully Paid' WHERE id=?",
