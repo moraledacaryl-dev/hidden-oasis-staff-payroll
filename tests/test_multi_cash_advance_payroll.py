@@ -231,7 +231,7 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_zero_availability_explains_unconfirmed_issuance(self) -> None:
+    def test_unconfirmed_issuance_is_warned_but_draft_can_be_planned(self) -> None:
         conn = get_conn(":memory:")
         try:
             init_db(conn)
@@ -252,11 +252,55 @@ class MultiCashAdvancePayrollTests(unittest.TestCase):
                 conn, run_id=run_id, employee_id=employee_id,
                 period_end="2026-08-31", amount=0,
             )
+            self.assertEqual(snapshot["cash_advance_total_available"], 3000)
+            self.assertEqual(snapshot["cash_advance_unconfirmed_issue"], [advance_id])
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) FROM cash_advance_repayments WHERE cash_advance_id=?",
+                    (advance_id,),
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            conn.close()
+
+    def test_release_recorded_after_payday_cannot_be_deducted_early(self) -> None:
+        conn = get_conn(":memory:")
+        try:
+            init_db(conn)
+            ensure_adjustment_schema(conn)
+            employee_id = _seed_employee(conn)
+            run_id = _seed_run(conn, employee_id, deduction=1000)
+            advance_id = _seed_advance(
+                conn, employee_id, advance_date="2026-08-10",
+                amount=3000, deduction_per_payroll=1000,
+            )
+            conn.execute(
+                "UPDATE cash_advances SET release_confirmation_required=1,"
+                "released_at='2026-09-03',status='Active' WHERE id=?",
+                (advance_id,),
+            )
+            conn.commit()
+            snapshot = _cash_snapshot(
+                conn, run_id=run_id, employee_id=employee_id,
+                period_end="2026-08-31", amount=1000,
+            )
             self.assertEqual(snapshot["cash_advance_total_available"], 0)
             self.assertTrue(any(
-                "not been confirmed issued" in note
+                "after payday" in note
                 for note in snapshot["cash_advance_availability_notes"]
             ))
+            conn.execute(
+                "UPDATE cash_advances SET released_at=NULL WHERE id=?",
+                (advance_id,),
+            )
+            self.assertEqual(
+                _cash_snapshot(
+                    conn, run_id=run_id, employee_id=employee_id,
+                    period_end="2026-08-31", amount=1000,
+                )["cash_advance_total_available"],
+                3000,
+            )
         finally:
             conn.close()
 
