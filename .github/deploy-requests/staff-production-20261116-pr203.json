@@ -1,0 +1,7 @@
+{
+  "release_sha": "507862afb6d61e943074247447aa7efea7015998",
+  "target_environment": "production",
+  "source_pull_request": 203,
+  "purpose": "Restore exact per-advance payroll deduction selection alongside automatic FIFO default, without early repayments",
+  "financial_data_changes_authorized": false
+}
