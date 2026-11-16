@@ -1,0 +1,7 @@
+{
+  "release_sha": "eb9bc633253beedabf6ee7e18e96487de11d78cd",
+  "target_environment": "production",
+  "source_pull_request": 202,
+  "purpose": "Restore editable Draft cash advance deductions and post repayment only when payroll marked Paid",
+  "financial_data_changes_authorized": false
+}
