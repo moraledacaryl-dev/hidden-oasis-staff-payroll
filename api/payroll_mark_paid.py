@@ -90,7 +90,11 @@ def mark_payroll_run_paid(
                 ),
             )
 
-        apply_payroll_cash_advance_repayments(conn, run_id, actor=actor, reference=reference)
+        try:
+            apply_payroll_cash_advance_repayments(conn, run_id, actor=actor, reference=reference)
+        except ValueError as exc:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         conn.execute("UPDATE payroll_runs SET status='Paid', paid_at=? WHERE id=?", (paid_at, run_id))
         # Before Paid, planned payroll repayments are intentionally excluded
         # from the live balance. Recompute *after* Paid within this transaction,
