@@ -259,11 +259,13 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
                   }}>Choose specific advances</button>
                 </div>
                 {allocationMode === "automatic" ? (
-                  <p className={styles.helper}>Automatic deductions are automatically applied to eligible advances oldest first.</p>
-                  <label className={styles.field}>
+                  <div className={styles.section}>
+                    <p className={styles.helper}>Automatic deductions are automatically applied to eligible advances oldest first.</p>
+                    <label className={styles.field}>
                     <span className={styles.fieldLabel}>Deduction this cutoff</span>
-                    <input name="cash_advance_amount" type="number" min="0" max={cashTotalAvailable} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} />
-                  </label>
+                      <input name="cash_advance_amount" type="number" min="0" max={cashTotalAvailable} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} />
+                    </label>
+                  </div>
                 ) : (
                   <div className={styles.section}>
                     <p className={styles.helper}>Enter the amount for each advance you want to deduct. Leave other advances at ₱0. You can split one deduction across several advances.</p>
