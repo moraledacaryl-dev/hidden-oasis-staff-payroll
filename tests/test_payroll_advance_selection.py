@@ -206,7 +206,7 @@ class PayrollAdvanceSelectionTests(unittest.TestCase):
         self.save(self.run, [(self.second, 125)])
         conn = get_conn(self.path)
         try:
-            replacement = _seed_run(conn, self.employee, deduction=0, period_end="2026-08-31")
+            replacement = _seed_run(conn, self.employee, deduction=0, period_end="2026-09-15")
             copied = carry_forward_manual_values(
                 conn, self.run, replacement, "replace_unpaid", now_iso(), "Owner",
             )
