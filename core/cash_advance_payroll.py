@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 from api.cash_advance_service import ensure_schema, now_iso, recalculate_balance
+from api.payroll_advance_allocations import allocation_total, read_allocations
 from core.db import fetchall, fetchone
 from core.money import money
 
@@ -76,7 +77,49 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
             """,
             (item["employee_id"], eligibility_date, eligibility_date),
         )
-        for advance in advances:
+        adjustment = None
+        if "payroll_item_adjustments" in {
+            str(row[0]) for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='payroll_item_adjustments'"
+            )
+        }:
+            adjustment = fetchone(
+                conn,
+                "SELECT * FROM payroll_item_adjustments WHERE payroll_run_id=? AND employee_id=?",
+                (run_id, item["employee_id"]),
+            )
+        specific = str((adjustment or {}).get("cash_advance_allocation_mode") or "automatic") == "manual"
+        if specific:
+            plan = read_allocations(adjustment)
+            if allocation_total(plan) != remaining:
+                raise ValueError(
+                    f"Payroll run #{run_id}: saved specific advance allocations do not match "
+                    f"the deduction for employee #{item['employee_id']}. Reopen the Draft to correct it."
+                )
+            eligible = {int(advance["id"]): advance for advance in advances}
+            targets = []
+            for allocation in plan:
+                advance_id = int(allocation["cash_advance_id"])
+                if advance_id not in eligible:
+                    raise ValueError(f"Advance #{advance_id} is no longer eligible for this payroll.")
+                existing_for_run = fetchone(
+                    conn,
+                    "SELECT amount,active FROM cash_advance_repayments "
+                    "WHERE cash_advance_id=? AND payroll_run_id=? ORDER BY id DESC LIMIT 1",
+                    (advance_id, run_id),
+                )
+                if existing_for_run and int(existing_for_run.get("active") if existing_for_run.get("active") is not None else 1) == 1:
+                    if money(existing_for_run.get("amount") or 0) != money(allocation["amount"]):
+                        raise ValueError(f"Advance #{advance_id} already has a different posted repayment for this run.")
+                else:
+                    balance = money(recalculate_balance(conn, advance_id).get("balance") or 0)
+                    if balance < money(allocation["amount"]):
+                        raise ValueError(f"Advance #{advance_id} has only ₱{balance:,.2f} left; edit the Draft deduction.")
+                targets.append((eligible[advance_id], money(allocation["amount"])))
+        else:
+            targets = [(advance, None) for advance in advances]
+
+        for advance, assigned_amount in targets:
             if remaining <= 0:
                 break
             existing = fetchone(
@@ -98,6 +141,10 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
                 else 1
             ) == 1:
                 existing_amount = money(existing.get("amount") or 0)
+                if assigned_amount is not None and existing_amount != assigned_amount:
+                    raise ValueError(
+                        f"Advance #{advance['id']} already has a different active repayment for this run."
+                    )
                 remaining = money(max(0.0, remaining - existing_amount))
                 continue
 
@@ -109,7 +156,9 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
             if balance <= 0:
                 continue
 
-            amount = money(min(remaining, balance))
+            if assigned_amount is not None and balance < assigned_amount:
+                raise ValueError(f"Advance #{advance['id']} no longer has the planned amount available.")
+            amount = money(assigned_amount if assigned_amount is not None else min(remaining, balance))
             stamp = now_iso()
             payment_date = run.get("payout_date") or now_iso()[:10]
             method = "Payroll deduction"
@@ -126,7 +175,10 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
                 "payroll_run_id": run_id,
                 "payroll_item_id": item.get("id"),
                 "reference": reference or f"Payroll run {run_id}",
-                "notes": f"Auto-applied from payroll run {run_id}",
+                "notes": (
+                    f"Specifically allocated from payroll run {run_id}"
+                    if assigned_amount is not None else f"Auto-applied from payroll run {run_id}"
+                ),
                 "active": 1,
                 "created_by": actor,
                 "created_at": stamp,

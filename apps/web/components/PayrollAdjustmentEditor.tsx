@@ -24,6 +24,8 @@ type Adjustment = {
   other_deduction_note?: string | null;
   cash_advance_amount?: number;
   cash_advance_note?: string | null;
+  cash_advance_allocation_mode?: "automatic" | "manual";
+  cash_advance_allocations?: { cash_advance_id: number; amount: number }[];
   version?: number;
 };
 type Allocation = {
@@ -73,6 +75,8 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
   const [advances, setAdvances] = useState<CashAdvance[]>([]);
   const [adjustment, setAdjustment] = useState<Adjustment>({});
   const [cashAmount, setCashAmount] = useState(0);
+  const [allocationMode, setAllocationMode] = useState<"automatic" | "manual">("automatic");
+  const [selectedAmounts, setSelectedAmounts] = useState<Record<number, number>>({});
   const [cashNote, setCashNote] = useState("");
   const [cashTotalAvailable, setCashTotalAvailable] = useState(0);
   const [cashSuggested, setCashSuggested] = useState(0);
@@ -86,12 +90,31 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
   const [otherDeductionNote, setOtherDeductionNote] = useState("");
   const [serverEditable, setServerEditable] = useState(true);
 
-  const allocations = useMemo(() => allocateCash(advances, cashAmount), [advances, cashAmount]);
-  const cashNeedsReason = cashAmount > 0 && Math.abs(roundMoney(cashAmount) - roundMoney(cashSuggested)) >= 0.005;
+  const manualAllocations = useMemo(() =>
+    advances.filter((advance) => Number(selectedAmounts[advance.id] || 0) > 0)
+      .map((advance) => ({
+        cash_advance_id: advance.id,
+        amount: roundMoney(Number(selectedAmounts[advance.id] || 0)),
+      })),
+    [advances, selectedAmounts]
+  );
+  const manualTotal = roundMoney(manualAllocations.reduce((total, allocation) => total + allocation.amount, 0));
+  const effectiveCash = allocationMode === "manual" ? manualTotal : cashAmount;
+  const invalidManualAllocation = allocationMode === "manual" && advances.some((advance) =>
+    Number(selectedAmounts[advance.id] || 0) < 0 ||
+    roundMoney(Number(selectedAmounts[advance.id] || 0)) > roundMoney(advance.available_balance)
+  );
+  const allocations = useMemo(() => allocationMode === "manual"
+    ? manualAllocations.map((allocation) => {
+        const advance = advances.find((item) => item.id === allocation.cash_advance_id)!;
+        return { ...allocation, available_balance: advance.available_balance, advance_date: advance.advance_date || advance.request_date, reason: advance.reason };
+      })
+    : allocateCash(advances, cashAmount), [allocationMode, advances, cashAmount, manualAllocations]);
+  const cashNeedsReason = effectiveCash > 0 && Math.abs(roundMoney(effectiveCash) - roundMoney(cashSuggested)) >= 0.005;
   const savedAdditional = Number(adjustment.additional_earning ?? 0);
   const savedOtherDeduction = Number(adjustment.other_deduction ?? 0);
   const savedCash = Number(adjustment.cash_advance_amount ?? 0);
-  const projectedNetPay = roundMoney(Number(currentNetPay || 0) + (additionalEarning - savedAdditional) - (otherDeduction - savedOtherDeduction) - (cashAmount - savedCash));
+  const projectedNetPay = roundMoney(Number(currentNetPay || 0) + (additionalEarning - savedAdditional) - (otherDeduction - savedOtherDeduction) - (effectiveCash - savedCash));
   const projectedDelta = roundMoney(projectedNetPay - Number(currentNetPay || 0));
 
   const load = useCallback(async () => {
@@ -108,6 +131,11 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
     setAdvances(data.cash_advances || []);
     setAdjustment(current);
     setCashAmount(Number(current.cash_advance_amount ?? 0));
+    setAllocationMode(current.cash_advance_allocation_mode === "manual" ? "manual" : "automatic");
+    setSelectedAmounts(Object.fromEntries(
+      (Array.isArray(current.cash_advance_allocations) ? current.cash_advance_allocations : [])
+        .map((entry: {cash_advance_id: number; amount: number}) => [Number(entry.cash_advance_id), Number(entry.amount)])
+    ));
     setCashNote(String(current.cash_advance_note || ""));
     setCashTotalAvailable(Number(data.cash_advance_total_available ?? 0));
     setCashSuggested(Number(data.cash_advance_suggested ?? 0));
@@ -125,6 +153,18 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
   useEffect(() => { if (open) void load(); }, [load, open]);
 
   async function submit() {
+    if (invalidManualAllocation) {
+      setMessage("One selected advance exceeds its available balance. Reduce that advance's deduction.");
+      return;
+    }
+    if (cashNeedsReason && !cashNote.trim()) {
+      setMessage("Enter a reason for changing the suggested deduction.");
+      return;
+    }
+    if (projectedNetPay < 0) {
+      setMessage("The deduction cannot make net pay negative.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     const response = await fetch(`/api/payroll/runs/${runId}/employees/${employeeId}/adjustments`, {
@@ -136,8 +176,10 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
         other_deduction: otherDeduction,
         other_deduction_note: otherDeductionNote.trim() || null,
         cash_advance_id: null,
-        cash_advance_amount: cashAmount,
+        cash_advance_amount: effectiveCash,
         cash_advance_note: cashNote.trim() || null,
+        cash_advance_allocation_mode: allocationMode,
+        cash_advance_allocations: allocationMode === "manual" ? manualAllocations : [],
         expected_version: Number(adjustment.version ?? 0),
       }),
     });
@@ -190,7 +232,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
               <section className={styles.section} role="tabpanel">
                 <div className={styles.sectionTitle}>
                   <strong>Cash advance repayment</strong>
-                  <span>Choose the amount to deduct. It is automatically applied to eligible advances oldest first. Edit while Draft; the cash advance balance changes only when this payroll is marked Paid.</span>
+                  <span>Choose how to split this deduction. Edit while Draft; balances change only when this payroll is marked Paid.</span>
                 </div>
                 <div className={styles.balanceRow}><span>Total available balance</span><strong>{peso(cashTotalAvailable)}</strong></div>
                 {cashTotalAvailable <= 0 ? (
@@ -207,14 +249,42 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
                 ) : null}
                 <div className={styles.balanceRow}><span>Configured total this cutoff</span><strong>{peso(cashSuggested)}</strong></div>
                 {reservedElsewhere > 0 ? <div className={styles.balanceRow}><span>Reserved by other draft payrolls</span><strong>{peso(reservedElsewhere)}</strong></div> : null}
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Deduction this cutoff</span>
-                  <input name="cash_advance_amount" type="number" min="0" max={cashTotalAvailable} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} />
-                </label>
-                {cashTotalAvailable <= 0 && savedCash > 0 ? <p className={styles.helper}>No cash-advance balance is currently available to this draft. You can still reduce this saved deduction to ₱0 and save to clear it.</p> : null}
-                {cashAmount > 0 ? (
+                <div className={styles.modeTabs} role="group" aria-label="How to allocate cash advance deduction">
+                  <button type="button" aria-pressed={allocationMode === "automatic"} className={allocationMode === "automatic" ? styles.activeMode : ""} onClick={() => setAllocationMode("automatic")}>Automatic (oldest first)</button>
+                  <button type="button" aria-pressed={allocationMode === "manual"} className={allocationMode === "manual" ? styles.activeMode : ""} onClick={() => {
+                    if (!Object.values(selectedAmounts).some((amount) => amount > 0)) {
+                      setSelectedAmounts(Object.fromEntries(allocateCash(advances, cashAmount).map((allocation) => [allocation.cash_advance_id, allocation.amount])));
+                    }
+                    setAllocationMode("manual");
+                  }}>Choose specific advances</button>
+                </div>
+                {allocationMode === "automatic" ? (
                   <div className={styles.section}>
-                    <div className={styles.sectionTitle}><strong>How this deduction will be applied</strong><span>Oldest eligible advance first.</span></div>
+                    <p className={styles.helper}>Automatic deductions are automatically applied to eligible advances oldest first.</p>
+                    <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Deduction this cutoff</span>
+                      <input name="cash_advance_amount" type="number" min="0" max={cashTotalAvailable} step="0.01" value={cashAmount} onChange={(event) => setCashAmount(Number(event.target.value || 0))} />
+                    </label>
+                  </div>
+                ) : (
+                  <div className={styles.section}>
+                    <p className={styles.helper}>Enter the amount for each advance you want to deduct. Leave other advances at ₱0. You can split one deduction across several advances.</p>
+                    {advances.map((advance) => (
+                      <label className={styles.field} key={advance.id}>
+                        <span className={styles.fieldLabel}>Advance #{advance.id} · {advance.advance_date || advance.request_date || "Undated"} · Available {peso(advance.available_balance)}</span>
+                        <input name={`cash_advance_${advance.id}`} type="number" min="0" max={advance.available_balance} step="0.01" value={selectedAmounts[advance.id] ?? 0} onChange={(event) =>
+                          setSelectedAmounts((previous) => ({ ...previous, [advance.id]: Number(event.target.value || 0) }))
+                        } />
+                      </label>
+                    ))}
+                    <div className={styles.balanceRow}><span>Total selected for this cutoff</span><strong>{peso(manualTotal)}</strong></div>
+                    {invalidManualAllocation ? <p className={styles.error}>A selected amount exceeds that advance&apos;s available balance.</p> : null}
+                  </div>
+                )}
+                {cashTotalAvailable <= 0 && savedCash > 0 ? <p className={styles.helper}>No cash-advance balance is currently available to this draft. You can still reduce this saved deduction to ₱0 and save to clear it.</p> : null}
+                {effectiveCash > 0 ? (
+                  <div className={styles.section}>
+                    <div className={styles.sectionTitle}><strong>How this deduction will be applied</strong><span>{allocationMode === "manual" ? "Exactly as selected above." : "Oldest eligible advance first."}</span></div>
                     {allocations.map((allocation) => (
                       <div className={styles.balanceRow} key={allocation.cash_advance_id}>
                         <span>#{allocation.cash_advance_id} · {allocation.advance_date || "Undated"}{allocation.reason ? ` · ${allocation.reason}` : ""}</span>

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from api.cash_advance_service import ensure_schema as ensure_cash_schema, recalculate_balance
 from api.payroll_adjustment_events import append_adjustment_event, ensure_adjustment_event_schema
@@ -15,6 +15,16 @@ from core.money import money, money_decimal
 router = APIRouter(prefix="/api/v1")
 
 
+class AdvanceAllocationPayload(BaseModel):
+    cash_advance_id: int
+    amount: float
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def quantize_amount(cls, value: Any) -> float:
+        return money(value)
+
+
 class AdjustmentPayload(BaseModel):
     additional_earning: float = 0
     additional_earning_note: str | None = None
@@ -23,6 +33,8 @@ class AdjustmentPayload(BaseModel):
     cash_advance_id: int | None = None
     cash_advance_amount: float = 0
     cash_advance_note: str | None = None
+    cash_advance_allocation_mode: str = "automatic"
+    cash_advance_allocations: list[AdvanceAllocationPayload] = Field(default_factory=list)
     expected_version: int = 0
 
     @field_validator("additional_earning", "other_deduction", "cash_advance_amount", mode="before")
@@ -55,6 +67,8 @@ def ensure_schema(conn) -> None:
             cash_advance_id INTEGER,
             cash_advance_amount REAL NOT NULL DEFAULT 0,
             cash_advance_note TEXT,
+            cash_advance_allocation_mode TEXT NOT NULL DEFAULT 'automatic',
+            cash_advance_allocations_json TEXT,
             version INTEGER NOT NULL DEFAULT 1,
             created_by TEXT,
             created_at TEXT NOT NULL,
@@ -69,6 +83,10 @@ def ensure_schema(conn) -> None:
         conn.execute("ALTER TABLE payroll_item_adjustments ADD COLUMN cash_advance_note TEXT")
     if "version" not in columns:
         conn.execute("ALTER TABLE payroll_item_adjustments ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+    if "cash_advance_allocation_mode" not in columns:
+        conn.execute("ALTER TABLE payroll_item_adjustments ADD COLUMN cash_advance_allocation_mode TEXT NOT NULL DEFAULT 'automatic'")
+    if "cash_advance_allocations_json" not in columns:
+        conn.execute("ALTER TABLE payroll_item_adjustments ADD COLUMN cash_advance_allocations_json TEXT")
     ensure_adjustment_event_schema(conn)
     conn.commit()
 

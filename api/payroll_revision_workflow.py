@@ -65,8 +65,9 @@ def carry_forward_manual_values(conn, source_run_id: int, new_run_id: int, treat
             INSERT INTO payroll_item_adjustments(
                 payroll_run_id,payroll_item_id,employee_id,additional_earning,
                 additional_earning_note,other_deduction,other_deduction_note,
-                cash_advance_id,cash_advance_amount,created_by,created_at,updated_by,updated_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                cash_advance_id,cash_advance_amount,cash_advance_allocation_mode,
+                cash_advance_allocations_json,created_by,created_at,updated_by,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 new_run_id,
@@ -78,6 +79,8 @@ def carry_forward_manual_values(conn, source_run_id: int, new_run_id: int, treat
                 adjustment.get("other_deduction_note"),
                 adjustment.get("cash_advance_id"),
                 cash,
+                adjustment.get("cash_advance_allocation_mode") or "automatic",
+                adjustment.get("cash_advance_allocations_json"),
                 actor,
                 stamp,
                 actor,

@@ -5,6 +5,14 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 
 from api.cash_advance_service import calculate_balance, confirmed_new_repayments, recalculate_balance
+from api.payroll_advance_allocations import (
+    ALLOCATION_MODES, allocation_total, encode_allocations,
+    plan_description, read_allocations,
+)
+from api.payroll_advance_allocations import (
+    ALLOCATION_MODES, allocation_total, encode_allocations,
+    plan_description, read_allocations,
+)
 from api.payroll_adjustment_events import append_adjustment_event
 from api.payroll_adjustments import (
     AdjustmentPayload,
@@ -57,38 +65,34 @@ def _eligible_advances(
     return result
 
 
-def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> float:
-    """Return aggregate cash-advance deductions reserved by other active drafts.
+def _reserved_by_advance(
+    conn: Any,
+    *,
+    employee_id: int,
+    run_id: int,
+    advances: list[dict[str, Any]],
+) -> dict[int, float]:
+    """Reserve older draft plans against the *actual* advance they target.
 
-    New payroll edits are employee-level FIFO allocations. Older exact-advance
-    draft rows still contribute to this aggregate reservation so mixed-version
-    drafts cannot over-reserve the employee's total outstanding balance.
+    Automatic plans allocate FIFO, while specific-advance plans reserve their
+    chosen advances. Neither is an actual repayment.
     """
-    # A later unpaid payroll draft is not a repayment and must not take away
-    # funds from an earlier cutoff. Reserve only older/same-day draft plans.
-    # On the same payment date, the lower run id wins deterministically.
     current_run = fetchone(
         conn, "SELECT payout_date, period_end FROM payroll_runs WHERE id=?", (run_id,)
     ) or {}
-    payment_date = str(
-        current_run.get("payout_date") or current_run.get("period_end") or ""
-    )[:10]
-    run_columns = {
-        str(column[1]) for column in conn.execute("PRAGMA table_info(payroll_runs)")
-    }
+    payment_date = str(current_run.get("payout_date") or current_run.get("period_end") or "")[:10]
+    run_columns = {str(c[1]) for c in conn.execute("PRAGMA table_info(payroll_runs)")}
     supersession_filter = (
         "AND COALESCE(pr.superseded_by_run_id,0)=0"
-        if "superseded_by_run_id" in run_columns
-        else ""
+        if "superseded_by_run_id" in run_columns else ""
     )
-    row = fetchone(
+    earlier = fetchall(
         conn,
         f"""
-        SELECT COALESCE(SUM(pia.cash_advance_amount), 0) AS total
+        SELECT pia.*,pr.payout_date,pr.period_end
         FROM payroll_item_adjustments pia
         JOIN payroll_runs pr ON pr.id=pia.payroll_run_id
-        WHERE pia.employee_id=?
-          AND pia.payroll_run_id<>?
+        WHERE pia.employee_id=? AND pia.payroll_run_id<>?
           AND COALESCE(pia.cash_advance_amount,0)>0
           AND COALESCE(pr.status,'')='Draft'
           AND (
@@ -99,25 +103,75 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
             )
           )
           {supersession_filter}
+        ORDER BY date(COALESCE(NULLIF(pr.payout_date,''),pr.period_end)),pr.id
         """,
         (employee_id, run_id, payment_date, payment_date, run_id),
-    ) or {}
-    return money(max(0.0, float(row.get("total") or 0)))
+    )
+    balance = {
+        int(row["id"]): money(row.get("live_balance") or 0)
+        for row in advances
+    }
+    reserved = {key: 0.0 for key in balance}
+    ids_fifo = [int(row["id"]) for row in advances]
+    for row in earlier:
+        deduction = money(row.get("cash_advance_amount") or 0)
+        if str(row.get("cash_advance_allocation_mode") or "automatic") == "manual":
+            plan = read_allocations(row)
+            if allocation_total(plan) != deduction:
+                raise ValueError("An earlier draft has an inconsistent advance allocation plan; correct it before editing another draft.")
+        else:
+            remaining = deduction
+            plan = []
+            for advance_id in ids_fifo:
+                available = money(max(0, balance[advance_id] - reserved[advance_id]))
+                used = money(min(remaining, available))
+                if used > 0:
+                    plan.append({"cash_advance_id": advance_id, "amount": used})
+                    remaining = money(remaining - used)
+                if remaining <= 0:
+                    break
+        for allocation in plan:
+            advance_id = int(allocation["cash_advance_id"])
+            if advance_id not in balance:
+                continue
+            available = money(max(0, balance[advance_id] - reserved[advance_id]))
+            reserved[advance_id] = money(reserved[advance_id] + min(
+                money(allocation["amount"]), available
+            ))
+    return reserved
+
+
+def _other_draft_reserved_total(
+    conn: Any, *, employee_id: int, run_id: int,
+    advances: list[dict[str, Any]] | None = None,
+) -> float:
+    """Total actual draft reservation, including targeted plans."""
+    if advances is None:
+        return 0.0
+    return money(sum(_reserved_by_advance(
+        conn, employee_id=employee_id, run_id=run_id, advances=advances,
+    ).values()))
+
 
 
 def _available_after_other_drafts(
     advances: list[dict[str, Any]],
     reserved_total: float,
 ) -> list[dict[str, Any]]:
-    """Apply existing aggregate reservations FIFO for a deterministic preview."""
+    """Legacy FIFO helper retained for arithmetic and compatibility tests.
+
+    The real snapshot uses per-advance reservations when specific selections
+    exist. This helper is not used to override those selections.
+    """
     remaining_reserved = money(max(0.0, reserved_total))
     result: list[dict[str, Any]] = []
     for advance in advances:
         balance = money(max(0.0, float(advance.get("live_balance") or 0)))
         consumed = money(min(balance, remaining_reserved))
         remaining_reserved = money(max(0.0, remaining_reserved - consumed))
-        available = money(max(0.0, balance - consumed))
-        result.append({**advance, "available_balance": available})
+        result.append({
+            **advance, "available_balance": money(max(0.0, balance - consumed))
+        })
     return result
 
 
@@ -254,8 +308,21 @@ def _cash_snapshot(
         period_end=deduction_date,
         persist_balances=persist_balances,
     )
-    reserved_total = _other_draft_reserved_total(conn, employee_id=employee_id, run_id=run_id)
-    available_advances = _available_after_other_drafts(advances, reserved_total)
+    reserved_map = _reserved_by_advance(
+        conn, employee_id=employee_id, run_id=run_id, advances=advances,
+    )
+    reserved_total = _other_draft_reserved_total(
+        conn, employee_id=employee_id, run_id=run_id, advances=advances,
+    )
+    available_advances = [
+        {
+            **advance,
+            "available_balance": money(max(
+                0, money(advance.get("live_balance") or 0) - reserved_map.get(int(advance["id"]), 0),
+            )),
+        }
+        for advance in advances
+    ]
     total_available = money(
         sum(float(row.get("available_balance") or 0) for row in available_advances)
     )
@@ -312,6 +379,10 @@ def get_adjustments(
         )
         adjustment["legacy_cash_advance_id"] = adjustment.get("cash_advance_id")
         adjustment["cash_advance_id"] = None
+        adjustment["cash_advance_allocation_mode"] = str(
+            adjustment.get("cash_advance_allocation_mode") or "automatic"
+        )
+        adjustment["cash_advance_allocations"] = read_allocations(adjustment)
 
         return {
             "ok": True,
@@ -382,6 +453,8 @@ def save_adjustments(
         old_other = money(old.get("other_deduction") or 0)
         old_cash = money(old.get("cash_advance_amount") or 0)
         old_cash_id = int(old.get("cash_advance_id") or 0) or None
+        old_mode = str(old.get("cash_advance_allocation_mode") or "automatic")
+        old_plan = read_allocations(old)
 
         snapshot = _cash_snapshot(
             conn,
@@ -398,6 +471,35 @@ def save_adjustments(
                 status_code=422,
                 detail=f"Deduction cannot exceed the employee's available cash-advance balance of {total_available:.2f}.",
             )
+        mode = str(payload.cash_advance_allocation_mode or "automatic")
+        if mode not in ALLOCATION_MODES:
+            raise HTTPException(status_code=422, detail="Choose Automatic or specific advances.")
+        plan = [
+            {"cash_advance_id": int(entry.cash_advance_id), "amount": money(entry.amount)}
+            for entry in payload.cash_advance_allocations
+        ]
+        if mode == "manual":
+            ids = [entry["cash_advance_id"] for entry in plan]
+            if len(ids) != len(set(ids)) or any(i <= 0 for i in ids):
+                raise HTTPException(status_code=422, detail="Select each advance only once.")
+            if any(entry["amount"] <= 0 for entry in plan):
+                raise HTTPException(status_code=422, detail="Each selected advance must have a positive deduction.")
+            if allocation_total(plan) != cash:
+                raise HTTPException(status_code=422, detail="Specific advance deductions must add up to the payroll cash advance deduction.")
+            available = {
+                int(advance["id"]): money(advance["available_balance"])
+                for advance in snapshot["cash_advances"]
+            }
+            for entry in plan:
+                advance_id = entry["cash_advance_id"]
+                if advance_id not in available:
+                    raise HTTPException(status_code=422, detail=f"Advance #{advance_id} is not eligible for this payroll.")
+                if entry["amount"] > available[advance_id]:
+                    raise HTTPException(status_code=422, detail=f"Advance #{advance_id} only has ₱{available[advance_id]:,.2f} available to this draft.")
+            plan.sort(key=lambda entry: entry["cash_advance_id"])
+        elif plan:
+            raise HTTPException(status_code=422, detail="Automatic allocation cannot include specific advance amounts.")
+
         if cash > 0 and abs(cash - suggested_cash) >= 0.005 and not cash_note:
             raise HTTPException(
                 status_code=422,
@@ -444,6 +546,7 @@ def save_adjustments(
                 SET additional_earning=?, additional_earning_note=?,
                     other_deduction=?, other_deduction_note=?,
                     cash_advance_id=NULL, cash_advance_amount=?, cash_advance_note=?,
+                    cash_advance_allocation_mode=?,cash_advance_allocations_json=?,
                     version=?, updated_by=?, updated_at=?
                 WHERE payroll_run_id=? AND employee_id=? AND version=?
                 """,
@@ -454,6 +557,8 @@ def save_adjustments(
                     other_note or None,
                     cash,
                     cash_note or None,
+                    mode,
+                    encode_allocations(plan) if mode == "manual" else None,
                     new_version,
                     actor,
                     now,
@@ -473,9 +578,10 @@ def save_adjustments(
                 INSERT INTO payroll_item_adjustments(
                     payroll_run_id,payroll_item_id,employee_id,additional_earning,
                     additional_earning_note,other_deduction,other_deduction_note,
-                    cash_advance_id,cash_advance_amount,cash_advance_note,version,
+                    cash_advance_id,cash_advance_amount,cash_advance_note,
+                    cash_advance_allocation_mode,cash_advance_allocations_json,version,
                     created_by,created_at,updated_by,updated_at
-                ) VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?)
+                ) VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run_id,
@@ -487,6 +593,8 @@ def save_adjustments(
                     other_note or None,
                     cash,
                     cash_note or None,
+                    mode,
+                    encode_allocations(plan) if mode == "manual" else None,
                     new_version,
                     actor,
                     now,
@@ -523,7 +631,7 @@ def save_adjustments(
                     if abs(cash - suggested_cash) < 0.005 and cash > 0
                     else "Cash advance deduction removed",
                 ),
-                old_cash != cash or old_cash_id is not None,
+                old_cash != cash or old_cash_id is not None or old_mode != mode or old_plan != plan,
             ),
         ]
         for kind, old_value, new_value, cash_advance_id, reason, changed in financial_events:
@@ -539,6 +647,27 @@ def save_adjustments(
                 new_centavos=to_centavos(new_value),
                 cash_advance_id=cash_advance_id,
                 reason=reason,
+                actor_id=actor_id,
+                actor_name=actor,
+                request_id=request_id,
+                created_at=now,
+            )
+
+        if old_mode != mode or old_plan != plan:
+            append_adjustment_event(
+                conn,
+                payroll_run_id=run_id,
+                payroll_item_id=int(item["id"]),
+                employee_id=employee_id,
+                adjustment_kind="cash_advance_allocation",
+                old_centavos=to_centavos(old_cash),
+                new_centavos=to_centavos(cash),
+                cash_advance_id=None,
+                reason=(
+                    f"Allocation changed from {plan_description(old_mode, old_plan)} "
+                    f"to {plan_description(mode, plan)}. "
+                    f"{cash_note or 'Edited selected advances'}"
+                ),
                 actor_id=actor_id,
                 actor_name=actor,
                 request_id=request_id,
