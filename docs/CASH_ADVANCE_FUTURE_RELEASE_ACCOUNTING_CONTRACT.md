@@ -8,8 +8,9 @@ This workflow is for **new Staff cash advances created after the release-confirm
 2. Approval moves the record to **Active**. It is **not a cash-out** and does **not** enqueue a release event.
 3. An authorized Owner/Payroll user must explicitly confirm that the funds were **actually issued**, supplying the actual release date, resort cash drawer/GCash/bank method, digital transfer reference where applicable, and a confirmation checkbox.
 4. One SQLite transaction saves release evidence, appends the lifecycle audit event, creates a linked cash-drawer movement for drawer releases, and enqueues the idempotent `cash_advance.released` Accounting review event. Outbox failure rolls back the entire release. Network retries with identical evidence return `already_recorded=true`.
-5. A new unissued advance cannot receive a manual repayment or an automatic payroll deduction. This constraint does not retroactively change historical advances.
-6. An issued advance cannot be cancelled using the undisbursed-cancellation endpoint. Corrections/reversals require explicit, separately audited treatment.
+5. **Manual repayment** remains blocked until release is confirmed; it must never be entered before actual disbursement. **Payroll deduction** follows the owner-requested Draft → Paid workflow: a cash advance recorded for payroll deduction may be planned and edited in a Draft payroll even if release confirmation has not yet been entered. Draft and Approved do not create repayments or decrease the advance balance. When the owner explicitly marks payroll **Paid**, the saved deduction posts once to the repayment ledger and the balance is recalculated. A recorded release date after that payroll's payday still excludes the advance.
+6. The draft payroll UI warns when it includes an advance without separate release evidence. The payroll deduction **does not imply or automatically create a cash-release event** or Accounting journal; the owner is responsible for confirming the employee actually received the original advance before paying the net wages. If an advance was never issued, do not deduct it from pay.
+7. An issued advance cannot be cancelled using the undisbursed-cancellation endpoint. Corrections/reversals require explicit, separately audited treatment.
 
 ## Financial boundaries
 
