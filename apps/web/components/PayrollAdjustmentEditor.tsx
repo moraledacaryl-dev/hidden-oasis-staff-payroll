@@ -278,7 +278,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
                       </label>
                     ))}
                     <div className={styles.balanceRow}><span>Total selected for this cutoff</span><strong>{peso(manualTotal)}</strong></div>
-                    {invalidManualAllocation ? <p className={styles.error}>A selected amount exceeds that advance's available balance.</p> : null}
+                    {invalidManualAllocation ? <p className={styles.error}>A selected amount exceeds that advance&apos;s available balance.</p> : null}
                   </div>
                 )}
                 {cashTotalAvailable <= 0 && savedCash > 0 ? <p className={styles.helper}>No cash-advance balance is currently available to this draft. You can still reduce this saved deduction to ₱0 and save to clear it.</p> : null}
