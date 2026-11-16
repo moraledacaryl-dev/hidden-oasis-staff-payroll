@@ -190,7 +190,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
               <section className={styles.section} role="tabpanel">
                 <div className={styles.sectionTitle}>
                   <strong>Cash advance repayment</strong>
-                  <span>Choose the amount to deduct from this payroll. You can edit it while Draft. The cash advance balance changes only after this payroll is marked Paid.</span>
+                  <span>Choose the amount to deduct. It is automatically applied to eligible advances oldest first. Edit while Draft; the cash advance balance changes only when this payroll is marked Paid.</span>
                 </div>
                 <div className={styles.balanceRow}><span>Total available balance</span><strong>{peso(cashTotalAvailable)}</strong></div>
                 {cashTotalAvailable <= 0 ? (
