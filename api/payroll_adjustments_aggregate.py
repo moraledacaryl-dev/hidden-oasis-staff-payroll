@@ -5,6 +5,10 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException
 
 from api.cash_advance_service import calculate_balance, confirmed_new_repayments, recalculate_balance
+from api.payroll_advance_allocations import (
+    ALLOCATION_MODES, allocation_total, encode_allocations,
+    plan_description, read_allocations,
+)
 from api.payroll_adjustment_events import append_adjustment_event
 from api.payroll_adjustments import (
     AdjustmentPayload,
@@ -57,38 +61,34 @@ def _eligible_advances(
     return result
 
 
-def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> float:
-    """Return aggregate cash-advance deductions reserved by other active drafts.
+def _reserved_by_advance(
+    conn: Any,
+    *,
+    employee_id: int,
+    run_id: int,
+    advances: list[dict[str, Any]],
+) -> dict[int, float]:
+    """Reserve older draft plans against the *actual* advance they target.
 
-    New payroll edits are employee-level FIFO allocations. Older exact-advance
-    draft rows still contribute to this aggregate reservation so mixed-version
-    drafts cannot over-reserve the employee's total outstanding balance.
+    Automatic plans allocate FIFO, while specific-advance plans reserve their
+    chosen advances. Neither is an actual repayment.
     """
-    # A later unpaid payroll draft is not a repayment and must not take away
-    # funds from an earlier cutoff. Reserve only older/same-day draft plans.
-    # On the same payment date, the lower run id wins deterministically.
     current_run = fetchone(
         conn, "SELECT payout_date, period_end FROM payroll_runs WHERE id=?", (run_id,)
     ) or {}
-    payment_date = str(
-        current_run.get("payout_date") or current_run.get("period_end") or ""
-    )[:10]
-    run_columns = {
-        str(column[1]) for column in conn.execute("PRAGMA table_info(payroll_runs)")
-    }
+    payment_date = str(current_run.get("payout_date") or current_run.get("period_end") or "")[:10]
+    run_columns = {str(c[1]) for c in conn.execute("PRAGMA table_info(payroll_runs)")}
     supersession_filter = (
         "AND COALESCE(pr.superseded_by_run_id,0)=0"
-        if "superseded_by_run_id" in run_columns
-        else ""
+        if "superseded_by_run_id" in run_columns else ""
     )
-    row = fetchone(
+    earlier = fetchall(
         conn,
         f"""
-        SELECT COALESCE(SUM(pia.cash_advance_amount), 0) AS total
+        SELECT pia.*,pr.payout_date,pr.period_end
         FROM payroll_item_adjustments pia
         JOIN payroll_runs pr ON pr.id=pia.payroll_run_id
-        WHERE pia.employee_id=?
-          AND pia.payroll_run_id<>?
+        WHERE pia.employee_id=? AND pia.payroll_run_id<>?
           AND COALESCE(pia.cash_advance_amount,0)>0
           AND COALESCE(pr.status,'')='Draft'
           AND (
@@ -99,26 +99,55 @@ def _other_draft_reserved_total(conn: Any, *, employee_id: int, run_id: int) -> 
             )
           )
           {supersession_filter}
+        ORDER BY date(COALESCE(NULLIF(pr.payout_date,''),pr.period_end)),pr.id
         """,
         (employee_id, run_id, payment_date, payment_date, run_id),
-    ) or {}
-    return money(max(0.0, float(row.get("total") or 0)))
+    )
+    balance = {
+        int(row["id"]): money(row.get("live_balance") or 0)
+        for row in advances
+    }
+    reserved = {key: 0.0 for key in balance}
+    ids_fifo = [int(row["id"]) for row in advances]
+    for row in earlier:
+        deduction = money(row.get("cash_advance_amount") or 0)
+        if str(row.get("cash_advance_allocation_mode") or "automatic") == "manual":
+            plan = read_allocations(row)
+            if allocation_total(plan) != deduction:
+                raise ValueError("An earlier draft has an inconsistent advance allocation plan; correct it before editing another draft.")
+        else:
+            remaining = deduction
+            plan = []
+            for advance_id in ids_fifo:
+                available = money(max(0, balance[advance_id] - reserved[advance_id]))
+                used = money(min(remaining, available))
+                if used > 0:
+                    plan.append({"cash_advance_id": advance_id, "amount": used})
+                    remaining = money(remaining - used)
+                if remaining <= 0:
+                    break
+        for allocation in plan:
+            advance_id = int(allocation["cash_advance_id"])
+            if advance_id not in balance:
+                continue
+            available = money(max(0, balance[advance_id] - reserved[advance_id]))
+            reserved[advance_id] = money(reserved[advance_id] + min(
+                money(allocation["amount"]), available
+            ))
+    return reserved
 
 
-def _available_after_other_drafts(
-    advances: list[dict[str, Any]],
-    reserved_total: float,
-) -> list[dict[str, Any]]:
-    """Apply existing aggregate reservations FIFO for a deterministic preview."""
-    remaining_reserved = money(max(0.0, reserved_total))
-    result: list[dict[str, Any]] = []
-    for advance in advances:
-        balance = money(max(0.0, float(advance.get("live_balance") or 0)))
-        consumed = money(min(balance, remaining_reserved))
-        remaining_reserved = money(max(0.0, remaining_reserved - consumed))
-        available = money(max(0.0, balance - consumed))
-        result.append({**advance, "available_balance": available})
-    return result
+def _other_draft_reserved_total(
+    conn: Any, *, employee_id: int, run_id: int,
+    advances: list[dict[str, Any]] | None = None,
+) -> float:
+    """Total actual draft reservation, including targeted plans."""
+    if advances is None:
+        return 0.0
+    return money(sum(_reserved_by_advance(
+        conn, employee_id=employee_id, run_id=run_id, advances=advances,
+    ).values()))
+
 
 
 def _suggested_total(advances: list[dict[str, Any]]) -> float:
@@ -254,8 +283,21 @@ def _cash_snapshot(
         period_end=deduction_date,
         persist_balances=persist_balances,
     )
-    reserved_total = _other_draft_reserved_total(conn, employee_id=employee_id, run_id=run_id)
-    available_advances = _available_after_other_drafts(advances, reserved_total)
+    reserved_map = _reserved_by_advance(
+        conn, employee_id=employee_id, run_id=run_id, advances=advances,
+    )
+    reserved_total = _other_draft_reserved_total(
+        conn, employee_id=employee_id, run_id=run_id, advances=advances,
+    )
+    available_advances = [
+        {
+            **advance,
+            "available_balance": money(max(
+                0, money(advance.get("live_balance") or 0) - reserved_map.get(int(advance["id"]), 0),
+            )),
+        }
+        for advance in advances
+    ]
     total_available = money(
         sum(float(row.get("available_balance") or 0) for row in available_advances)
     )
