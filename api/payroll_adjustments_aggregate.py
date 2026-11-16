@@ -39,9 +39,10 @@ def _eligible_advances(
           AND COALESCE(status,'') NOT IN ('Cancelled','Rejected','Void','Voided')
           AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
           AND date(COALESCE(advance_date, request_date)) <= date(?)
+          AND (NULLIF(TRIM(COALESCE(released_at,'')), '') IS NULL OR date(released_at) <= date(?))
         ORDER BY date(COALESCE(advance_date, request_date)), id
         """,
-        (employee_id, period_end),
+        (employee_id, period_end, period_end),
     )
     result: list[dict[str, Any]] = []
     # A stored Fully Paid status can be stale after older draft-payroll code
@@ -212,6 +213,10 @@ def _cash_availability_notes(
         advance_date = str(row.get("advance_date") or row.get("request_date") or "")[:10]
         if advance_date > deduction_date:
             notes.append(prefix + f"dated {advance_date}, after payday eligibility {deduction_date}.")
+            continue
+        released_at = str(row.get("released_at") or "")[:10]
+        if released_at and released_at > deduction_date:
+            notes.append(prefix + f"recorded release {released_at} is after payday {deduction_date}.")
             continue
         summary = calculate_balance(conn, int(row["id"]))
         if money(summary.get("balance") or 0) <= 0:
