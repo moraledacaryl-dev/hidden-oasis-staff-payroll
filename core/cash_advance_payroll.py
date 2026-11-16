@@ -102,9 +102,19 @@ def apply_payroll_cash_advance_repayments(conn: sqlite3.Connection, run_id: int,
                 advance_id = int(allocation["cash_advance_id"])
                 if advance_id not in eligible:
                     raise ValueError(f"Advance #{advance_id} is no longer eligible for this payroll.")
-                balance = money(recalculate_balance(conn, advance_id).get("balance") or 0)
-                if balance < money(allocation["amount"]):
-                    raise ValueError(f"Advance #{advance_id} has only ₱{balance:,.2f} left; edit the Draft deduction.")
+                existing_for_run = fetchone(
+                    conn,
+                    "SELECT amount,active FROM cash_advance_repayments "
+                    "WHERE cash_advance_id=? AND payroll_run_id=? ORDER BY id DESC LIMIT 1",
+                    (advance_id, run_id),
+                )
+                if existing_for_run and int(existing_for_run.get("active") if existing_for_run.get("active") is not None else 1) == 1:
+                    if money(existing_for_run.get("amount") or 0) != money(allocation["amount"]):
+                        raise ValueError(f"Advance #{advance_id} already has a different posted repayment for this run.")
+                else:
+                    balance = money(recalculate_balance(conn, advance_id).get("balance") or 0)
+                    if balance < money(allocation["amount"]):
+                        raise ValueError(f"Advance #{advance_id} has only ₱{balance:,.2f} left; edit the Draft deduction.")
                 targets.append((eligible[advance_id], money(allocation["amount"])))
         else:
             targets = [(advance, None) for advance in advances]
