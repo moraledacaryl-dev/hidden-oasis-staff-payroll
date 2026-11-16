@@ -39,8 +39,7 @@ def _eligible_advances(
           AND COALESCE(status,'') NOT IN ('Cancelled','Rejected','Void','Voided')
           AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
           AND date(COALESCE(advance_date, request_date)) <= date(?)
-          AND (COALESCE(release_confirmation_required,0)=0
-               OR (released_at IS NOT NULL AND date(released_at) <= date(?)))
+          AND (NULLIF(TRIM(COALESCE(released_at,'')), '') IS NULL OR date(released_at) <= date(?))
         ORDER BY date(COALESCE(advance_date, request_date)), id
         """,
         (employee_id, period_end, period_end),
@@ -215,14 +214,10 @@ def _cash_availability_notes(
         if advance_date > deduction_date:
             notes.append(prefix + f"dated {advance_date}, after payday eligibility {deduction_date}.")
             continue
-        if int(row.get("release_confirmation_required") or 0) == 1:
-            released_at = str(row.get("released_at") or "")[:10]
-            if not released_at:
-                notes.append(prefix + "funds have not been confirmed issued. Approval is not a disbursement.")
-                continue
-            if released_at > deduction_date:
-                notes.append(prefix + f"funds issued on {released_at}, after payday eligibility {deduction_date}.")
-                continue
+        released_at = str(row.get("released_at") or "")[:10]
+        if released_at and released_at > deduction_date:
+            notes.append(prefix + f"recorded release {released_at} is after payday {deduction_date}.")
+            continue
         summary = calculate_balance(conn, int(row["id"]))
         if money(summary.get("balance") or 0) <= 0:
             opening = row.get("ledger_opening_balance")
@@ -272,6 +267,11 @@ def _cash_snapshot(
         "cash_advance_allocations": _allocation_preview(available_advances, amount),
         "cash_advance_reserved_elsewhere": reserved_total,
         "cash_advance_deduction_date": deduction_date,
+        "cash_advance_unconfirmed_issue": [
+            int(advance["id"]) for advance in advances
+            if int(advance.get("release_confirmation_required") or 0) == 1
+            and not str(advance.get("released_at") or "").strip()
+        ],
         "cash_advance_availability_notes": _cash_availability_notes(
             conn,
             employee_id=employee_id,

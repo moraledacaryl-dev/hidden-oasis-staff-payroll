@@ -79,6 +79,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
   const [reservedElsewhere, setReservedElsewhere] = useState(0);
   const [cashAvailabilityNotes, setCashAvailabilityNotes] = useState<string[]>([]);
   const [cashDeductionDate, setCashDeductionDate] = useState("");
+  const [cashUnconfirmedIssue, setCashUnconfirmedIssue] = useState<number[]>([]);
   const [additionalEarning, setAdditionalEarning] = useState(0);
   const [additionalEarningNote, setAdditionalEarningNote] = useState("");
   const [otherDeduction, setOtherDeduction] = useState(0);
@@ -113,6 +114,7 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
     setReservedElsewhere(Number(data.cash_advance_reserved_elsewhere ?? 0));
     setCashAvailabilityNotes(Array.isArray(data.cash_advance_availability_notes) ? data.cash_advance_availability_notes : []);
     setCashDeductionDate(String(data.cash_advance_deduction_date || ""));
+    setCashUnconfirmedIssue(Array.isArray(data.cash_advance_unconfirmed_issue) ? data.cash_advance_unconfirmed_issue : []);
     setAdditionalEarning(Number(current.additional_earning ?? 0));
     setAdditionalEarningNote(String(current.additional_earning_note || ""));
     setOtherDeduction(Number(current.other_deduction ?? 0));
@@ -188,15 +190,20 @@ export function PayrollAdjustmentEditor({ runId, employeeId, employeeName, curre
               <section className={styles.section} role="tabpanel">
                 <div className={styles.sectionTitle}>
                   <strong>Cash advance repayment</strong>
-                  <span>Enter one deduction for this employee. It is automatically applied to eligible advances oldest first, so one payroll deduction can pay across several advances.</span>
+                  <span>Choose the amount to deduct. It is automatically applied to eligible advances oldest first. Edit while Draft; the cash advance balance changes only when this payroll is marked Paid.</span>
                 </div>
                 <div className={styles.balanceRow}><span>Total available balance</span><strong>{peso(cashTotalAvailable)}</strong></div>
                 {cashTotalAvailable <= 0 ? (
                   <div className={styles.section} role="status">
-                    <p className={styles.helper}><strong>Why is this ₱0?</strong> Payroll can deduct advances issued by {cashDeductionDate || "payday"}, minus any earlier draft reservations. A draft is not a repayment.</p>
+                    <p className={styles.helper}><strong>Why is this ₱0?</strong> Only outstanding advances dated by {cashDeductionDate || "payday"} and not already reserved by an earlier draft are available. Draft deductions do not count as repayments.</p>
                     {cashAvailabilityNotes.map((note, index) => <p className={styles.helper} key={index}>{note}</p>)}
-                    <p className={styles.helper}><Link href="/cash-advances">Review cash advances, issue confirmation, and repayment history</Link></p>
+                    <p className={styles.helper}><Link href="/cash-advances">Review cash advance records and repayment history</Link></p>
                   </div>
+                ) : null}
+                {cashUnconfirmedIssue.length > 0 ? (
+                  <p className={styles.helper} role="note">
+                    {cashUnconfirmedIssue.length === 1 ? "Advance" : "Advances"} #{cashUnconfirmedIssue.join(", #")} {cashUnconfirmedIssue.length === 1 ? "has" : "have"} no recorded cash release. You may plan a payroll deduction here, but verify the employee actually received the advance before paying payroll. Saving a draft does not record any repayment.
+                  </p>
                 ) : null}
                 <div className={styles.balanceRow}><span>Configured total this cutoff</span><strong>{peso(cashSuggested)}</strong></div>
                 {reservedElsewhere > 0 ? <div className={styles.balanceRow}><span>Reserved by other draft payrolls</span><strong>{peso(reservedElsewhere)}</strong></div> : null}

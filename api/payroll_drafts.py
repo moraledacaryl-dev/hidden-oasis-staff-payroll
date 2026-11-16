@@ -77,8 +77,7 @@ def _apply_period_cash_advance_deduction(conn: Any, result: Any, period_start: s
           AND COALESCE(status,'') NOT IN ('Cancelled','Fully Paid','Rejected','Void','Voided')
           AND lower(COALESCE(repayment_method,'Payroll deduction')) LIKE '%payroll%'
           AND date(COALESCE(advance_date, request_date)) <= date(?)
-          AND (COALESCE(release_confirmation_required,0)=0
-               OR (released_at IS NOT NULL AND date(released_at) <= date(?)))
+          AND (NULLIF(TRIM(COALESCE(released_at,'')), '') IS NULL OR date(released_at) <= date(?))
         ORDER BY date(COALESCE(advance_date, request_date)), id
         """,
         (employee_id, period_end, period_end),

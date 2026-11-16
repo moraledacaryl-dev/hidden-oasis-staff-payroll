@@ -230,7 +230,7 @@ export default async function CashAdvancesPage({
             <StatusBadge label={statusLabel(item)} tone={item.status === "Fully Paid" ? "ok" : item.status === "Cancelled" ? "danger" : "warning"} />
           </div>
           <div className="cash-card-main">
-            <div className="cash-balance-block"><span>{Number(item.release_confirmation_required || 0) === 1 && !item.released_at ? "Pending disbursement" : "Remaining balance"}</span><strong>{peso(balance)}</strong><small>{Number(item.release_confirmation_required || 0) === 1 && !item.released_at ? "Not yet included in issued outstanding" : `of ${peso(basis)} balance basis`}</small></div>
+            <div className="cash-balance-block"><span>{Number(item.release_confirmation_required || 0) === 1 && !item.released_at ? "Release not recorded" : "Remaining balance"}</span><strong>{peso(balance)}</strong><small>{Number(item.release_confirmation_required || 0) === 1 && !item.released_at ? "Not yet included in issued outstanding" : `of ${peso(basis)} balance basis`}</small></div>
             <div className="cash-card-facts"><div><span>Repaid</span><strong>{peso(repaid)}</strong></div><div><span>Advance date</span><strong>{formatDate(item.advance_date)}</strong></div><div><span>Repayment</span><strong>{item.repayment_method || "Payroll deduction"}</strong></div></div>
           </div>
           <div className="cash-progress" aria-label={`${Math.round(paidPercent)}% repaid`}><div className="cash-progress-track"><span style={{ width: `${paidPercent}%` }} /></div><div className="cash-progress-label"><span>{Math.round(paidPercent)}% repaid</span><span>{balance <= 0 ? "Complete" : `${peso(balance)} left`}</span></div></div>
@@ -241,7 +241,7 @@ export default async function CashAdvancesPage({
               <p>{formatDate(item.released_at)} · {item.release_method || "Method not recorded"} · Accounting handoff is not proof of journal posting</p>
             </div>
           ) : Number(item.release_confirmation_required || 0) === 1 ? (
-            <p className="cash-handoff-warning">Awaiting disbursement confirmation. Approval alone does not establish that cash was issued. Record actual release before collecting repayments.</p>
+            <p className="cash-handoff-warning">Cash release has not been separately confirmed. A payroll deduction can be planned in Draft and will be recorded as a repayment only when payroll is Paid. Verify the employee actually received the original advance before deducting wages. Manual repayments still require confirmed release.</p>
           ) : null}
           {(item.repayments || []).some(needsAccountingHandoffReview) ? (
             <p className="cash-handoff-warning">
