@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from api.payroll_drafts import must_be_payroll_user, totals
+from api.cash_advance_service import recalculate_balance
 from core.cash_advance_payroll import apply_payroll_cash_advance_repayments
 from core.db import DB_PATH, fetchone, get_conn, now_iso
 from core.payroll_engine import create_accounting_queue_for_payroll
@@ -91,6 +92,16 @@ def mark_payroll_run_paid(
 
         apply_payroll_cash_advance_repayments(conn, run_id, actor=actor, reference=reference)
         conn.execute("UPDATE payroll_runs SET status='Paid', paid_at=? WHERE id=?", (paid_at, run_id))
+        # Before Paid, planned payroll repayments are intentionally excluded
+        # from the live balance. Recompute *after* Paid within this transaction,
+        # so the persisted balance is accurate and one deduction is posted once.
+        advanced_ids = conn.execute(
+            "SELECT DISTINCT cash_advance_id FROM cash_advance_repayments "
+            "WHERE payroll_run_id=? AND COALESCE(active,1)=1 AND source='Payroll'",
+            (run_id,),
+        ).fetchall()
+        for advance_row in advanced_ids:
+            recalculate_balance(conn, int(advance_row[0]))
         create_accounting_queue_for_payroll(conn, run_id)
         try:
             from core.integration_accounting import enqueue_payroll_run
