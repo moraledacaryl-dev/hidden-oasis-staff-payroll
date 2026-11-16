@@ -154,6 +154,27 @@ def _other_draft_reserved_total(
 
 
 
+def _available_after_other_drafts(
+    advances: list[dict[str, Any]],
+    reserved_total: float,
+) -> list[dict[str, Any]]:
+    """Legacy FIFO helper retained for arithmetic and compatibility tests.
+
+    The real snapshot uses per-advance reservations when specific selections
+    exist. This helper is not used to override those selections.
+    """
+    remaining_reserved = money(max(0.0, reserved_total))
+    result: list[dict[str, Any]] = []
+    for advance in advances:
+        balance = money(max(0.0, float(advance.get("live_balance") or 0)))
+        consumed = money(min(balance, remaining_reserved))
+        remaining_reserved = money(max(0.0, remaining_reserved - consumed))
+        result.append({
+            **advance, "available_balance": money(max(0.0, balance - consumed))
+        })
+    return result
+
+
 def _suggested_total(advances: list[dict[str, Any]]) -> float:
     total = 0.0
     for advance in advances:
