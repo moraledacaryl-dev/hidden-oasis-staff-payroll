@@ -9,6 +9,10 @@ from api.payroll_advance_allocations import (
     ALLOCATION_MODES, allocation_total, encode_allocations,
     plan_description, read_allocations,
 )
+from api.payroll_advance_allocations import (
+    ALLOCATION_MODES, allocation_total, encode_allocations,
+    plan_description, read_allocations,
+)
 from api.payroll_adjustment_events import append_adjustment_event
 from api.payroll_adjustments import (
     AdjustmentPayload,
@@ -354,6 +358,10 @@ def get_adjustments(
         )
         adjustment["legacy_cash_advance_id"] = adjustment.get("cash_advance_id")
         adjustment["cash_advance_id"] = None
+        adjustment["cash_advance_allocation_mode"] = str(
+            adjustment.get("cash_advance_allocation_mode") or "automatic"
+        )
+        adjustment["cash_advance_allocations"] = read_allocations(adjustment)
 
         return {
             "ok": True,
@@ -424,6 +432,8 @@ def save_adjustments(
         old_other = money(old.get("other_deduction") or 0)
         old_cash = money(old.get("cash_advance_amount") or 0)
         old_cash_id = int(old.get("cash_advance_id") or 0) or None
+        old_mode = str(old.get("cash_advance_allocation_mode") or "automatic")
+        old_plan = read_allocations(old)
 
         snapshot = _cash_snapshot(
             conn,
@@ -440,6 +450,35 @@ def save_adjustments(
                 status_code=422,
                 detail=f"Deduction cannot exceed the employee's available cash-advance balance of {total_available:.2f}.",
             )
+        mode = str(payload.cash_advance_allocation_mode or "automatic")
+        if mode not in ALLOCATION_MODES:
+            raise HTTPException(status_code=422, detail="Choose Automatic or specific advances.")
+        plan = [
+            {"cash_advance_id": int(entry.cash_advance_id), "amount": money(entry.amount)}
+            for entry in payload.cash_advance_allocations
+        ]
+        if mode == "manual":
+            ids = [entry["cash_advance_id"] for entry in plan]
+            if len(ids) != len(set(ids)) or any(i <= 0 for i in ids):
+                raise HTTPException(status_code=422, detail="Select each advance only once.")
+            if any(entry["amount"] <= 0 for entry in plan):
+                raise HTTPException(status_code=422, detail="Each selected advance must have a positive deduction.")
+            if allocation_total(plan) != cash:
+                raise HTTPException(status_code=422, detail="Specific advance deductions must add up to the payroll cash advance deduction.")
+            available = {
+                int(advance["id"]): money(advance["available_balance"])
+                for advance in snapshot["cash_advances"]
+            }
+            for entry in plan:
+                advance_id = entry["cash_advance_id"]
+                if advance_id not in available:
+                    raise HTTPException(status_code=422, detail=f"Advance #{advance_id} is not eligible for this payroll.")
+                if entry["amount"] > available[advance_id]:
+                    raise HTTPException(status_code=422, detail=f"Advance #{advance_id} only has ₱{available[advance_id]:,.2f} available to this draft.")
+            plan.sort(key=lambda entry: entry["cash_advance_id"])
+        elif plan:
+            raise HTTPException(status_code=422, detail="Automatic allocation cannot include specific advance amounts.")
+
         if cash > 0 and abs(cash - suggested_cash) >= 0.005 and not cash_note:
             raise HTTPException(
                 status_code=422,
@@ -486,6 +525,7 @@ def save_adjustments(
                 SET additional_earning=?, additional_earning_note=?,
                     other_deduction=?, other_deduction_note=?,
                     cash_advance_id=NULL, cash_advance_amount=?, cash_advance_note=?,
+                    cash_advance_allocation_mode=?,cash_advance_allocations_json=?,
                     version=?, updated_by=?, updated_at=?
                 WHERE payroll_run_id=? AND employee_id=? AND version=?
                 """,
@@ -496,6 +536,8 @@ def save_adjustments(
                     other_note or None,
                     cash,
                     cash_note or None,
+                    mode,
+                    encode_allocations(plan) if mode == "manual" else None,
                     new_version,
                     actor,
                     now,
@@ -515,9 +557,10 @@ def save_adjustments(
                 INSERT INTO payroll_item_adjustments(
                     payroll_run_id,payroll_item_id,employee_id,additional_earning,
                     additional_earning_note,other_deduction,other_deduction_note,
-                    cash_advance_id,cash_advance_amount,cash_advance_note,version,
+                    cash_advance_id,cash_advance_amount,cash_advance_note,
+                    cash_advance_allocation_mode,cash_advance_allocations_json,version,
                     created_by,created_at,updated_by,updated_at
-                ) VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?)
+                ) VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run_id,
@@ -529,6 +572,8 @@ def save_adjustments(
                     other_note or None,
                     cash,
                     cash_note or None,
+                    mode,
+                    encode_allocations(plan) if mode == "manual" else None,
                     new_version,
                     actor,
                     now,
@@ -565,7 +610,7 @@ def save_adjustments(
                     if abs(cash - suggested_cash) < 0.005 and cash > 0
                     else "Cash advance deduction removed",
                 ),
-                old_cash != cash or old_cash_id is not None,
+                old_cash != cash or old_cash_id is not None or old_mode != mode or old_plan != plan,
             ),
         ]
         for kind, old_value, new_value, cash_advance_id, reason, changed in financial_events:
@@ -581,6 +626,27 @@ def save_adjustments(
                 new_centavos=to_centavos(new_value),
                 cash_advance_id=cash_advance_id,
                 reason=reason,
+                actor_id=actor_id,
+                actor_name=actor,
+                request_id=request_id,
+                created_at=now,
+            )
+
+        if old_mode != mode or old_plan != plan:
+            append_adjustment_event(
+                conn,
+                payroll_run_id=run_id,
+                payroll_item_id=int(item["id"]),
+                employee_id=employee_id,
+                adjustment_kind="cash_advance_allocation",
+                old_centavos=to_centavos(old_cash),
+                new_centavos=to_centavos(cash),
+                cash_advance_id=None,
+                reason=(
+                    f"Allocation changed from {plan_description(old_mode, old_plan)} "
+                    f"to {plan_description(mode, plan)}. "
+                    f"{cash_note or 'Edited selected advances'}"
+                ),
                 actor_id=actor_id,
                 actor_name=actor,
                 request_id=request_id,
