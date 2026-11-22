@@ -1,0 +1,139 @@
+name: One-time Inventory Phase 5–6 Production Release
+
+# Run on an explicit main-branch release request or manually if a retry is needed.
+# Reuse the Staff repository's proven production server access. Never copy SSH
+# credentials into the Inventory repository or into source control.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/deploy-requests/inventory-phase56-20261122.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-phase56-production-release
+  cancel-in-progress: false
+
+jobs:
+  certify-inventory:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require explicit pinned Inventory release and all six green main checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          RUN_SHA: ${{ github.sha }}
+          INVENTORY_REPO: moraledacaryl-dev/inventory-procurement
+          RELEASE_SHA: 0e20daa68dcc50e980369fec314c91ba27486aee
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          if [[ "$TRIGGER" == "push" ]]; then
+            request=".github/deploy-requests/inventory-phase56-20261122.json"
+            git diff --name-only --diff-filter=A "$BEFORE_SHA" "$RUN_SHA" -- "$request" | grep -Fx "$request" >/dev/null
+            test -f "$request"
+            test "$(jq -er '.release_sha' "$request")" = "$RELEASE_SHA"
+            test "$(jq -er '.target' "$request")" = "inventory-production"
+          fi
+          main_sha="$(gh api "repos/$INVENTORY_REPO/commits/main" --jq .sha)"
+          if [[ "$main_sha" != "$RELEASE_SHA" ]]; then
+            echo "Inventory main moved; refusing an unverified/stale production release" >&2
+            exit 1
+          fi
+          runs="$(gh api "repos/$INVENTORY_REPO/actions/runs?head_sha=$RELEASE_SHA&event=push&per_page=100")"
+          for required in 'CI' 'Browser Acceptance' 'Resilience Assurance' 'Deployment Validation' 'Native Deployment Validation' 'Visual Certification'; do
+            jq -e --arg name "$required" --arg sha "$RELEASE_SHA" '
+              [.workflow_runs[] | select(
+                .name == $name and
+                .head_sha == $sha and
+                .event == "push" and
+                .status == "completed" and
+                .conclusion == "success"
+              )] | length >= 1
+            ' <<<"$runs" >/dev/null || {
+              echo "Required exact-main Inventory check missing: $required" >&2
+              exit 1
+            }
+          done
+          echo "Inventory release $RELEASE_SHA certified; no live stock changed by this gate."
+
+  deploy-inventory:
+    needs: certify-inventory
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - name: Require Staff production server connection
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SERVER_HOST" && test -n "$SERVER_USER" && test -n "$SERVER_SSH_KEY" || {
+            echo "Staff production server credentials are unavailable; no deployment performed." >&2
+            exit 1
+          }
+      - name: Deploy verified Inventory SHA with native mandatory database backup
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262
+        env:
+          RELEASE_SHA: 0e20daa68dcc50e980369fec314c91ba27486aee
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          envs: RELEASE_SHA
+          command_timeout: 35m
+          script: |
+            set -euo pipefail
+            helper="$(mktemp /tmp/inventory-phase56-bridge.XXXXXX)"
+            trap 'rm -f "$helper"' EXIT
+            cat > "$helper" <<'ROOT_RELEASE'
+            #!/usr/bin/env bash
+            set -euo pipefail
+            RELEASE_SHA="$1"
+            APP_DIR=/opt/inventory-procurement-online
+            [[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]
+            [[ "$RELEASE_SHA" == 0e20daa68dcc50e980369fec314c91ba27486aee ]]
+            test -d "$APP_DIR/.git" || {
+              echo "Inventory native checkout not found on Staff production host; no changes made." >&2
+              exit 1
+            }
+            test -z "$(git -C "$APP_DIR" status --porcelain --untracked-files=no)" || {
+              echo "Inventory production checkout has tracked changes; refusing release." >&2
+              exit 1
+            }
+            git -C "$APP_DIR" fetch --no-tags origin main
+            test "$(git -C "$APP_DIR" rev-parse origin/main)" = "$RELEASE_SHA"
+            release_script="$(mktemp /tmp/inventory-native-release.XXXXXX)"
+            trap 'rm -f "$release_script"' EXIT
+            git -C "$APP_DIR" show "$RELEASE_SHA:deploy/release-native.sh" > "$release_script"
+            chmod 0700 "$release_script"
+            bash "$release_script" "$RELEASE_SHA"
+            test "$(git -C "$APP_DIR" rev-parse HEAD)" = "$RELEASE_SHA"
+            curl -fsS http://127.0.0.1:8300/api/v1/ready >/dev/null
+            curl -fsS http://127.0.0.1:3300/login >/dev/null
+            curl -fsS https://inventory.hiddenoasis.app/login >/dev/null
+            echo "INVENTORY_PHASE56_PRODUCTION_DEPLOYMENT_PASS sha=$RELEASE_SHA"
+            ROOT_RELEASE
+            chmod 0700 "$helper"
+            if [[ "$(id -u)" -eq 0 ]]; then
+              bash "$helper" "$RELEASE_SHA"
+            else
+              sudo -n bash "$helper" "$RELEASE_SHA"
+            fi
+      - name: Verify public Inventory login endpoint from CI
+        shell: bash
+        run: |
+          curl -fLsS --max-time 25 https://inventory.hiddenoasis.app/login -o /dev/null
+          echo "INVENTORY_PUBLIC_LOGIN_OK"
