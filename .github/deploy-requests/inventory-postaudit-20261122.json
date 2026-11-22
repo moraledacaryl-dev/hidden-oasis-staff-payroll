@@ -1,0 +1,6 @@
+{
+  "target": "inventory-production",
+  "release_sha": "07c651d0111be2840cac81b66bb1d7b97fd4c616",
+  "reason": "Deploy reviewed Inventory PR #157 post-audit stabilization; reuse Staff production SSH route; retain backup and live health gates.",
+  "source_pr": "https://github.com/moraledacaryl-dev/inventory-procurement/pull/157"
+}
