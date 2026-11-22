@@ -1,0 +1,5 @@
+{
+  "target": "inventory-production",
+  "release_sha": "0e20daa68dcc50e980369fec314c91ba27486aee",
+  "purpose": "Inventory Phases 5 and 6 release after all six exact-main checks, using the established backup-protected Staff server connection"
+}
