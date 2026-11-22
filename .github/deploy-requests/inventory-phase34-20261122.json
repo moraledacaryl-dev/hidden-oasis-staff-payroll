@@ -1,0 +1,5 @@
+{
+  "target": "inventory-production",
+  "release_sha": "ff4e1d9752f80b0a6c865e47cb5262dc53e3be22",
+  "purpose": "One-time Inventory Phases 3 and 4 release using existing Staff production server access, after six green checks on main"
+}
