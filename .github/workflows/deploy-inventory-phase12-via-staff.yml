@@ -96,7 +96,15 @@ jobs:
           command_timeout: 35m
           script: |
             set -euo pipefail
+            helper="$(mktemp /tmp/inventory-phase12-bridge.XXXXXX)"
+            trap 'rm -f "$helper"' EXIT
+            cat > "$helper" <<'ROOT_RELEASE'
+            #!/usr/bin/env bash
+            set -euo pipefail
+            RELEASE_SHA="$1"
             APP_DIR=/opt/inventory-procurement-online
+            [[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]
+            [[ "$RELEASE_SHA" == 8b1b713a2e7bf145fb3d63e6b55e01c69ad69ab3 ]]
             test -d "$APP_DIR/.git" || {
               echo "Inventory native checkout not found on Staff production host; no changes made." >&2
               exit 1
@@ -107,20 +115,23 @@ jobs:
             }
             git -C "$APP_DIR" fetch --no-tags origin main
             test "$(git -C "$APP_DIR" rev-parse origin/main)" = "$RELEASE_SHA"
-            script="$(mktemp /tmp/inventory-phase12-release.XXXXXX)"
-            trap 'rm -f "$script"' EXIT
-            git -C "$APP_DIR" show "$RELEASE_SHA:deploy/release-native.sh" > "$script"
-            chmod 0700 "$script"
-            if [[ "$(id -u)" -eq 0 ]]; then
-              bash "$script" "$RELEASE_SHA"
-            else
-              sudo -n bash "$script" "$RELEASE_SHA"
-            fi
+            release_script="$(mktemp /tmp/inventory-native-release.XXXXXX)"
+            trap 'rm -f "$release_script"' EXIT
+            git -C "$APP_DIR" show "$RELEASE_SHA:deploy/release-native.sh" > "$release_script"
+            chmod 0700 "$release_script"
+            bash "$release_script" "$RELEASE_SHA"
             test "$(git -C "$APP_DIR" rev-parse HEAD)" = "$RELEASE_SHA"
             curl -fsS http://127.0.0.1:8300/api/v1/ready >/dev/null
             curl -fsS http://127.0.0.1:3300/login >/dev/null
             curl -fsS https://inventory.hiddenoasis.app/login >/dev/null
             echo "INVENTORY_PHASE12_PRODUCTION_DEPLOYMENT_PASS sha=$RELEASE_SHA"
+            ROOT_RELEASE
+            chmod 0700 "$helper"
+            if [[ "$(id -u)" -eq 0 ]]; then
+              bash "$helper" "$RELEASE_SHA"
+            else
+              sudo -n bash "$helper" "$RELEASE_SHA"
+            fi
       - name: Verify public Inventory login endpoint from CI
         shell: bash
         run: |
