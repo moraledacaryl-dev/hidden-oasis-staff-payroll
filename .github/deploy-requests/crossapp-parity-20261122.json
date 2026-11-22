@@ -1,0 +1,7 @@
+{
+  "target": "crossapp-readonly",
+  "accounting_sha": "68fb2df8316ad6b1f6ed2b0c4026a962baf73a67",
+  "pos_sha": "d258b3b9da6c7d8a489f93b67b280fb9ec8729c5",
+  "inventory_sha": "07c651d0111be2840cac81b66bb1d7b97fd4c616",
+  "reason": "After POS deployment, compare sanitized live Inventory->Accounting source receipts and POS direct Accounting identities without posting transactions or exposing private event IDs."
+}
