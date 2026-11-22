@@ -1,0 +1,6 @@
+{
+  "target": "pos-production",
+  "release_sha": "d258b3b9da6c7d8a489f93b67b280fb9ec8729c5",
+  "reason": "Deploy current POS main through Staff protected production SSH route only after eight exact-SHA green release gates, with existing POS backup/rollback and health checks.",
+  "related_inventory_release": "07c651d0111be2840cac81b66bb1d7b97fd4c616"
+}

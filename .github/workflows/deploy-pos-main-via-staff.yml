@@ -1,0 +1,159 @@
+name: One-time POS Production Release via Staff Server
+
+# Explicit SHA-pinned production release via Staff's proven production SSH connection.
+# It cannot deploy an unrelated SHA, skip certification, or copy server credentials.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/deploy-requests/pos-main-20261122.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pos-main-production-release
+  cancel-in-progress: false
+
+jobs:
+  certify-pos:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Require explicit POS request and all eight green exact-main checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          RUN_SHA: ${{ github.sha }}
+          POS_REPO: moraledacaryl-dev/pos-cloud-online
+          RELEASE_SHA: d258b3b9da6c7d8a489f93b67b280fb9ec8729c5
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$TRIGGER" == "push" ]]; then
+            request=".github/deploy-requests/pos-main-20261122.json"
+            git diff --name-only --diff-filter=A "$BEFORE_SHA" "$RUN_SHA" -- "$request" | grep -Fx "$request" >/dev/null
+            test -f "$request"
+            test "$(jq -er '.release_sha' "$request")" = "$RELEASE_SHA"
+            test "$(jq -er '.target' "$request")" = "pos-production"
+          fi
+          main_sha="$(gh api "repos/$POS_REPO/commits/main" --jq .sha)"
+          [[ "$main_sha" == "$RELEASE_SHA" ]] || {
+            echo "POS main moved; refusing unverified production release." >&2
+            exit 1
+          }
+          workflows=(
+            ci.yml
+            production-equivalent-ci.yml
+            container-parity-ci.yml
+            role-matrix-recertification.yml
+            pass16-staging-ci.yml
+            pass16-restore-ci.yml
+            pass16-accounting-replay-ci.yml
+            pass16-inventory-replay-ci.yml
+          )
+          for workflow in "${workflows[@]}"; do
+            runs="$(gh api "repos/$POS_REPO/actions/workflows/$workflow/runs?head_sha=$RELEASE_SHA&event=push&per_page=100")"
+            jq -e --arg sha "$RELEASE_SHA" '
+              [.workflow_runs[] | select(
+                .head_sha == $sha and
+                .head_branch == "main" and
+                .event == "push" and
+                .status == "completed" and
+                .conclusion == "success"
+              )] | length >= 1
+            ' <<<"$runs" >/dev/null || {
+              echo "Required POS exact-main check missing: $workflow" >&2
+              exit 1
+            }
+            echo "POS GATE PASS: $workflow"
+          done
+          echo "POS source certified; no production changes in this job."
+
+  deploy-pos:
+    needs: certify-pos
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 65
+    steps:
+      - name: Require Staff production server access
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SERVER_HOST" && test -n "$SERVER_USER" && test -n "$SERVER_SSH_KEY" || {
+            echo "Staff production credentials unavailable; no POS deployment." >&2
+            exit 1
+          }
+      - name: Deploy canonical POS release with mandatory backup and rollback
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262
+        env:
+          POS_SHA: d258b3b9da6c7d8a489f93b67b280fb9ec8729c5
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          envs: POS_SHA
+          command_timeout: 55m
+          script: |
+            set -euo pipefail
+            helper="$(mktemp /tmp/pos-main-deploy.XXXXXX)"
+            trap 'rm -f "$helper"' EXIT
+            cat > "$helper" <<'POS_RELEASE'
+            #!/usr/bin/env bash
+            set -Eeuo pipefail
+            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            POS_SHA="$1"
+            APP_DIR=/opt/pos-cloud-online
+            [[ "$POS_SHA" == d258b3b9da6c7d8a489f93b67b280fb9ec8729c5 ]]
+            test -d "$APP_DIR/.git"
+            test -z "$(git -C "$APP_DIR" status --porcelain)"
+            git -C "$APP_DIR" fetch --no-tags origin main
+            test "$(git -C "$APP_DIR" rev-parse origin/main)" = "$POS_SHA" || {
+              echo "POS main moved; no deployment." >&2
+              exit 1
+            }
+            workdir="$(mktemp -d /tmp/pos-exact-release.XXXXXXXX)"
+            trap 'rm -rf "$workdir"' EXIT
+            for path in scripts/deploy-release.sh scripts/production-certify.sh scripts/deploy-target-gate.py; do
+              git -C "$APP_DIR" show "$POS_SHA:$path" > "$workdir/$(basename "$path")"
+            done
+            chmod 0700 "$workdir"/*
+            EXPECTED_COMMIT="$POS_SHA" \
+              TARGET_ENVIRONMENT=production \
+              PUBLIC_BASE=https://pos.hiddenoasis.app \
+              ALLOW_ACCOUNTING_UNAVAILABLE=false \
+              CONFIRM_DEPLOY=YES \
+              CERTIFICATION_SCRIPT="$workdir/production-certify.sh" \
+              DEPLOY_TARGET_GATE_SCRIPT="$workdir/deploy-target-gate.py" \
+              bash "$workdir/deploy-release.sh"
+            test "$(git -C "$APP_DIR" rev-parse HEAD)" = "$POS_SHA"
+            evidence="/var/lib/hiddenoasis-pos/deploy-evidence/$POS_SHA.txt"
+            test -r "$evidence"
+            grep -Fx 'result=passed' "$evidence" >/dev/null
+            grep -Fx "deployed_commit=$POS_SHA" "$evidence" >/dev/null
+            grep -Fx 'target_environment=production' "$evidence" >/dev/null
+            curl -fsS http://127.0.0.1:8100/healthz >/dev/null
+            curl -fsS http://127.0.0.1:3100/login >/dev/null
+            curl -fLsS --max-time 25 https://pos.hiddenoasis.app/login -o /dev/null
+            echo "POS_MAIN_PRODUCTION_DEPLOYMENT_PASS sha=$POS_SHA"
+            POS_RELEASE
+            chmod 0700 "$helper"
+            if [[ "$(id -u)" -eq 0 ]]; then
+              bash "$helper" "$POS_SHA"
+            else
+              sudo -n bash "$helper" "$POS_SHA"
+            fi
+      - name: Verify public POS login from CI
+        shell: bash
+        run: |
+          curl -fLsS --max-time 25 https://pos.hiddenoasis.app/login -o /dev/null
+          echo "POS_PUBLIC_LOGIN_OK"
