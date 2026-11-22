@@ -1,0 +1,129 @@
+name: One-time POS Inventory Accounting Read-only Parity Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/deploy-requests/crossapp-parity-20261122.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hiddenoasis-readonly-crossapp-parity
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Require explicit request and unchanged certified source refs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          RUN_SHA: ${{ github.sha }}
+          ACCOUNTING_SHA: 68fb2df8316ad6b1f6ed2b0c4026a962baf73a67
+          POS_SHA: d258b3b9da6c7d8a489f93b67b280fb9ec8729c5
+          INVENTORY_SHA: 07c651d0111be2840cac81b66bb1d7b97fd4c616
+        run: |
+          set -euo pipefail
+          if [[ "$TRIGGER" == "push" ]]; then
+            request=".github/deploy-requests/crossapp-parity-20261122.json"
+            git diff --name-only --diff-filter=A "$BEFORE_SHA" "$RUN_SHA" -- "$request" | grep -Fx "$request" >/dev/null
+            test -f "$request"
+            test "$(jq -er '.target' "$request")" = "crossapp-readonly"
+            test "$(jq -er '.accounting_sha' "$request")" = "$ACCOUNTING_SHA"
+            test "$(jq -er '.pos_sha' "$request")" = "$POS_SHA"
+            test "$(jq -er '.inventory_sha' "$request")" = "$INVENTORY_SHA"
+          fi
+          test "$(gh api repos/moraledacaryl-dev/accounting-program-online/commits/main --jq .sha)" = "$ACCOUNTING_SHA"
+          test "$(gh api repos/moraledacaryl-dev/pos-cloud-online/commits/main --jq .sha)" = "$POS_SHA"
+          test "$(gh api repos/moraledacaryl-dev/inventory-procurement/commits/main --jq .sha)" = "$INVENTORY_SHA"
+          echo "Protected cross-app read-only audit source SHAs verified."
+      - name: Confirm Staff production server credentials
+        shell: bash
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          test -n "$SERVER_HOST" && test -n "$SERVER_USER" && test -n "$SERVER_SSH_KEY"
+      - name: Run protected, read-only source-intake and POS direct parity audits
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262
+        env:
+          ACCOUNTING_SHA: 68fb2df8316ad6b1f6ed2b0c4026a962baf73a67
+          POS_SHA: d258b3b9da6c7d8a489f93b67b280fb9ec8729c5
+          INVENTORY_SHA: 07c651d0111be2840cac81b66bb1d7b97fd4c616
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          envs: ACCOUNTING_SHA,POS_SHA,INVENTORY_SHA
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            helper="$(mktemp /tmp/protected-parity.XXXXXX)"
+            trap 'rm -f "$helper"' EXIT
+            cat > "$helper" <<'READONLY_AUDIT'
+            #!/usr/bin/env bash
+            set -euo pipefail
+            set +x
+            umask 077
+            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            ACCOUNTING_SHA="$1"
+            POS_SHA="$2"
+            INVENTORY_SHA="$3"
+            ACCOUNTING_ROOT=/opt/accounting-program-online
+            CURRENT=/opt/accounting-current
+            POS_ROOT=/opt/pos-cloud-online
+            INVENTORY_ROOT=/opt/inventory-procurement-online
+            test -L "$CURRENT"
+            test -x "$CURRENT/backend/.venv/bin/python"
+            test -d "$ACCOUNTING_ROOT/.git"
+            test "$(git -C "$POS_ROOT" rev-parse HEAD)" = "$POS_SHA"
+            test "$(git -C "$INVENTORY_ROOT" rev-parse HEAD)" = "$INVENTORY_SHA"
+            for envfile in \
+              /etc/hiddenoasis/accounting-backend.env \
+              /etc/hiddenoasis/inventory-backend.env \
+              /etc/hiddenoasis/pos-backend.env \
+              /etc/hiddenoasis/staff-payroll.env; do
+              test -r "$envfile"
+            done
+            git -C "$ACCOUNTING_ROOT" fetch --no-tags origin main
+            test "$(git -C "$ACCOUNTING_ROOT" rev-parse origin/main)" = "$ACCOUNTING_SHA"
+            tmpdir="$(mktemp -d /tmp/hiddenoasis-readonly-audit.XXXXXXXX)"
+            trap 'rm -rf "$tmpdir"' EXIT
+            for file in live-source-parity.py pos-direct-erp-evidence.py pos_sale_evidence.py pos_refund_evidence.py; do
+              git -C "$ACCOUNTING_ROOT" show "$ACCOUNTING_SHA:scripts/dr/$file" > "$tmpdir/$file"
+              test -s "$tmpdir/$file"
+              chmod 0600 "$tmpdir/$file"
+            done
+            set -a
+            . /etc/hiddenoasis/accounting-backend.env
+            ACCOUNTING_AUDIT_DATABASE_URL="$DATABASE_URL"
+            . /etc/hiddenoasis/inventory-backend.env
+            INVENTORY_AUDIT_DATABASE_URL="$DATABASE_URL"
+            . /etc/hiddenoasis/pos-backend.env
+            POS_AUDIT_DATABASE_URL="$DATABASE_URL"
+            . /etc/hiddenoasis/staff-payroll.env
+            set +a
+            export ACCOUNTING_AUDIT_DATABASE_URL INVENTORY_AUDIT_DATABASE_URL POS_AUDIT_DATABASE_URL
+            "$CURRENT/backend/.venv/bin/python" -B "$tmpdir/live-source-parity.py"
+            echo "INVENTORY_ACCOUNTING_READONLY_PARITY_EXECUTED"
+            "$CURRENT/backend/.venv/bin/python" -B "$tmpdir/pos-direct-erp-evidence.py"
+            echo "POS_ACCOUNTING_READONLY_PARITY_EXECUTED"
+            READONLY_AUDIT
+            chmod 0700 "$helper"
+            if [[ "$(id -u)" -eq 0 ]]; then
+              bash "$helper" "$ACCOUNTING_SHA" "$POS_SHA" "$INVENTORY_SHA"
+            else
+              sudo -n bash "$helper" "$ACCOUNTING_SHA" "$POS_SHA" "$INVENTORY_SHA"
+            fi
